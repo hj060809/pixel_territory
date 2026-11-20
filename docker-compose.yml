@@ -1,0 +1,22 @@
+# Pixel Territory 서버 (OCI 서버에서: docker compose up -d --build)
+# 호스트의 nginx가 127.0.0.1:3000으로 넘겨 준다 (바깥에서 3000번으로 바로 들어오지 않게 127.0.0.1에만 연다).
+services:
+  pixel-territory:
+    build: .
+    image: pixel-territory
+    container_name: pixel-territory
+    restart: unless-stopped
+    init: true
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - pt-data:/data
+    environment:
+      TS_MAX_SESSIONS: "6"        # 동시에 열 수 있는 판 수
+      TS_MAP_WORKERS: "1"         # 직접 입력한 시드·고급 설정 지도를 동시에 몇 개 만들지 (CPU를 많이 쓴다)
+      TS_MAX_SIZE: "512"          # 지도 크기 상한
+      TS_RESUME_SECONDS: "60"     # 연결이 끊긴 판을 기다리는 시간
+    stop_grace_period: 10s
+
+volumes:
+  pt-data:

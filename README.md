@@ -159,3 +159,15 @@ python -m tests.run_all
 - 한 판 (512 지도, 900초): 오류 없이 돌고 걸음당 10 ms 미만인지
 
 테스트만 최상위 원본을 불러온다 (`tests/toplevel.py`). 엔진과 시뮬레이션은 최상위를 참조하지 않는다.
+## 배포 (도커)
+
+```
+docker compose up -d --build        # 이미지 빌드 + 실행 (포트 127.0.0.1:3000)
+docker compose logs -f              # 로그 ("로비 배경 ...초, 예열 ...초"가 나오면 준비 끝)
+docker compose up -d --build        # 코드를 바꾼 뒤 다시 (진행 중인 판은 끊긴다)
+```
+
+- 컨테이너 하나가 웹 화면, API, 게임 웹소켓을 모두 3000번으로 내보낸다. 판 정보가 메모리에 있으므로 하나만 띄운다.
+- 앞단 nginx는 3000번으로 넘기되 웹소켓 헤더(Upgrade, Connection)와 긴 read timeout이 필요하다: `deploy/nginx.conf.example`.
+- 데모 지도(`assets/maps`)가 없으면 이미지를 빌드할 때 굽는다 (몇 분). 직접 만든 지도, 로비 배경, 지형·numba 캐시는 볼륨 `/data`에 남는다.
+- 설정은 `docker-compose.yml`의 환경 변수 (`TS_MAX_SESSIONS`, `TS_MAP_WORKERS`, `TS_MAX_SIZE`, `TS_RESUME_SECONDS`).

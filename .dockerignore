@@ -1,0 +1,14 @@
+# 이미지에 넣지 않는 것 (빌드 때 새로 만들거나 실행 중에 생긴다)
+.git
+**/__pycache__
+*.nbi
+*.nbc
+.cache/
+data/
+web/node_modules/
+web/dist/
+assets/test/
+tests/
+tools/
+*.md
+!README.md
