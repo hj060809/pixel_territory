@@ -139,3 +139,12 @@ canvas#menu-art { position: fixed; inset: 0; width: 100vw; height: 100vh; displa
 .act-icon { image-rendering: pixelated; pointer-events: none; }
 .act-key { position: absolute; left: 4px; top: 2px; font: bold 12px 'Malgun Gothic', sans-serif; color: rgb(255, 214, 120);
   text-shadow: 1px 1px 0 #000; pointer-events: none; }
+
+/* 모바일 안내 (플레이 불가) */
+.mobile-block { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px;
+  background: rgba(8, 10, 14, 0.55); z-index: 20; }
+.mobile-block .box { max-width: 420px; padding: 22px 20px; text-align: center; line-height: 1.6; font-size: 15px;
+  color: rgb(238, 232, 214); background: rgba(16, 18, 24, 0.88); border: 2px solid rgb(120, 104, 70);
+  text-shadow: 1px 2px 0 #000; word-break: keep-all; }
+.mobile-block .title { font-size: 20px; font-weight: bold; color: rgb(255, 214, 120); margin-bottom: 10px; }
+.mobile-block .dim { margin-top: 10px; font-size: 13px; color: rgb(170, 168, 160); }

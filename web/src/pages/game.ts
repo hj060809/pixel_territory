@@ -12,6 +12,14 @@ import { applyUiScale, shadeLeft, uiScale } from '../menu/widgets.ts';
 
 type Screen = 'lobby' | 'setup' | 'game';
 
+/** 휴대폰·태블릿 (아이패드는 Mac처럼 보이기도 해서 터치로 함께 본다, 마우스 없이 터치만 되는 기기도). */
+function isMobile(): boolean {
+  const ua = navigator.userAgent;
+  if (/Android|iPhone|iPad|iPod|Mobile|Silk|Kindle/i.test(ua)) return true;
+  if (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) return true;
+  return matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches;
+}
+
 class App {
   private art = new LobbyArt();
   private artCanvas = document.createElement('canvas');
@@ -41,6 +49,16 @@ class App {
 
   async boot() {
     const p = new URLSearchParams(location.search);
+    if (isMobile()) {                         // 마우스·키보드 게임이라 모바일은 막는다 (로비 배경 위에 안내만)
+      this.startArt();
+      const d = document.createElement('div');
+      d.className = 'mobile-block';
+      d.innerHTML = '<div class="box"><div class="title">PC에서 플레이해 주세요</div>'
+        + '<div>Pixel Territory는 마우스와 키보드로 하는 게임이라<br>모바일에서는 플레이할 수 없습니다.</div>'
+        + '<div class="dim">PC 브라우저로 이 주소에 접속해 주세요.</div></div>';
+      document.body.appendChild(d);
+      return;
+    }
     if (p.has('map') || p.has('quick')) {
       const key = p.get('map') ?? (await (await fetch('/api/maps')).json()).demo[0].key;
       this.play({ key, options: {

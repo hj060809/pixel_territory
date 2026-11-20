@@ -2,6 +2,10 @@
 
 python -m server --port 8000
 
+cd ~/pixel_territory
+git pull
+docker compose up -d --build
+
 최상위 프로젝트에서 필요한 부분만 옮겨 만든 새 프로젝트. 전체 계획과 단계는 [PLAN.md](PLAN.md).
 
 ## 구조
