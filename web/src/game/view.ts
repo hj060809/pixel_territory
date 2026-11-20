@@ -1,0 +1,338 @@
+// 게임 화면 하나: 지도 준비 → 지형 장면 → 서버와 판 → 매 프레임 그리기와 입력.
+// 로비로 나가거나(F10, 끝난 뒤 Enter) 새 지도로 바꾸면(F6) dispose()로 연결·워커·GL·이벤트를 모두 정리한다.
+// 연결이 끊기면 같은 판에 자동으로 다시 접속한다 (서버가 RESUME_SECONDS 동안 판을 멈춘 채 기다린다).
+// 탭을 숨기면 일시정지하고, 돌아오면 이어 간다 (내가 멈춘 경우만 다시 푼다).
+
+import { Life } from '../life/life.ts';
+import { Camera } from '../sim/camera.ts';
+import { TerrainScene } from '../terrain/scene.ts';
+import { Loading } from '../ui/loading.ts';
+import { ActionBar, TRAIN_KEYS } from './actionBar.ts';
+import { Controller } from './controller.ts';
+import { Overlay } from './draw.ts';
+import { Hud } from './hud.ts';
+import { Connection, type JoinOptions } from './net.ts';
+import { SpriteBank } from './sprites.ts';
+import { GameState, type StartInfo } from './state.ts';
+import { TerrainRules } from './terrainRules.ts';
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** 지도 키 '<프리셋>-<크기>-<시드>'에서 시드만 바꾼 키 (F6: 새 지도). */
+export function nextSeedKey(key: string): string {
+  const parts = key.split('-');
+  parts[parts.length - 1] = String((Number(parts[parts.length - 1]) + 1) % 2 ** 31);
+  return parts.join('-');
+}
+
+/** 지도가 준비될 때까지 (없으면 서버에 만들기를 부탁하고 진행 상황을 보여 준다). */
+export async function ensureMap(key: string, progress: (t: string) => void, alive: () => boolean = () => true) {
+  while (alive()) {
+    const st = await (await fetch(`/api/maps/${key}/status`)).json();
+    if (st.state === 'ready') return;
+    if (st.state === 'error') throw new Error(st.error);
+    if (st.state === 'missing') {
+      const [preset, size, seed] = key.split('-');
+      await fetch('/api/maps', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preset: preset === 'default' ? null : preset, size: Number(size), seed }) });
+    }
+    progress(`지도 만드는 중: ${st.progress ?? '대기 중...'}`);
+    await sleep(500);
+  }
+}
+
+export interface ViewHooks {
+  lobby(): void;                 // F10, 끝난 뒤 Enter
+  newMap(key: string): void;     // F6
+  ready?(): void;                // 첫 장면을 그렸다 (메뉴 배경을 치워도 된다)
+}
+
+export class GameView {
+  private ac = new AbortController();
+  private canvas = document.createElement('canvas');
+  private overlay = document.createElement('canvas');
+  private loading = new Loading();
+  private gl: WebGL2RenderingContext | null = null;
+  private scene: TerrainScene | null = null;
+  private net: Connection | null = null;
+  private hud: Hud | null = null;
+  private bar: ActionBar | null = null;
+  private raf = 0;
+  private disposed = false;
+
+  /** overMenu: 메뉴 배경 위에서 시작 (로딩 화면을 반투명하게, 첫 장면이 그려질 때까지 게임 화면을 숨긴다). */
+  constructor(readonly key: string, readonly opts: JoinOptions, private hooks: ViewHooks, overMenu = false) {
+    this.canvas.id = 'view';
+    this.overlay.id = 'overlay';
+    for (const c of [this.canvas, this.overlay]) c.style.visibility = 'hidden';   // 첫 장면 전의 검은 화면을 숨긴다
+    document.body.append(this.canvas, this.overlay);
+    this.loading.soft(overMenu);
+    this.loading.show('지도 준비 중...');
+    this.run().catch((e) => {
+      if (this.disposed) return;
+      console.error(e);
+      this.loading.set(`오류: ${String((e as Error).message ?? e)}  (F10: 로비로)`);
+      this.listen(window, 'keydown', (ev: KeyboardEvent) => { if (ev.key === 'F10') { ev.preventDefault(); this.hooks.lobby(); } });
+    });
+  }
+
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    cancelAnimationFrame(this.raf);
+    this.ac.abort();
+    this.net?.close();
+    this.scene?.dispose();
+    this.hud?.dispose();
+    this.bar?.dispose();
+    this.loading.dispose();
+    this.gl?.getExtension('WEBGL_lose_context')?.loseContext();     // GPU 메모리를 바로 돌려준다
+    this.canvas.remove();
+    this.overlay.remove();
+    delete (window as any).__game;
+  }
+
+  private listen<K extends keyof WindowEventMap>(target: Window | Document | HTMLElement, type: K | string,
+                                                  fn: (e: any) => void, opts: AddEventListenerOptions = {}) {
+    target.addEventListener(type, fn, { ...opts, signal: this.ac.signal });
+  }
+
+  private async run() {
+    const { canvas, overlay, loading, key } = this;
+    const gl = (this.gl = canvas.getContext('webgl2', { antialias: false, alpha: false, preserveDrawingBuffer: true }));
+    if (!gl) { loading.set('이 브라우저는 WebGL2를 지원하지 않습니다'); return; }
+    const g = overlay.getContext('2d')!;
+    await ensureMap(key, (t) => loading.set(t), () => !this.disposed);
+    if (this.disposed) return;
+    const scene = await TerrainScene.load(gl, `/api/maps/${key}/bundle.tsb`, {}, (t) => loading.set(t));
+    if (this.disposed) { scene.dispose(); return; }
+    this.scene = scene;
+    scene.cycle.auto = false;                 // 시계는 서버가 정한다
+    scene.season.auto = false;
+    const life = new Life(scene.bundle, 0);
+    const cam = new Camera(scene.W, scene.H);
+    const dpr = () => window.devicePixelRatio || 1;
+    const resize = () => {
+      for (const c of [canvas, overlay]) { c.width = Math.round(window.innerWidth * dpr()); c.height = Math.round(window.innerHeight * dpr()); }
+      cam.resize(window.innerWidth, window.innerHeight);
+    };
+    resize();
+    cam.fit();
+    this.listen(window, 'resize', resize);
+
+    let st: GameState | null = null, ctl: Controller | null = null, draw: Overlay | null = null;
+    let rules: TerrainRules | null = null;
+    loading.set('판 준비 중...');
+    const net = (this.net = new Connection(key, this.opts, {
+      start: async (info: StartInfo) => {
+        const first = !st;
+        sid = info.sid ?? sid;
+        if (info.resumed && reconnecting) {               // 다시 접속: 화면 자리는 그대로, 전체 상태가 곧 온다
+          reconnecting = false;
+          loading.fadeOut();
+        }
+        st = new GameState(info);
+        rules ??= await TerrainRules.load(`/api/maps/${key}/rules.bin`, info.rules);
+        if (this.disposed) return;
+        ctl = new Controller(st, net, rules);
+        const bank = new SpriteBank(info.nations.map((n) => n.color));
+        draw = new Overlay(g, bank, st, ctl);
+        this.bar?.dispose();
+        this.bar = new ActionBar(st, ctl, bank);          // 하단 버튼 (건물 1~, 병종 QWE)
+        if (!this.hud) this.hud = new Hud(st, ctl, scene, rules);
+        else this.hud.reset(st, ctl);
+        if (!first && !info.resumed) loading.hide();
+        if (!info.resumed) waitHome = true;   // 첫 상태가 오면 내 거점으로 (그리고 두 프레임 뒤에 화면을 보인다)
+      },
+      state(m) {
+        if (!st) return;
+        st.apply(m, performance.now());
+        if (waitHome) { waitHome = false; centerHome(4.0); revealAt = 2; }
+      },
+      msg(items) { for (const t of items) st?.say(t); hudWait = 1; },
+      over(result) { if (st) st.over = result; hudWait = 1; },
+      status(text) { loading.set(text); },
+      error(text, fatal) {
+        if (fatal) {                          // 판을 이어 갈 수 없다: 다시 접속하지 않는다
+          gaveUp = true;
+          loading.show(`${text}  (F10: 로비로)`);
+        } else if (st) st.say(text);
+        else loading.set(`오류: ${text}  (F10: 로비로)`);
+      },
+      closed: () => {
+        if (this.disposed || gaveUp) return;
+        if (!st || !sid) { loading.show('서버와 연결이 끊겼습니다  (F10: 로비로)'); return; }
+        if (!reconnecting) {                  // 처음 끊긴 순간
+          reconnecting = true;
+          lostAt = performance.now();
+          loading.soft(true);
+          loading.show('서버와 연결이 끊겼습니다. 다시 연결하는 중...');
+        }
+        if (performance.now() - lostAt > 55000) {
+          gaveUp = true;
+          loading.set('다시 연결하지 못했습니다  (F10: 로비로)');
+          return;
+        }
+        setTimeout(() => { if (!this.disposed && reconnecting) net.resume(sid!); }, 1500);
+      },
+    }));
+    let waitHome = false, revealAt = -1;
+    let sid: string | null = null, reconnecting = false, gaveUp = false, lostAt = 0, autoPaused = false;
+    this.listen(document, 'visibilitychange', () => {   // 탭을 숨기면 일시정지, 돌아오면 이어 간다
+      if (!st || st.over) return;
+      if (document.hidden && !st.paused) { autoPaused = true; net.send({ t: 'pause', on: true }); }
+      else if (!document.hidden && autoPaused) { autoPaused = false; net.send({ t: 'pause', on: false }); }
+    });
+
+    const centerHome = (zoom?: number) => {
+      if (!st || !ctl) return;
+      let x = 0, y = 0, n = 0;
+      for (const s of ctl.sel.keys()) { const u = st.units.get(s); if (u) { x += u.x; y += u.y; n++; } }
+      if (!n) {
+        const hall = [...st.builds.values()].find((b) => b.own === st!.info.me && b.kind === st!.info.rules.kinds.HALL);
+        const u = [...st.units.values()].find((v) => v.own === st!.info.me);
+        const src = hall ?? u;
+        if (!src) return;
+        x = src.x; y = src.y; n = 1;
+      }
+      if (zoom) cam.zoom = cam.zoomTarget = zoom;
+      const [vw, vh] = cam.view();
+      cam.x = x / n - vw / 2; cam.y = y / n - vh / 2;
+      cam.clamp();
+    };
+
+    // ---- 입력
+    const keys = new Set<string>();
+    let mouse: [number, number] | null = null, box: [number, number, number, number] | null = null;
+    let midDrag = false, lifeClick: [number, number] | null = null, hudWait = 1;
+    const pending = { speed: 1, speedAt: -1e9, pause: false, pauseAt: -1e9 };   // 방금 보낸 속도/일시정지 (답이 오기 전)
+    overlay.style.pointerEvents = 'none';
+    this.listen(canvas, 'contextmenu', (e) => e.preventDefault());
+    this.listen(canvas, 'wheel', (e: WheelEvent) => { e.preventDefault(); cam.zoomTo(1.15 ** (-e.deltaY / 100), [e.clientX, e.clientY]); }, { passive: false });
+    this.listen(canvas, 'mousedown', (e: MouseEvent) => {
+      if (!ctl) return;
+      const [mx, my] = cam.toMap(e.clientX, e.clientY);
+      if (e.button === 0) {
+        if (ctl.mode === 'attack') { ctl.command(mx, my, cam.zoom, true); ctl.mode = null; }
+        else if (typeof ctl.mode === 'number') { ctl.place(mx, my, cam.zoom, e.shiftKey); this.bar?.update(); }
+        else box = [e.clientX, e.clientY, e.clientX, e.clientY];
+      } else if (e.button === 2) {
+        if (ctl.mode !== null) { ctl.mode = null; this.bar?.update(); }
+        else { ctl.command(mx, my, cam.zoom, false); lifeClick = [mx, my]; }
+      } else if (e.button === 1) { midDrag = true; e.preventDefault(); }
+      hudWait = 1;
+    });
+    this.listen(window, 'mouseup', (e: MouseEvent) => {
+      if (e.button === 0 && box && ctl) {
+        const [ax, ay, bx, by] = box;
+        box = null;
+        if (Math.abs(ax - bx) + Math.abs(ay - by) < 6) ctl.selectPoint(...cam.toMap(bx, by), cam.zoom, e.shiftKey);
+        else {
+          const [x0, y0] = cam.toMap(Math.min(ax, bx), Math.min(ay, by)), [x1, y1] = cam.toMap(Math.max(ax, bx), Math.max(ay, by));
+          ctl.selectBox(x0, y0, x1, y1, e.shiftKey);
+        }
+        hudWait = 1;
+      }
+      if (e.button === 1) midDrag = false;
+    });
+    this.listen(window, 'mousemove', (e: MouseEvent) => {
+      mouse = [e.clientX, e.clientY];
+      if (box) { box[2] = e.clientX; box[3] = e.clientY; }
+      if (midDrag) cam.pan(e.movementX, e.movementY);
+    });
+    this.listen(document, 'mouseleave', () => { mouse = null; });
+    this.listen(window, 'keyup', (e: KeyboardEvent) => keys.delete(e.key));
+    this.listen(window, 'keydown', (e: KeyboardEvent) => {
+      keys.add(e.key);
+      const k = e.key.toLowerCase();
+      const digit = /^Digit[1-9]$/.test(e.code) ? Number(e.code.slice(5)) : 0;   // Shift를 눌러도 숫자 (e.key는 '!' 등)
+      if (['f1', 'f5', 'f6', 'f10', 'f12', ' ', 'tab'].includes(k) || (digit && (e.ctrlKey || e.shiftKey))) e.preventDefault();
+      if (k === 'f10' || (k === 'enter' && st?.over)) { this.hooks.lobby(); return; }
+      if (k === 'f6') { this.hooks.newMap(nextSeedKey(key)); return; }
+      const hud = this.hud;
+      if (!ctl || !st || !hud) return;
+      hudWait = 1;
+      if (digit) {                            // 숫자: 건물 버튼 / Ctrl+숫자: 부대 지정 / Shift+숫자: 부대 부르기
+        if (e.ctrlKey) ctl.setGroup(digit);
+        else if (e.shiftKey) ctl.recallGroup(digit);
+        else this.bar?.buildKey(digit);
+        return;
+      }
+      const train = TRAIN_KEYS.find(([key]) => key === k);
+      if (train && !e.ctrlKey) { ctl.train(train[1]); this.bar?.update(); return; }   // Q 보병, W 궁수, E 전함
+      switch (k) {
+        case 'escape': if (ctl.mode !== null) ctl.mode = null; else { ctl.sel.clear(); ctl.selB = null; ctl.selShips.clear(); } break;
+        case 'a': if (ctl.sel.size) ctl.mode = 'attack'; break;
+        case 's': ctl.stop(); break;
+        case ' ': centerHome(); break;
+        case 'p': {                           // 서버 답을 기다리지 않고 마지막으로 요청한 값 기준으로
+          const cur = performance.now() - pending.pauseAt < 1000 ? pending.pause : st.paused;
+          pending.pause = !cur; pending.pauseAt = performance.now();
+          net.send({ t: 'pause', on: pending.pause });
+          break;
+        }
+        case '.': {
+          const cur = performance.now() - pending.speedAt < 1000 ? pending.speed : st.speed;
+          pending.speed = cur === 1 ? 2 : cur === 2 ? 4 : 1; pending.speedAt = performance.now();
+          net.send({ t: 'speed', value: pending.speed });
+          break;
+        }
+        case 'f1': hud.showHelp = !hud.showHelp; break;
+        case 'f5': net.send({ t: 'restart' }); break;
+        case 'f12': screenshot(canvas, overlay); break;
+      }
+    });
+
+    // ---- 루프
+    let last = performance.now();
+    const frame = (now: number) => {
+      if (this.disposed) return;
+      const dt = Math.min((now - last) / 1000, 0.1);
+      last = now;
+      cam.ease(dt);
+      const step = (600 * dt) / cam.zoom;
+      let dx = (+keys.has('ArrowRight') - +keys.has('ArrowLeft')) * step;
+      let dy = (+keys.has('ArrowDown') - +keys.has('ArrowUp')) * step;
+      if (mouse && document.hasFocus() && !box) {           // 화면 가장자리
+        dx += (+(mouse[0] >= window.innerWidth - 4) - +(mouse[0] <= 3)) * step;
+        dy += (+(mouse[1] >= window.innerHeight - 4) - +(mouse[1] <= 3)) * step;
+      }
+      if (dx || dy) { cam.x += dx; cam.y += dy; cam.clamp(); }
+      if (st) {
+        scene.cycle.hour = st.hour;
+        scene.season.year = st.year;
+      }
+      scene.update(0, dt);
+      const mm = mouse ? cam.toMap(mouse[0], mouse[1]) : null;
+      life.update(dt, mm, lifeClick);
+      lifeClick = null;
+      scene.draw(canvas.width, canvas.height, cam.x, cam.y, cam.zoom * dpr(), life);
+      g.setTransform(dpr(), 0, 0, dpr(), 0, 0);
+      g.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      if (st && draw) draw.draw(cam, now, mouse, box);
+      hudWait += dt;
+      if (this.hud && hudWait >= 0.25) { hudWait = 0; this.hud.update(cam, mouse); this.bar?.update(); }
+      if (revealAt > 0 && --revealAt === 0) {            // 첫 장면이 그려졌다: 보이고, 로딩 화면은 천천히 사라진다
+        for (const c of [canvas, overlay]) c.style.visibility = '';
+        loading.set('');
+        loading.fadeOut();
+        this.hooks.ready?.();
+      }
+      this.raf = requestAnimationFrame(frame);
+    };
+    this.raf = requestAnimationFrame(frame);
+    (window as any).__game = { get st() { return st; }, get ctl() { return ctl; }, cam, scene, net, key };
+  }
+}
+
+function screenshot(a: HTMLCanvasElement, b: HTMLCanvasElement) {
+  const c = document.createElement('canvas');
+  c.width = a.width; c.height = a.height;
+  const g = c.getContext('2d')!;
+  g.drawImage(a, 0, 0);
+  g.drawImage(b, 0, 0);
+  const link = document.createElement('a');
+  link.download = `game_${new Date().toISOString().replace(/[:.]/g, '-')}.png`;
+  link.href = c.toDataURL('image/png');
+  link.click();
+}

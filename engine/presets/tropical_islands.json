@@ -1,0 +1,44 @@
+{
+  "name": "열대 섬",
+  "order": 2,
+  "description": "넓은 바다에 떠 있는 둥근 섬들. 가운데 솟은 봉우리, 넓은 모래사장과 석호.",
+  "config": {
+    "land_ratio": 0.22,
+    "landmasses": 9,
+    "size_variety": 0.6,
+    "elongation": 0.2,
+    "edge_ocean": 1.0,
+    "coast_roughness": 0.45,
+    "coast_detail": 0.4,
+    "sharpness": 0.1,
+    "strait_width": 0.035,
+    "plates": [
+      3,
+      5
+    ],
+    "mountain_height": 0.85,
+    "mountain_coverage": 0.5,
+    "ridge_scale": 0.1,
+    "massif": 0.7,
+    "hill_height": 0.14,
+    "lowland": 0.8,
+    "lakes": [
+      0,
+      2
+    ],
+    "river_threshold": 0.004,
+    "cliffs": 0.15,
+    "beaches": 0.4,
+    "sea_stacks": 0.5,
+    "lagoons": 4,
+    "temperature_range": [
+      0.85,
+      0.92
+    ],
+    "moisture_range": [
+      0.75,
+      0.9
+    ],
+    "climate_zones": 1
+  }
+}

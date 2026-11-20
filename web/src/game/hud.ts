@@ -1,0 +1,175 @@
+// 게임 HUD (HTML): 데스크톱 game/app.py의 _draw_panels / _selection_lines / _hover_info와 같은 내용과 자리.
+
+import type { Camera } from '../sim/camera.ts';
+import type { TerrainScene } from '../terrain/scene.ts';
+import type { Controller } from './controller.ts';
+import type { GameState } from './state.ts';
+import { F_FORD, F_WATER, type TerrainRules } from './terrainRules.ts';
+
+export const HELP = [
+  '왼쪽: 선택 / 드래그    오른쪽: 이동 · 공격 · 자원지에 짓기    A: 공격 이동    S: 정지',
+  '1~6: 건물 (아래 버튼, 땅을 클릭해 놓기, Shift: 여러 개)    Q / W / E: 보병 / 궁수 / 전함 (건물들에서 돌아가며)',
+  'Ctrl+숫자: 부대 지정    Shift+숫자: 부대 부르기    Space: 화면 이동    바다 건너로 보내면 그 땅의 항구에 모여 배를 탄다',
+  '휠: 확대 (가까이서 보면 병사, 멀리서 보면 무리)    P: 일시정지    . : 속도    F1: 도움말',
+];
+
+const BAR_H = 76;          // 하단 버튼 막대 높이 (그 위로 패널을 올린다)
+const fmt = (v: number) => (v >= 10000 ? `${(v / 1000).toFixed(1)}K` : `${Math.round(v)}`);
+
+function el(cls: string, parent: HTMLElement = document.body) {
+  const d = document.createElement('div');
+  d.className = cls;
+  parent.appendChild(d);
+  return d;
+}
+
+export class Hud {
+  showHelp = true;
+  private top = el('hud');
+  private nations = el('hud-nations');
+  private sel = el('hud-panel hud-sel');
+  private hover = el('hud-hover');
+  private msgs = el('hud-msgs');
+  private prompt = el('hud-prompt');
+  private banner = el('hud-banner');
+
+  constructor(private st: GameState, private ctl: Controller, private scene: TerrainScene, private rules: TerrainRules) {}
+
+  /** 새 판 (같은 지도로 다시): 상태와 선택을 바꾼다. */
+  reset(st: GameState, ctl: Controller) { this.st = st; this.ctl = ctl; }
+
+  dispose() { for (const d of [this.top, this.nations, this.sel, this.hover, this.msgs, this.prompt, this.banner]) d.remove(); }
+
+  update(cam: Camera, mouse: [number, number] | null) {
+    const st = this.st, R = st.info.rules, me = st.nations[st.info.me];
+    // 왼쪽 위: 자원과 시각
+    const lines: string[] = [];
+    if (me) {
+      const parts = [0, 1, 2].map((k) => `${R.res_names[k]} ${fmt(me.res[k])} (${me.rate[k] >= 0 ? '+' : ''}${me.rate[k].toFixed(1)})`);
+      lines.push(parts.join('   ') + `   병사 ${me.nUnits}` + (me.starving ? '   굶주림!' : ''));
+    }
+    const w = this.scene.season.weights();
+    const sf = R.season_yield_food.reduce((s: number, v: number, k: number) => s + v * w[k], 0);
+    lines.push(`${this.scene.season.label()}  농사 ×${sf.toFixed(1)}   ${this.scene.cycle.label()}   ×${st.speed}` +
+      (st.paused ? '   일시정지' : ''));
+    this.top.textContent = [...lines, ...(this.showHelp ? HELP : [])].join('\n');
+    // 오른쪽 위: 나라들
+    this.nations.innerHTML = '';
+    st.info.nations.forEach((n, i) => {
+      const s = st.nations[i];
+      if (s && !s.alive) return;
+      const row = el('row', this.nations);
+      const sw = document.createElement('span');
+      sw.className = 'swatch';
+      sw.style.background = `rgb(${n.color.join(',')})`;
+      row.append(sw, `${n.name}  병사 ${s?.nUnits ?? 0}  건물 ${s?.nBuildings ?? 0}`);
+    });
+    // 아래 가운데: 고른 것
+    const sl = this.selectionLines();
+    this.sel.textContent = sl.join('\n');
+    this.sel.style.display = sl.length ? '' : 'none';
+    // 아래 오른쪽: 마우스 아래
+    const placing = typeof this.ctl.mode === 'number';      // 건물을 놓는 중엔 커서의 그림과 아래 안내가 대신한다
+    const info = mouse && !placing ? this.hoverInfo(...cam.toMap(mouse[0], mouse[1]), cam.zoom) : null;
+    this.hover.textContent = info ?? '';
+    this.hover.style.bottom = `${BAR_H + 10 + (this.ctl.hasSelection() ? 60 : 0)}px`;
+    // 아래 왼쪽: 알림 (8초 동안, 마지막 2초에 흐려진다)
+    this.msgs.innerHTML = '';
+    for (const m of [...st.messages].reverse()) {
+      const age = st.time - m.t;
+      if (age > 8) continue;
+      const d = el('msg', this.msgs);
+      d.textContent = m.text;
+      d.style.opacity = String(Math.min(1, (8 - age) / 2));
+    }
+    // 가운데: 안내
+    const mode = this.ctl.mode;
+    let place = '';
+    if (typeof mode === 'number') {
+      const res = this.ctl.siteRes(mode);
+      place = res >= 0 ? `${R.build_names[mode]}: 빈 ${R.res_names[res]} 자원지를 클릭하세요`
+        : `${R.build_names[mode]}${mode === R.kinds.HARBOR ? ' (바다에 맞닿은 해안)' : ''} 자리를 클릭하세요`;
+      place += this.ctl.sel.size ? ' — 고른 병사가 짓는다' : ' — 가까운 쉬는 병사가 짓는다';
+      place += '    (Shift: 여러 개, 오른쪽 클릭 · Esc: 취소)';
+    }
+    this.prompt.textContent = mode === 'attack' ? '공격할 곳을 클릭하세요 (가다가 만나는 적과 싸웁니다)' : place;
+    this.prompt.className = `hud-prompt ${mode === 'attack' ? 'warm' : 'cool'}`;
+    // 안내는 하단 막대 바로 위 (고른 것 패널이 있으면 그 위)
+    this.prompt.style.bottom = `${BAR_H + 10 + (sl.length ? this.sel.offsetHeight + 8 : 0)}px`;
+    if (st.over) {
+      this.banner.innerHTML = `<div class="big">${st.over === '승리' ? '승리!' : '패배'}</div><div>F5: 같은 지도로 새 판    F6: 새 지도    Enter: 로비로</div>`;
+      this.banner.style.display = '';
+    } else this.banner.style.display = 'none';
+  }
+
+  private selectionLines(): string[] {
+    const st = this.st, R = st.info.rules, ctl = this.ctl, lines: string[] = [];
+    ctl.prune();
+    if (ctl.sel.size) {
+      const kinds = [0, 0];
+      let building = false;
+      for (const s of ctl.sel.keys()) { const u = st.units.get(s)!; kinds[u.kind]++; building ||= u.state === 4; }
+      lines.push(`보병 ${kinds[0]}   궁수 ${kinds[1]}` + (building ? '   (짓는 중)' : ''));
+      lines.push('오른쪽 클릭: 이동 · 공격 · 자원지에 짓기 (바다 건너면 배)    A: 공격 이동    S: 정지    1~6: 이 병사들로 건물 짓기');
+    }
+    if (ctl.selShips.size) {
+      const boats = [...ctl.selShips].map((id) => st.boats.get(id)!);
+      const war = boats.filter((b) => b.kind === 1), fer = boats.filter((b) => b.kind === 0);
+      if (war.length) {
+        const hp = war.reduce((s, b) => s + b.hp, 0);
+        lines.push(`전함 ${war.length}척  체력 ${Math.round((hp / war.length) * 100)}%    오른쪽 클릭: 물 → 이동, 적 배 → 공격`);
+      }
+      if (fer.length) {
+        lines.push(`나룻배 ${fer.length}척 (병사 ${fer.reduce((s, b) => s + b.cargo, 0)}명)    오른쪽 클릭: 물 → 그 자리에서 기다림, 땅 → 가까운 해안에 내려 줌`);
+      }
+    }
+    const b = ctl.selB ? st.builds.get(ctl.selB[0]) : null;
+    if (b) {
+      const maxhp = R.build[b.kind].hp;
+      let s = `${R.build_names[b.kind]}  체력 ${Math.round(b.hp * maxhp)}/${Math.round(maxhp)}`;
+      const qtxt = b.qlen ? ` (${b.qkind === 2 ? '' : R.unit_names[b.qkind] + ' '}${Math.round(b.qtime)}초)` : '';
+      if (b.prog < 1) s += `  짓는 중 ${Math.round(b.prog * 100)}%`;
+      else if (b.kind === R.kinds.HALL) {
+        lines.push(s + `  훈련 대기 ${b.qlen}` + qtxt);
+        s = `Q: 보병 (식량 ${R.unit_cost[0][0]})    W: 궁수 (식량 ${R.unit_cost[1][0]}, 목재 ${R.unit_cost[1][1]})    이 거점에서 만든다`;
+      } else if (b.kind === R.kinds.HARBOR) {
+        const ships = [...st.boats.values()].filter((x) => x.own === st.info.me && x.kind === 1).length;
+        lines.push(s + `  전함 ${ships}척  만드는 중 ${b.qlen}` + qtxt);
+        s = `E: 전함 (목재 ${R.warship_cost[1]}, 석재 ${R.warship_cost[2]})    바다 건너로 보낸 이 땅의 병사들이 여기 모여 차례로 배를 탄다`;
+      } else if (b.site >= 0) {
+        const site = st.info.sites[b.site];
+        s += `  ${R.res_names[R.yield_res[b.kind]]} 풍부함 ${site.rich.toFixed(1)}`;
+      }
+      lines.push(s);
+    }
+    return lines;
+  }
+
+  private hoverInfo(x: number, y: number, zoom: number): string | null {
+    const st = this.st, R = st.info.rules, m = this.rules;
+    const xi = Math.floor(x), yi = Math.floor(y);
+    if (!(xi >= 0 && xi < m.W && yi >= 0 && yi < m.H)) return null;
+    const s = this.ctl.siteAt(x, y, Math.max(4.0, 10 / zoom));
+    if (s && !st.siteTaken().has(s.id)) {
+      const kind = R.site_building[s.kind];
+      const cost = R.build[kind].cost.map((v: number, k: number) => (v ? `${R.res_names[k]} ${v}` : '')).filter(Boolean).join(', ');
+      return `${R.res_names[s.kind]} 자원지 · 풍부함 ${s.rich.toFixed(1)} · 병사를 고르고 오른쪽 클릭하면 ${R.build_names[kind]} (${cost})`;
+    }
+    const i = yi * m.W + xi, f = m.flags[i];
+    const ice = !!this.scene.ice?.[i] && !!(f & F_WATER) && !(f & F_FORD);
+    if (ice) return '얼어붙은 바다 · 걸어서 건널 수 있다 (녹으면 빠진다)';
+    if (f & F_FORD) return '여울 · 건너는 데 오래 걸린다';
+    if (f & F_WATER) {
+      const boat = this.ctl.boatAt(x, y, Math.max(3.0, 10 / zoom));
+      if (boat) {
+        const maxhp = boat.kind === 1 ? R.warship_hp : R.ferry_hp;
+        return `${st.info.nations[boat.own].name}의 ${boat.kind === 1 ? '전함' : '나룻배'} · 체력 ${Math.round(boat.hp * maxhp)}/${Math.round(maxhp)}`;
+      }
+      return '바다 · 병사들이 있는 땅에 항구가 있으면 배로 건넌다';
+    }
+    const mat = this.scene.mat ? this.scene.mat[i] : -1;
+    const name = R.mat_names[mat] ?? '땅';
+    const extra = m.cover[i] < 70 ? ' · 화살을 덜 맞는다' : '';
+    return `${name} · 걷는 속도 ${Math.round(m.speed(yi, xi, mat, false) * 100)}%${extra}`;
+  }
+}

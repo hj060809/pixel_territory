@@ -1,0 +1,502 @@
+"""게임 세계: 나라, 자원, 병사, 건물, 명령, 승패.
+
+- 자원지에 건물(농장/벌목장/채석장)을 지으면 자원이 난다. 양은 자원지의 풍부함 × 계절.
+  추운 곳일수록 계절 차이가 크다: 가을에 수확이 많고 겨울에는 농장이 거의 쉰다.
+- 병사는 식량을 먹는다 (겨울엔 더). 식량이 바닥나면 굶어서 약해진다. 거점 가까이서는 회복한다.
+- 얼음 위에 있던 병사는 얼음이 녹으면 빠진다.
+- 건물과 병사를 모두 잃은 나라는 멸망. 나만 남으면 승리.
+"""
+from __future__ import annotations
+
+from collections import deque
+from dataclasses import dataclass, field
+
+import numpy as np
+
+from sim import rules as R
+from sim.boats import Fleet
+from sim.entities import AMOVE, ATTACK, BUILD, IDLE, MOVE, Buildings, Units
+from sim.kernels import rng as kernel_rng
+from sim.kernels.combat import step
+from sim.pathing import FieldCache, WalkCost
+
+FERRY_CHECK = 20.0         # 같은 땅에서 직선으로 이보다 멀리 보낼 때만 배가 더 빠른지 견준다 (칸).
+                           # 좁은 물 건너편은 직선으로는 가까워도 걸어서는 멀 수 있어서 작게 둔다
+from sim.sites import sites_for
+from sim.spawn import choose_starts, pick_colors
+
+TICK = 0.05
+
+
+@dataclass
+class Nation:
+    id: int
+    name: str
+    color: tuple
+    light: tuple
+    player: bool = False
+    res: list = field(default_factory=lambda: list(R.START_RES))
+    rate: list = field(default_factory=lambda: [0.0, 0.0, 0.0])
+    bonus: float = 1.0               # 자원 수입 배율 (AI 난이도)
+    alive: bool = True
+    starving: bool = False
+    n_units: int = 0
+    n_buildings: int = 0
+
+
+class World:
+    def __init__(self, gmap, n_bots: int = 4, seed: int = 0, map_seed: int = 0, player_spot=None,
+                 player_color: int = 0, player_name: str = '나', difficulty: float = 1.0,
+                 starts=None, colors=None):
+        """seed: 이 판의 난수 (시작 자리, AI 성향). map_seed: 지도의 난수 (자원지는 같은 지도면 그대로).
+        player_spot: 내 거점 자리 (y, x). 없으면 무작위. player_color: rules.COLORS 번호.
+        difficulty: AI 자원 수입 배율 (rules.DIFFICULTY).
+        starts, colors: 미리 정한 나라별 거점 자리와 색 번호 (설정 화면 미리보기 그대로). 없으면 여기서 정한다."""
+        self.map = gmap
+        self.rng = np.random.default_rng(seed)
+        np.random.seed(seed % (2 ** 31))
+        kernel_rng.seed(seed % (2 ** 31))              # numba 안의 난수도 같은 시드로 (같은 시드 → 같은 판)
+        self.sites = sites_for(gmap, map_seed)
+        self.units = Units()
+        self.builds = Buildings()
+        self.fields = FieldCache(gmap, slots=32)
+        self.routes = WalkCost(gmap)              # 걷는 비용 재기 (배를 탈지 정할 때)
+        self.fleet = Fleet(self)
+        self.shots = np.zeros((512, 5), np.float32)
+        self.n_shots = 0
+        self.recent: deque = deque(maxlen=600)
+        self.messages: deque = deque(maxlen=6)
+        self.time = 0.0
+        self.phase = 'play'
+        self.result = None
+        self.season_w = np.array([1.0, 0, 0, 0])
+        self._acc = 0.0
+        self._builders = np.zeros(self.builds.cap, np.int32)
+        self._slow = 0.0
+        self._bot_acc = 0.0
+        self._bot_turn = 0
+        ks = [R.UNIT_STATS[k] for k in (R.INFANTRY, R.ARCHER)]
+        self.k_speed = np.array([s['speed'] for s in ks], np.float32)
+        self.k_range = np.array([s['range'] for s in ks], np.float32)
+        self.k_dmg = np.array([s['dmg'] for s in ks], np.float32)
+        self.k_cd = np.array([s['cd'] for s in ks], np.float32)
+        self.k_sight = np.array([s['sight'] for s in ks], np.float32)
+        self.k_ranged = np.array([False, True])
+        n = min(n_bots + 1, len(R.COLORS))
+        if colors is None or len(colors) != n:
+            colors = pick_colors(self.rng, n, player_color)
+        if starts is None or len(starts) != n:
+            starts = choose_starts(gmap, n, self.rng, player_spot, self.sites)
+        animals = list(self.rng.permutation(R.ANIMALS))
+        word, col, light = R.COLORS[colors[0]]
+        self.nations = [Nation(0, player_name or '나', col, light, player=True)]
+        for i, c in enumerate(colors[1:], start=1):
+            word, col, light = R.COLORS[c]
+            self.nations.append(Nation(i, f'{word} {animals[i - 1]}', col, light, bonus=difficulty))
+        self._spawn_all(starts)
+        from sim.ai import Bot
+        self.bots = {i: Bot(i, self.rng, difficulty) for i in range(1, n)}
+
+    # ------------------------------------------------------------- 알림
+    def say(self, text: str) -> None:
+        if self.messages and self.messages[-1][0] == text and self.time - self.messages[-1][1] < 5:
+            return
+        self.messages.append((text, self.time))
+
+    # ------------------------------------------------------------- 시작
+    def _spawn_all(self, starts) -> None:
+        """나라마다 거점 하나와 병사들 (starts: 나라 순서대로 거점 자리)."""
+        st = R.BUILD_STATS[R.HALL]
+        for nat, (hy, hx) in zip(self.nations, starts):
+            self.builds.add(nat.id, R.HALL, hx + 0.5, hy + 0.5, st['hp'], st['r'], prog=1.0)
+            for kind, cnt in R.START_UNITS:
+                for _ in range(cnt):
+                    self._spawn_unit(nat.id, kind, hy, hx, 7)
+
+    def _open_spot(self, y, x, dist, r):
+        """(y, x)에서 dist쯤 떨어진, 반지름 r 안이 모두 땅이고 다른 건물이 없는 자리."""
+        m = self.map
+        for _ in range(60):
+            a = self.rng.uniform(0, 2 * np.pi)
+            yy, xx = int(y + np.sin(a) * dist), int(x + np.cos(a) * dist)
+            if self.can_place(yy, xx, r):
+                return yy, xx
+        return None
+
+    def can_place(self, y, x, r) -> bool:
+        m = self.map
+        if not (r <= y < m.H - r and r <= x < m.W - r):
+            return False
+        if not (m.land[y - r:y + r + 1, x - r:x + r + 1].all()):
+            return False
+        b = self.builds
+        alive = b.alive[:b.n]
+        if alive.any():
+            d = np.hypot(b.x[:b.n][alive] - x, b.y[:b.n][alive] - y) - b.r[:b.n][alive]
+            if d.min() < r + 2:
+                return False
+        return True
+
+    def _spawn_unit(self, nid, kind, y, x, ring):
+        m = self.map
+        for _ in range(40):
+            a = self.rng.uniform(0, 2 * np.pi)
+            rr = ring + self.rng.uniform(0, 3)
+            yy, xx = y + np.sin(a) * rr, x + np.cos(a) * rr
+            if 0 <= yy < m.H and 0 <= xx < m.W and m.walk[int(yy), int(xx)]:
+                return self.units.add(nid, kind, xx, yy, R.UNIT_STATS[kind]['hp'])
+        return self.units.add(nid, kind, x + 0.5, y + 0.5, R.UNIT_STATS[kind]['hp'])
+
+    # ------------------------------------------------------------- 명령
+    def _busy_slots(self):
+        u = self.units
+        busy = np.zeros(len(self.fields.keys), bool)
+        s = u.slot[:u.n][u.alive[:u.n] & (u.slot[:u.n] >= 0)]
+        busy[s] = True
+        return busy
+
+    def _route(self, ids, y, x):
+        spot = self.fields.snap(y, x)
+        if spot is None:
+            return -1
+        u = self.units
+        sy, sx = u.y[ids].astype(np.int64), u.x[ids].astype(np.int64)
+        return self.fields.get(spot[0], spot[1], sy, sx, self._busy_slots())
+
+    def _split(self, ids, y, x):
+        """걸어서 갈 수 있는 병사와 바다를 건너야 하는 병사. 반환: (걸어갈 병사, [(병사, 출발 땅)], 도착 땅)."""
+        m, u = self.map, self.units
+        spot = self.fields.snap(y, x, 12)
+        if spot is None:
+            return ids, [], 0
+        dst = int(m.comp[spot])
+        comps = m.comp[u.y[ids].astype(int), u.x[ids].astype(int)]
+        near = ids[comps == dst]
+        far = [(ids[comps == c], int(c)) for c in np.unique(comps[comps != dst]) if c > 0]
+        # 같은 땅이어도 멀면 걷기와 배(그 땅의 항구에서)를 견주어 배가 10% 넘게 빠르면 배로 (어림 오차만큼 여유)
+        if len(near) and np.hypot(u.y[near].mean() - y, u.x[near].mean() - x) > FERRY_CHECK:
+            est = self.fleet.ferry_time(near, y, x, dst, self.routes)
+            if est is not None and est[0] < est[1] * 0.9:
+                if int(u.own[near[0]]) == 0:
+                    self.say(f'배로 가는 길이 더 빠릅니다 (걸어서 {est[1]:.0f}초 → 배로 {est[0]:.0f}초)')
+                far.append((near, dst))
+                near = near[:0]
+        return near, far, dst
+
+    def order_move(self, ids, y, x, attack: bool = False) -> bool:
+        ids = self._mine(ids)
+        if len(ids) == 0:
+            return False
+        ids, far, dst = self._split(ids, y, x)
+        ok = False
+        for group, src in far:                       # 바다 건너: 나룻배를 타고 간다
+            ok |= self.fleet.ferry(group, y, x, ('move', attack, y, x), src, dst)
+        if len(ids) == 0:
+            return ok
+        s = self._route(ids, y, x)
+        if s < 0:
+            return False
+        u = self.units
+        u.state[ids] = AMOVE if attack else MOVE
+        u.slot[ids] = s
+        u.tgt[ids] = u.tgb[ids] = u.bld[ids] = -1
+        return True
+
+    def order_attack(self, ids, unit=-1, building=-1) -> None:
+        ids = self._mine(ids)
+        if len(ids) == 0:
+            return
+        u, b = self.units, self.builds
+        ty, tx = (u.y[unit], u.x[unit]) if unit >= 0 else (b.y[building], b.x[building])
+        ids, far, dst = self._split(ids, ty, tx)
+        for group, src in far:
+            self.fleet.ferry(group, ty, tx, ('attack', unit, building), src, dst)
+        if len(ids) == 0:
+            return
+        s = self._route(ids, ty, tx)
+        u.state[ids] = ATTACK
+        u.slot[ids] = s
+        u.tgt[ids] = unit
+        u.tgb[ids] = building
+        u.bld[ids] = -1
+
+    def order_stop(self, ids) -> None:
+        ids = self._mine(ids)
+        u = self.units
+        u.state[ids] = IDLE
+        u.slot[ids] = u.tgt[ids] = u.tgb[ids] = u.bld[ids] = -1
+
+    def _mine(self, ids):
+        ids = np.asarray(ids, np.int64)
+        return ids[self.units.alive[ids]] if len(ids) else ids
+
+    def can_afford(self, nid, cost) -> bool:
+        return all(self.nations[nid].res[k] >= cost[k] for k in range(3))
+
+    def _pay(self, nid, cost) -> None:
+        for k in range(3):
+            self.nations[nid].res[k] -= cost[k]
+
+    def place_building(self, nid, kind, y, x, ids, site=-1, quiet=False) -> int:
+        """건물 자리를 잡고(비용을 내고) ids 병사들을 보내 짓게 한다. 반환: 건물 번호 (못 지으면 -1)."""
+        st = R.BUILD_STATS[kind]
+        if not self.can_afford(nid, st['cost']):
+            if not quiet:
+                need = ', '.join(f'{R.RES_NAMES[k]} {st["cost"][k]}' for k in range(3) if st['cost'][k])
+                self.say(f'{R.BUILD_NAMES[kind]}: 자원이 모자랍니다 ({need})')
+            return -1
+        if site >= 0:
+            s = self.sites[site]
+            if s.building >= 0:
+                if not quiet:
+                    self.say('이미 건물이 있는 자원지입니다')
+                return -1
+            y, x = s.y, s.x
+        elif kind == R.HARBOR and not self.fleet.can_place_harbor(int(y), int(x)):
+            if not quiet:
+                self.say('항구는 바다에 맞닿은 해안에 지어야 합니다 (절벽은 안 됩니다)')
+            return -1
+        elif kind != R.HARBOR and not self.can_place(int(y), int(x), st['r']):
+            if not quiet:
+                self.say('여기에는 지을 수 없습니다 (평평한 땅, 다른 건물과 떨어진 곳)')
+            return -1
+        self._pay(nid, st['cost'])
+        b = self.builds.add(nid, kind, x + 0.5, y + 0.5, st['hp'], st['r'], prog=0.0, site=site)
+        if site >= 0:
+            self.sites[site].building = b
+        self.order_build(ids, b)
+        return b
+
+    def order_build(self, ids, b) -> None:
+        ids = self._mine(ids)
+        if len(ids) == 0:
+            return
+        ids, far, dst = self._split(ids, self.builds.y[b], self.builds.x[b])
+        for group, src in far:
+            self.fleet.ferry(group, self.builds.y[b], self.builds.x[b], ('build', b), src, dst)
+        if len(ids) == 0:
+            return
+        s = self._route(ids, self.builds.y[b], self.builds.x[b])
+        u = self.units
+        u.state[ids] = BUILD
+        u.slot[ids] = s
+        u.bld[ids] = b
+        u.tgt[ids] = u.tgb[ids] = -1
+
+    def train(self, nid, hall, kind, quiet=False) -> bool:
+        """거점에서 보병/궁수, 항구에서 전함(kind = R.WARSHIP)."""
+        b = self.builds
+        if kind == R.WARSHIP:
+            st = dict(cost=R.WARSHIP_COST, time=R.WARSHIP_TIME)
+            where, name = R.HARBOR, '전함'
+        else:
+            st = R.UNIT_STATS[kind]
+            where, name = R.HALL, R.UNIT_NAMES[kind]
+        if not (b.alive[hall] and b.kind[hall] == where and b.own[hall] == nid and b.prog[hall] >= 1):
+            return False
+        if len(b.queue[hall]) >= 5:
+            if not quiet:
+                self.say('훈련 대기열이 가득 찼습니다')
+            return False
+        if not self.can_afford(nid, st['cost']):
+            if not quiet:
+                need = ', '.join(f'{R.RES_NAMES[k]} {st["cost"][k]}' for k in range(3) if st['cost'][k])
+                self.say(f'{name}: 자원이 모자랍니다 ({need})')
+            return False
+        self._pay(nid, st['cost'])
+        b.queue[hall].append([kind, st['time']])
+        return True
+
+    # ------------------------------------------------------------- 찾기
+    def unit_ids(self, nid=None):
+        """살아 있는 병사 (배에 탄 병사는 뺀다)."""
+        u = self.units
+        a = u.alive[:u.n] & ~u.aboard[:u.n]
+        if nid is not None:
+            a = a & (u.own[:u.n] == nid)
+        return np.flatnonzero(a)
+
+    def building_ids(self, nid=None, kind=None, done=None):
+        b = self.builds
+        a = b.alive[:b.n].copy()
+        if nid is not None:
+            a &= b.own[:b.n] == nid
+        if kind is not None:
+            a &= b.kind[:b.n] == kind
+        if done is not None:
+            a &= (b.prog[:b.n] >= 1) == done
+        return np.flatnonzero(a)
+
+    def unit_at(self, y, x, r=2.5, nid=None):
+        ids = self.unit_ids(nid)
+        if len(ids) == 0:
+            return -1
+        d = np.hypot(self.units.x[ids] - x, self.units.y[ids] - y)
+        k = int(np.argmin(d))
+        return int(ids[k]) if d[k] <= r else -1
+
+    def building_at(self, y, x, nid=None):
+        ids = self.building_ids(nid)
+        if len(ids) == 0:
+            return -1
+        b = self.builds
+        d = np.hypot(b.x[ids] - x, b.y[ids] - y) - b.r[ids]
+        k = int(np.argmin(d))
+        return int(ids[k]) if d[k] <= 1.0 else -1
+
+    def site_at(self, y, x, r=6):
+        best, bd = -1, r
+        for s in self.sites:
+            d = np.hypot(s.x - x, s.y - y)
+            if d < bd:
+                best, bd = s.id, d
+        return best
+
+    # ------------------------------------------------------------- 진행
+    def update(self, dt, season_w=None) -> None:
+        if season_w is not None:
+            self.season_w = np.asarray(season_w, float)
+        self.fields.wait()                          # 지난번에 맡긴 길찾기 계산을 받는다 (보통 이미 끝나 있다)
+        if self.phase != 'play':
+            return
+        self._acc += dt
+        while self._acc >= TICK:
+            self._acc -= TICK
+            self._tick(TICK)
+
+    def _tick(self, dt) -> None:
+        self.time += dt
+        u, b, m = self.units, self.builds, self.map
+        self._economy(dt)
+        self._training(dt)
+        self.n_shots = step(dt, u.n, u.x, u.y, u.hp, u.own, u.kind, u.state, u.slot, u.tgt, u.tgb, u.bld, u.cd,
+                            u.search, u.anim, u.moving, u.alive, u.aboard,
+                            b.n, b.x, b.y, b.kind, b.own, b.hp, b.r, b.prog, b.cd, b.alive,
+                            self.k_speed, self.k_range, self.k_dmg, self.k_cd, self.k_sight, self.k_ranged,
+                            m.walk, m.speed_mul, m.cover, self.fields.fields, self.fields.ready, R.TOWER, R.TOWER_RANGE, R.TOWER_DMG,
+                            R.TOWER_CD, self.shots, self._builders)
+        if self.n_shots:                                    # 화면에 잠깐 그릴 공격 (화살, 칼부림)
+            for row in self.shots[:self.n_shots].tolist():
+                self.recent.append((self.time, *row))
+        while self.recent and self.time - self.recent[0][0] > 0.3:
+            self.recent.popleft()
+        # 짓기
+        for i in np.flatnonzero(self._builders[:b.n]):
+            if b.alive[i] and b.prog[i] < 1:
+                st = R.BUILD_STATS[int(b.kind[i])]
+                add = dt * self._builders[i] / st['work']
+                b.prog[i] = min(b.prog[i] + add, 1.0)
+                b.hp[i] = min(b.hp[i] + add * b.maxhp[i], b.maxhp[i])
+                if b.prog[i] >= 1 and b.own[i] == 0:
+                    self.say(f'{R.BUILD_NAMES[int(b.kind[i])]} 완성')
+        self.fleet.update(dt)
+        # 무너진 건물
+        dead = np.flatnonzero(b.alive[:b.n] & (b.hp[:b.n] <= 0))
+        for i in dead:
+            b.alive[i] = False
+            if b.kind[i] == R.HARBOR:
+                self.fleet.harbor_lost(i)
+            if b.site[i] >= 0:
+                self.sites[b.site[i]].building = -1
+            if b.own[i] == 0:
+                self.say(f'{R.BUILD_NAMES[int(b.kind[i])]}이(가) 무너졌습니다!')
+        self._slow += dt
+        if self._slow >= 0.5:
+            self._slow = 0.0
+            self._drown()
+            self._census()
+        # AI는 돌아가며 생각한다 (0.5초를 AI 수로 나눠 한 걸음에 하나씩): 길찾기 계산이 한 걸음에 몰리지 않게
+        if self.bots:
+            self._bot_acc += dt
+            gap = 0.5 / len(self.bots)
+            if self._bot_acc >= gap - 1e-9:
+                self._bot_acc -= gap
+                ids = sorted(self.bots)
+                self.bots[ids[self._bot_turn % len(ids)]].maybe_think(self, 0.5)
+                self._bot_turn += 1
+
+    def _economy(self, dt) -> None:
+        u, b, w = self.units, self.builds, self.season_w
+        for nat in self.nations:
+            nat.rate = [0.0, 0.0, 0.0]
+        for i in np.flatnonzero(b.alive[:b.n] & (b.prog[:b.n] >= 1)):
+            nat = self.nations[b.own[i]]
+            k = int(b.kind[i])
+            if k == R.HALL:
+                for r in range(3):
+                    nat.rate[r] += R.HALL_YIELD[r]
+            elif k in R.YIELD:
+                s = self.sites[b.site[i]]
+                res, base = R.YIELD[k]
+                sf = float(np.dot(R.SEASON_YIELD[res], w))
+                nat.rate[res] += base * s.rich * (1 + s.cold * (sf - 1))
+        for nat in self.nations:                       # 난이도: AI의 자원 수입 배율
+            if nat.bonus != 1.0:
+                nat.rate = [r * nat.bonus for r in nat.rate]
+        own = u.own[:u.n][u.alive[:u.n]]
+        counts = np.bincount(own, minlength=len(self.nations))
+        winter = 1 + 0.5 * w[3]
+        for nat in self.nations:
+            nat.rate[R.FOOD] -= counts[nat.id] * R.UPKEEP * winter
+            for r in range(3):
+                nat.res[r] += nat.rate[r] * dt
+            nat.starving = nat.res[R.FOOD] < 0
+            if nat.starving:
+                nat.res[R.FOOD] = 0.0
+        # 굶주림과 회복
+        alive = np.flatnonzero(u.alive[:u.n])
+        if len(alive):
+            starving = np.array([n.starving for n in self.nations])[u.own[alive]]
+            u.hp[alive[starving]] -= R.STARVE * dt
+            halls = self.building_ids(kind=R.HALL, done=True)
+            if len(halls):
+                hx, hy, ho = b.x[halls], b.y[halls], b.own[halls]
+                d = np.hypot(u.x[alive][:, None] - hx[None], u.y[alive][:, None] - hy[None])
+                near = ((d < 12) & (u.own[alive][:, None] == ho[None])).any(1)
+                hmax = np.array([R.UNIT_STATS[k]['hp'] for k in (0, 1)], np.float32)[u.kind[alive]]
+                u.hp[alive[near]] = np.minimum(u.hp[alive[near]] + R.HEAL_NEAR_HALL * dt, hmax[near])
+            u.alive[alive[u.hp[alive] <= 0]] = False
+
+    def _training(self, dt) -> None:
+        b = self.builds
+        for i in self.building_ids(done=True):
+            q = b.queue[i]
+            if not q:
+                continue
+            q[0][1] -= dt
+            if q[0][1] <= 0:
+                kind = q.pop(0)[0]
+                if kind == R.WARSHIP:
+                    self.fleet.launch_warship(int(b.own[i]), i)
+                    if b.own[i] == 0:
+                        self.say('전함 완성')
+                else:
+                    self._spawn_unit(int(b.own[i]), kind, float(b.y[i]), float(b.x[i]), b.r[i] + 2)
+
+    def _drown(self) -> None:
+        u, m = self.units, self.map
+        a = np.flatnonzero(u.alive[:u.n] & ~u.aboard[:u.n])
+        wet = a[~m.walk[u.y[a].astype(int), u.x[a].astype(int)]]
+        if len(wet):
+            u.alive[wet] = False
+            if (u.own[wet] == 0).any():
+                self.say(f'얼음이 녹아 병사 {int((u.own[wet] == 0).sum())}명이 물에 빠졌습니다')
+
+    def _census(self) -> None:
+        u, b = self.units, self.builds
+        nu = np.bincount(u.own[:u.n][u.alive[:u.n]], minlength=len(self.nations))
+        done = b.alive[:b.n] & (b.prog[:b.n] >= 1)                     # 짓다 만 건물은 나라를 지켜 주지 못한다
+        nb = np.bincount(b.own[:b.n][done], minlength=len(self.nations))
+        for nat in self.nations:
+            nat.n_units, nat.n_buildings = int(nu[nat.id]), int(nb[nat.id])
+            if nat.alive and nat.n_units == 0 and nat.n_buildings == 0:
+                nat.alive = False
+                for i in np.flatnonzero(b.alive[:b.n] & (b.own[:b.n] == nat.id)):   # 남은 공사장은 허물어진다
+                    b.alive[i] = False
+                    if b.site[i] >= 0:
+                        self.sites[b.site[i]].building = -1
+                self.say('나라를 잃었습니다' if nat.player else f'{nat.name}이(가) 멸망했습니다')
+        if not self.nations[0].alive:
+            self.phase, self.result = 'over', '패배'
+        elif not any(n.alive for n in self.nations[1:]):
+            self.phase, self.result = 'over', '승리'

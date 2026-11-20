@@ -1,0 +1,6 @@
+"""재질 번호 (셰이더 팔레트의 줄 번호). 게임 규칙은 셰이더 전체 대신 이것만 본다."""
+from engine.render.shader import (  # noqa: F401  (다시 내보내기)
+    ALPINE, COLD_STEPPE, DESERT, DIRT, DRYGRASS, DUNE, FOREST, GRASS, GRASS_DEAD, GRASS_YELLOW, ICE, LAGOON,
+    LIMESTONE, MARSH, MOSS, RAINFOREST, ROCK, ROCK_RED, ROCK_WARM, SAND, SAVANNA, SCREE, SEA_ICE, SHRUB, SNOW,
+    SNOW_OLD, STEPPE, TAIGA, TUNDRA, VEGETATION, WATER,
+)

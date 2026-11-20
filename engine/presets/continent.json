@@ -1,0 +1,43 @@
+{
+  "name": "대륙",
+  "order": 1,
+  "description": "큰 땅덩어리가 지도 밖으로 이어지는 대륙의 한 지역. 굵직한 산맥과 강, 호수가 많다.",
+  "config": {
+    "land_ratio": 0.62,
+    "landmasses": 2,
+    "size_variety": 0.75,
+    "elongation": 0.3,
+    "edge_ocean": 0.0,
+    "coast_roughness": 0.7,
+    "coast_detail": 0.35,
+    "sharpness": 0.2,
+    "strait_width": 0.02,
+    "plates": [
+      6,
+      10
+    ],
+    "mountain_height": 1.0,
+    "mountain_coverage": 0.5,
+    "ridge_scale": 0.15,
+    "massif": 0.4,
+    "hill_height": 0.1,
+    "lowland": 1.1,
+    "lakes": [
+      3,
+      8
+    ],
+    "river_threshold": 0.02,
+    "cliffs": 0.22,
+    "beaches": 0.3,
+    "lagoons": 2,
+    "temperature_range": [
+      0.3,
+      0.85
+    ],
+    "moisture_range": [
+      0.15,
+      0.85
+    ],
+    "climate_zones": 4
+  }
+}

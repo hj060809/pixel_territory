@@ -1,0 +1,57 @@
+{
+  "name": "열도",
+  "order": 3,
+  "description": "길쭉한 섬들이 활처럼 이어진 열도. 섬마다 등뼈 같은 산맥, 가파른 해안과 좁은 해협.",
+  "config": {
+    "land_ratio": 0.32,
+    "landmasses": 5,
+    "size_variety": 0.8,
+    "elongation": 0.85,
+    "edge_ocean": 0.6,
+    "coast_roughness": 0.6,
+    "coast_detail": 0.4,
+    "sharpness": 0.35,
+    "strait_width": 0.015,
+    "plates": [
+      6,
+      10
+    ],
+    "mountain_height": 1.1,
+    "mountain_coverage": 0.6,
+    "ridge_scale": 0.1,
+    "massif": 0.3,
+    "hill_height": 0.1,
+    "lowland": 1.0,
+    "lakes": [
+      1,
+      4
+    ],
+    "river_threshold": 0.004,
+    "cliffs": 0.35,
+    "beaches": 0.2,
+    "lagoons": 1,
+    "temperature_range": [
+      0.32,
+      0.65
+    ],
+    "moisture_range": [
+      0.5,
+      0.85
+    ],
+    "climate_zones": 1,
+    "zones": [
+      [
+        0.5,
+        0.15,
+        0.25,
+        0.7
+      ],
+      [
+        0.5,
+        0.85,
+        0.62,
+        0.6
+      ]
+    ]
+  }
+}
