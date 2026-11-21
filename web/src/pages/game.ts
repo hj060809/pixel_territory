@@ -9,16 +9,9 @@ import { Lobby } from '../menu/lobby.ts';
 import { LobbyArt, type LobbyInfo } from '../menu/lobbyArt.ts';
 import { Setup, defaultSettings, type PlayRequest, type Settings } from '../menu/setup.ts';
 import { applyUiScale, shadeLeft, uiScale } from '../menu/widgets.ts';
+import { isTouchDevice, setTouchMode } from '../ui/device.ts';
 
 type Screen = 'lobby' | 'setup' | 'game';
-
-/** 휴대폰·태블릿 (아이패드는 Mac처럼 보이기도 해서 터치로 함께 본다, 마우스 없이 터치만 되는 기기도). */
-function isMobile(): boolean {
-  const ua = navigator.userAgent;
-  if (/Android|iPhone|iPad|iPod|Mobile|Silk|Kindle/i.test(ua)) return true;
-  if (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) return true;
-  return matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches;
-}
 
 class App {
   private art = new LobbyArt();
@@ -34,6 +27,11 @@ class App {
   private artLoad: Promise<void>;
 
   constructor() {
+    setTouchMode(isTouchDevice());              // 처음엔 기기에 맞춰. 게임 중에는 마지막으로 쓴 입력(터치 / 마우스)으로 바뀐다
+    const rotate = document.createElement('div');   // 터치 기기를 세로로 들면 (CSS로만 보인다)
+    rotate.className = 'rotate-notice';
+    rotate.innerHTML = '<div>화면을 가로로 돌려 주세요<div class="dim">Pixel Territory는 가로 화면에서 플레이합니다</div></div>';
+    document.body.appendChild(rotate);
     this.artLoad = this.art.load().then((info) => { this.lobbyInfo = info; });
     this.artCanvas.id = 'menu-art';
     document.body.appendChild(this.artCanvas);
@@ -49,16 +47,6 @@ class App {
 
   async boot() {
     const p = new URLSearchParams(location.search);
-    if (isMobile()) {                         // 마우스·키보드 게임이라 모바일은 막는다 (로비 배경 위에 안내만)
-      this.startArt();
-      const d = document.createElement('div');
-      d.className = 'mobile-block';
-      d.innerHTML = '<div class="box"><div class="title">PC에서 플레이해 주세요</div>'
-        + '<div>Pixel Territory는 마우스와 키보드로 하는 게임이라<br>모바일에서는 플레이할 수 없습니다.</div>'
-        + '<div class="dim">PC 브라우저로 이 주소에 접속해 주세요.</div></div>';
-      document.body.appendChild(d);
-      return;
-    }
     if (p.has('map') || p.has('quick')) {
       const key = p.get('map') ?? (await (await fetch('/api/maps')).json()).demo[0].key;
       this.play({ key, options: {

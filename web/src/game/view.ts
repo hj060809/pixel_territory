@@ -15,6 +15,10 @@ import { Connection, type JoinOptions } from './net.ts';
 import { SpriteBank } from './sprites.ts';
 import { GameState, type StartInfo } from './state.ts';
 import { TerrainRules } from './terrainRules.ts';
+import { fadeCovered } from './occlude.ts';
+import { TouchInput } from './touch.ts';
+import { TouchUi } from './touchUi.ts';
+import { setTouchMode, touchMode } from '../ui/device.ts';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -57,6 +61,7 @@ export class GameView {
   private net: Connection | null = null;
   private hud: Hud | null = null;
   private bar: ActionBar | null = null;
+  private tui: TouchUi | null = null;
   private raf = 0;
   private disposed = false;
 
@@ -85,6 +90,7 @@ export class GameView {
     this.scene?.dispose();
     this.hud?.dispose();
     this.bar?.dispose();
+    this.tui?.dispose();
     this.loading.dispose();
     this.gl?.getExtension('WEBGL_lose_context')?.loseContext();     // GPU 메모리를 바로 돌려준다
     this.canvas.remove();
@@ -111,8 +117,10 @@ export class GameView {
     scene.season.auto = false;
     const life = new Life(scene.bundle, 0);
     const cam = new Camera(scene.W, scene.H);
-    const dpr = () => window.devicePixelRatio || 1;
+    const dpr = () => Math.min(window.devicePixelRatio || 1, touchMode() ? 2 : 8);   // 터치 기기는 2로 제한
+    const waveHz = scene.updateHz;
     const resize = () => {
+      scene.updateHz = touchMode() ? Math.min(waveHz, 6) : waveHz;    // 모바일: 물결 그림 갱신을 낮춰 배터리·발열을 줄인다
       for (const c of [canvas, overlay]) { c.width = Math.round(window.innerWidth * dpr()); c.height = Math.round(window.innerHeight * dpr()); }
       cam.resize(window.innerWidth, window.innerHeight);
     };
@@ -206,11 +214,58 @@ export class GameView {
     let mouse: [number, number] | null = null, box: [number, number, number, number] | null = null;
     let midDrag = false, lifeClick: [number, number] | null = null, hudWait = 1;
     const pending = { speed: 1, speedAt: -1e9, pause: false, pauseAt: -1e9 };   // 방금 보낸 속도/일시정지 (답이 오기 전)
+    const togglePause = () => {               // 서버 답을 기다리지 않고 마지막으로 요청한 값 기준으로
+      if (!st) return;
+      const cur = performance.now() - pending.pauseAt < 1000 ? pending.pause : st.paused;
+      pending.pause = !cur; pending.pauseAt = performance.now();
+      net.send({ t: 'pause', on: pending.pause });
+    };
+    const cycleSpeed = () => {
+      if (!st) return;
+      const cur = performance.now() - pending.speedAt < 1000 ? pending.speed : st.speed;
+      pending.speed = cur === 1 ? 2 : cur === 2 ? 4 : 1; pending.speedAt = performance.now();
+      net.send({ t: 'speed', value: pending.speed });
+    };
+    // ---- 터치 (손가락 동작 → 같은 행동, 터치용 버튼). 마지막으로 쓴 입력에 따라 화면이 바뀐다
+    const touch = new TouchInput(cam, {
+      ctl: () => ctl,
+      box: (b) => { box = b; },
+      info: (sx, sy) => this.tui?.showInfo(sx, sy),
+      commanded: (mx, my) => { lifeClick = [mx, my]; },
+      changed: () => { hudWait = 1; },
+    });
+    this.tui = new TouchUi({
+      st: () => st, ctl: () => ctl, cam, touch,
+      infoAt: (mx, my) => this.hud?.infoAt(mx, my, cam.zoom) ?? null,
+      pause: togglePause, speed: cycleSpeed, home: () => centerHome(),
+      restart: () => net.send({ t: 'restart' }), newMap: () => this.hooks.newMap(nextSeedKey(key)), lobby: () => this.hooks.lobby(),
+      changed: () => { hudWait = 1; },
+    });
+    let lastTouch = -1e9;                     // 터치 뒤 브라우저가 흉내 내 보내는 마우스 이벤트는 무시한다
+    const fromTouch = () => performance.now() - lastTouch < 800;
+    this.listen(canvas, 'pointerdown', (e: PointerEvent) => {
+      if (e.pointerType === 'mouse') { if (touchMode()) { setTouchMode(false); resize(); } return; }
+      e.preventDefault();
+      lastTouch = performance.now();
+      if (!touchMode()) { setTouchMode(true); resize(); }
+      mouse = null;
+      canvas.setPointerCapture?.(e.pointerId);
+      touch.down(e);
+      hudWait = 1;
+    });
+    for (const [type, fn] of [['pointermove', (e: PointerEvent) => touch.move(e)], ['pointerup', (e: PointerEvent) => touch.up(e)],
+                              ['pointercancel', (e: PointerEvent) => touch.cancel(e)]] as const) {
+      this.listen(canvas, type, (e: PointerEvent) => {
+        if (e.pointerType === 'mouse') return;
+        lastTouch = performance.now();
+        fn(e);
+      });
+    }
     overlay.style.pointerEvents = 'none';
     this.listen(canvas, 'contextmenu', (e) => e.preventDefault());
     this.listen(canvas, 'wheel', (e: WheelEvent) => { e.preventDefault(); cam.zoomTo(1.15 ** (-e.deltaY / 100), [e.clientX, e.clientY]); }, { passive: false });
     this.listen(canvas, 'mousedown', (e: MouseEvent) => {
-      if (!ctl) return;
+      if (!ctl || fromTouch()) return;
       const [mx, my] = cam.toMap(e.clientX, e.clientY);
       if (e.button === 0) {
         if (ctl.mode === 'attack') { ctl.command(mx, my, cam.zoom, true); ctl.mode = null; }
@@ -223,6 +278,7 @@ export class GameView {
       hudWait = 1;
     });
     this.listen(window, 'mouseup', (e: MouseEvent) => {
+      if (fromTouch()) return;
       if (e.button === 0 && box && ctl) {
         const [ax, ay, bx, by] = box;
         box = null;
@@ -236,6 +292,7 @@ export class GameView {
       if (e.button === 1) midDrag = false;
     });
     this.listen(window, 'mousemove', (e: MouseEvent) => {
+      if (fromTouch()) return;
       mouse = [e.clientX, e.clientY];
       if (box) { box[2] = e.clientX; box[3] = e.clientY; }
       if (midDrag) cam.pan(e.movementX, e.movementY);
@@ -265,18 +322,8 @@ export class GameView {
         case 'a': if (ctl.sel.size) ctl.mode = 'attack'; break;
         case 's': ctl.stop(); break;
         case ' ': centerHome(); break;
-        case 'p': {                           // 서버 답을 기다리지 않고 마지막으로 요청한 값 기준으로
-          const cur = performance.now() - pending.pauseAt < 1000 ? pending.pause : st.paused;
-          pending.pause = !cur; pending.pauseAt = performance.now();
-          net.send({ t: 'pause', on: pending.pause });
-          break;
-        }
-        case '.': {
-          const cur = performance.now() - pending.speedAt < 1000 ? pending.speed : st.speed;
-          pending.speed = cur === 1 ? 2 : cur === 2 ? 4 : 1; pending.speedAt = performance.now();
-          net.send({ t: 'speed', value: pending.speed });
-          break;
-        }
+        case 'p': togglePause(); break;
+        case '.': cycleSpeed(); break;
         case 'f1': hud.showHelp = !hud.showHelp; break;
         case 'f5': net.send({ t: 'restart' }); break;
         case 'f12': screenshot(canvas, overlay); break;
@@ -309,9 +356,23 @@ export class GameView {
       scene.draw(canvas.width, canvas.height, cam.x, cam.y, cam.zoom * dpr(), life);
       g.setTransform(dpr(), 0, 0, dpr(), 0, 0);
       g.clearRect(0, 0, window.innerWidth, window.innerHeight);
-      if (st && draw) draw.draw(cam, now, mouse, box);
+      let pointer = mouse;
+      if (touchMode()) {                                  // 터치: 건물 그림은 손가락으로 옮긴 자리 (처음엔 화면 가운데)
+        if (ctl && typeof ctl.mode === 'number') touch.ghost ??= cam.toMap(window.innerWidth / 2, window.innerHeight / 2 - 30);
+        else touch.ghost = null;
+        pointer = touch.ghost ? [(touch.ghost[0] - cam.x) * cam.zoom, (touch.ghost[1] - cam.y) * cam.zoom] : null;
+      }
+      if (st && draw) draw.draw(cam, now, pointer, box);
+      this.tui?.frame();
       hudWait += dt;
-      if (this.hud && hudWait >= 0.25) { hudWait = 0; this.hud.update(cam, mouse); this.bar?.update(); }
+      if (this.hud && hudWait >= 0.25) {
+        hudWait = 0;
+        this.hud.update(cam, touchMode() ? null : mouse);
+        this.bar?.update();
+        this.tui?.update();
+        if (st) fadeCovered([...this.hud.panels(), ...(this.bar ? [this.bar.el] : []), ...(this.tui?.panels() ?? [])],
+                            onScreen(st, cam, pointer));
+      }
       if (revealAt > 0 && --revealAt === 0) {            // 첫 장면이 그려졌다: 보이고, 로딩 화면은 천천히 사라진다
         for (const c of [canvas, overlay]) c.style.visibility = '';
         loading.set('');
@@ -323,6 +384,20 @@ export class GameView {
     this.raf = requestAnimationFrame(frame);
     (window as any).__game = { get st() { return st; }, get ctl() { return ctl; }, cam, scene, net, key };
   }
+}
+
+/** 화면에 보이는 병사·배·건물(과 놓을 건물 그림)의 화면 자리: 이것들을 가리는 상자는 반투명하게. */
+function onScreen(st: GameState, cam: Camera, pointer: [number, number] | null): [number, number][] {
+  const out: [number, number][] = [], W = window.innerWidth, H = window.innerHeight, z = cam.zoom;
+  const add = (x: number, y: number) => {
+    const sx = (x - cam.x) * z, sy = (y - cam.y) * z;
+    if (sx >= 0 && sx <= W && sy >= 0 && sy <= H) out.push([sx, sy]);
+  };
+  for (const u of st.units.values()) if (!(u.bits & 2)) add(u.x, u.y - 0.6);
+  for (const b of st.boats.values()) add(b.x, b.y);
+  for (const b of st.builds.values()) add(b.x, b.y);
+  if (pointer) out.push(pointer);
+  return out;
 }
 
 function screenshot(a: HTMLCanvasElement, b: HTMLCanvasElement) {

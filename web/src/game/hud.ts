@@ -5,6 +5,7 @@ import type { TerrainScene } from '../terrain/scene.ts';
 import type { Controller } from './controller.ts';
 import type { GameState } from './state.ts';
 import { F_FORD, F_WATER, type TerrainRules } from './terrainRules.ts';
+import { touchMode } from '../ui/device.ts';
 
 export const HELP = [
   '왼쪽: 선택 / 드래그    오른쪽: 이동 · 공격 · 자원지에 짓기    A: 공격 이동    S: 정지',
@@ -38,7 +39,10 @@ export class Hud {
   /** 새 판 (같은 지도로 다시): 상태와 선택을 바꾼다. */
   reset(st: GameState, ctl: Controller) { this.st = st; this.ctl = ctl; }
 
-  dispose() { for (const d of [this.top, this.nations, this.sel, this.hover, this.msgs, this.prompt, this.banner]) d.remove(); }
+  dispose() { for (const d of this.panels()) d.remove(); this.banner.remove(); }
+
+  /** 가림 검사에 쓸 요소들. */
+  panels(): HTMLElement[] { return [this.top, this.nations, this.sel, this.hover, this.msgs, this.prompt]; }
 
   update(cam: Camera, mouse: [number, number] | null) {
     const st = this.st, R = st.info.rules, me = st.nations[st.info.me];
@@ -52,7 +56,8 @@ export class Hud {
     const sf = R.season_yield_food.reduce((s: number, v: number, k: number) => s + v * w[k], 0);
     lines.push(`${this.scene.season.label()}  농사 ×${sf.toFixed(1)}   ${this.scene.cycle.label()}   ×${st.speed}` +
       (st.paused ? '   일시정지' : ''));
-    this.top.textContent = [...lines, ...(this.showHelp ? HELP : [])].join('\n');
+    const touch = touchMode();                                  // 터치: 도움말은 ☰ 메뉴에, 고른 것은 아래 한 줄 막대에
+    this.top.textContent = [...lines, ...(this.showHelp && !touch ? HELP : [])].join('\n');
     // 오른쪽 위: 나라들
     this.nations.innerHTML = '';
     st.info.nations.forEach((n, i) => {
@@ -89,15 +94,20 @@ export class Hud {
       const res = this.ctl.siteRes(mode);
       place = res >= 0 ? `${R.build_names[mode]}: 빈 ${R.res_names[res]} 자원지를 클릭하세요`
         : `${R.build_names[mode]}${mode === R.kinds.HARBOR ? ' (바다에 맞닿은 해안)' : ''} 자리를 클릭하세요`;
-      place += this.ctl.sel.size ? ' — 고른 병사가 짓는다' : ' — 가까운 쉬는 병사가 짓는다';
-      place += '    (Shift: 여러 개, 오른쪽 클릭 · Esc: 취소)';
+      if (touch) place = place.replace('자원지를 클릭하세요', '자원지로 옮기세요').replace('자리를 클릭하세요', '자리로 옮기세요');
+      if (touch) place = place.replace('로 옮기세요', '로 옮기고 ✓');           // 터치: 한 줄로 짧게 (✓ 버튼을 가리지 않게)
+      else {
+        place += this.ctl.sel.size ? ' — 고른 병사가 짓는다' : ' — 가까운 쉬는 병사가 짓는다';
+        place += '    (Shift: 여러 개, 오른쪽 클릭 · Esc: 취소)';
+      }
     }
-    this.prompt.textContent = mode === 'attack' ? '공격할 곳을 클릭하세요 (가다가 만나는 적과 싸웁니다)' : place;
+    this.prompt.textContent = mode === 'attack' ? `공격할 곳을 ${touch ? '탭' : '클릭'}하세요 (가다가 만나는 적과 싸웁니다)` : place;
     this.prompt.className = `hud-prompt ${mode === 'attack' ? 'warm' : 'cool'}`;
     // 안내는 하단 막대 바로 위 (고른 것 패널이 있으면 그 위)
     this.prompt.style.bottom = `${BAR_H + 10 + (sl.length ? this.sel.offsetHeight + 8 : 0)}px`;
     if (st.over) {
-      this.banner.innerHTML = `<div class="big">${st.over === '승리' ? '승리!' : '패배'}</div><div>F5: 같은 지도로 새 판    F6: 새 지도    Enter: 로비로</div>`;
+      const next = touch ? '☰ 메뉴: 같은 지도로 새 판 · 새 지도 · 로비로' : 'F5: 같은 지도로 새 판    F6: 새 지도    Enter: 로비로';
+      this.banner.innerHTML = `<div class="big">${st.over === '승리' ? '승리!' : '패배'}</div><div>${next}</div>`;
       this.banner.style.display = '';
     } else this.banner.style.display = 'none';
   }
@@ -145,6 +155,9 @@ export class Hud {
     return lines;
   }
 
+  /** 그 자리 설명 (터치: 길게 누르기). */
+  infoAt(x: number, y: number, zoom: number): string | null { return this.hoverInfo(x, y, zoom); }
+
   private hoverInfo(x: number, y: number, zoom: number): string | null {
     const st = this.st, R = st.info.rules, m = this.rules;
     const xi = Math.floor(x), yi = Math.floor(y);
@@ -153,7 +166,7 @@ export class Hud {
     if (s && !st.siteTaken().has(s.id)) {
       const kind = R.site_building[s.kind];
       const cost = R.build[kind].cost.map((v: number, k: number) => (v ? `${R.res_names[k]} ${v}` : '')).filter(Boolean).join(', ');
-      return `${R.res_names[s.kind]} 자원지 · 풍부함 ${s.rich.toFixed(1)} · 병사를 고르고 오른쪽 클릭하면 ${R.build_names[kind]} (${cost})`;
+      return `${R.res_names[s.kind]} 자원지 · 풍부함 ${s.rich.toFixed(1)} · 병사를 고르고 ${touchMode() ? '탭' : '오른쪽 클릭'}하면 ${R.build_names[kind]} (${cost})`;
     }
     const i = yi * m.W + xi, f = m.flags[i];
     const ice = !!this.scene.ice?.[i] && !!(f & F_WATER) && !(f & F_FORD);

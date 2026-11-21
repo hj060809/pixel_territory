@@ -79,6 +79,9 @@ export class Controller {
     for (const id of this.selShips) { const b = this.st.boats.get(id); if (!b || !pickable(b)) this.selShips.delete(id); }
   }
 
+  /** 건물이 선 자원지 번호들 (터치 탭 판단에). */
+  st_siteTaken() { return this.st.siteTaken(); }
+
   refs(): number[][] { return [...this.sel].map(([s, g]) => [s, g]); }
   hasSelection() { return this.sel.size > 0 || this.selB !== null || this.selShips.size > 0; }
 
@@ -92,8 +95,9 @@ export class Controller {
     }
   }
 
-  selectPoint(x: number, y: number, zoom: number, add: boolean) {
-    const u = this.unitAt(x, y, Math.max(1.5, 8 / zoom), this.me);
+  /** px: 고르는 반경 (화면 픽셀, 터치는 손가락 크기만큼 넓게). */
+  selectPoint(x: number, y: number, zoom: number, add: boolean, px = 8) {
+    const u = this.unitAt(x, y, Math.max(1.5, px / zoom), this.me);
     if (u) {
       if (!add) { this.sel.clear(); this.selB = null; this.selShips.clear(); }
       if (zoom < UNIT_ZOOM) {                    // 멀리서는 배지 하나 = 그 무리 전체
@@ -103,7 +107,7 @@ export class Controller {
       } else this.sel.set(u.slot, u.gen);
       return;
     }
-    const ship = this.boatAt(x, y, Math.max(3.0, 10 / zoom), this.me);
+    const ship = this.boatAt(x, y, Math.max(3.0, (px + 2) / zoom), this.me);
     if (ship && pickable(ship)) {
       if (!add) { this.sel.clear(); this.selB = null; this.selShips.clear(); }
       this.selShips.add(ship.id);
@@ -122,9 +126,9 @@ export class Controller {
   private ping(x: number, y: number, col: string) { this.pings.push({ t0: performance.now(), x, y, col }); }
 
   /** 오른쪽 클릭 (attack: A 다음 클릭). 서버로 보내고, 같은 판단으로 명령 표시를 바로 그린다. */
-  command(x: number, y: number, zoom: number, attack: boolean) {
+  command(x: number, y: number, zoom: number, attack: boolean, px = 8) {
     this.prune();
-    const r = Math.max(2.0, 8 / zoom);
+    const r = Math.max(2.0, px / zoom);
     if (this.selShips.size) {
       const foe = this.boatAt(x, y, Math.max(3.0, r * 1.25));
       if (foe && foe.own !== this.me) this.ping(x, y, PING.attack);

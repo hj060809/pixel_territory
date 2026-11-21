@@ -24,7 +24,7 @@ export class TerrainScene {
   private since = 1;             // 마지막 물결 갱신 뒤 지난 시간
   private dirty = true;          // 새 그림을 받았다
   private lastHour = -1;
-  readonly updateHz: number;
+  updateHz: number;              // 물결 그림 갱신 (초당, 모바일은 낮춘다)
   private lifeDrawer: LifeDrawer;
 
   private constructor(bundle: Bundle, client: TerrainClient, gl: WebGL2RenderingContext, opts: SceneOptions) {

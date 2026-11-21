@@ -2,6 +2,14 @@
 // 배경(LobbyArt)과 왼쪽 그늘은 메뉴 캔버스에 따로 그린다 (pages/game.ts).
 
 import { button, div, pixelTitle } from './widgets.ts';
+import { touchMode } from '../ui/device.ts';
+
+/** 터치 기기에서 '조작' 항목 대신 */
+const TOUCH_CONTROLS: string[] = [
+  '탭: 고르기 · 고른 뒤 땅 탭: 이동 · 적 탭: 공격 · 빈 자원지 탭: 짓기',
+  '한 손가락 끌기: 화면 이동,  두 손가락: 확대,  길게 누르고 끌기: 여러 명 고르기',
+  '아래 버튼: 건물(그림을 옮기고 ✓)과 훈련,  왼쪽 1~3: 부대 (길게 눌러 지정),  ☰: 메뉴',
+];
 
 export const HOW_TO: [string, string[]][] = [
   ['목표', ['다른 나라의 건물과 병사를 모두 없애면 승리.', '내 건물과 병사를 모두 잃으면 패배.']],
@@ -42,7 +50,8 @@ export class Lobby {
     div('modal-title', box, '게임 방법');
     const cols = div('howto-cols', box);
     const left = div('howto-col', cols), right = div('howto-col', cols);
-    HOW_TO.forEach(([head, lines], i) => {
+    HOW_TO.forEach(([head, base], i) => {
+      const lines = head === '조작' && touchMode() ? TOUCH_CONTROLS : base;
       const sec = div('howto-sec', i < 3 ? left : right);
       div('howto-head', sec, head);
       for (const line of lines) div('howto-line', sec, line);

@@ -9,7 +9,7 @@ export const GOLD = 'rgb(255,214,120)';
  *  .menu에 CSS zoom으로 입히고, 메뉴 안의 위치 계산은 이 배율로 나눈 '메뉴 픽셀'로 한다. */
 export function uiScale(): number {
   const s = Math.min(window.innerWidth / 1280, window.innerHeight / 800);
-  return Math.min(Math.max(s, 0.6), 1.4);
+  return Math.min(Math.max(s, document.body.classList.contains('touch') ? 0.5 : 0.6), 1.4);   // 휴대폰 가로 화면은 더 작게
 }
 
 export function applyUiScale() {

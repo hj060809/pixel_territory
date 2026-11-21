@@ -140,11 +140,62 @@ canvas#menu-art { position: fixed; inset: 0; width: 100vw; height: 100vh; displa
 .act-key { position: absolute; left: 4px; top: 2px; font: bold 12px 'Malgun Gothic', sans-serif; color: rgb(255, 214, 120);
   text-shadow: 1px 1px 0 #000; pointer-events: none; }
 
-/* 모바일 안내 (플레이 불가) */
-.mobile-block { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px;
-  background: rgba(8, 10, 14, 0.55); z-index: 20; }
-.mobile-block .box { max-width: 420px; padding: 22px 20px; text-align: center; line-height: 1.6; font-size: 15px;
-  color: rgb(238, 232, 214); background: rgba(16, 18, 24, 0.88); border: 2px solid rgb(120, 104, 70);
-  text-shadow: 1px 2px 0 #000; word-break: keep-all; }
-.mobile-block .title { font-size: 20px; font-weight: bold; color: rgb(255, 214, 120); margin-bottom: 10px; }
-.mobile-block .dim { margin-top: 10px; font-size: 13px; color: rgb(170, 168, 160); }
+/* 가림 방지: 아래에 병사·건물·배가 있으면 반투명 (누르기는 그대로) */
+.covered { opacity: 0.28 !important; transition: opacity 0.2s; }
+.action-bar.covered, .t-top.covered, .t-groups.covered, .t-side.covered, .t-selrow.covered { opacity: 0.55 !important; }
+
+/* 세로 화면 안내 (터치 기기) */
+.rotate-notice { display: none; }
+@media (orientation: portrait) and (pointer: coarse) {
+  .rotate-notice { display: flex; position: fixed; inset: 0; z-index: 60; align-items: center; justify-content: center; padding: 20px;
+    text-align: center; background: rgba(8, 10, 14, 0.94); color: rgb(255, 214, 120); font-size: 19px; font-weight: bold;
+    word-break: keep-all; }
+  .rotate-notice .dim { margin-top: 8px; font-size: 13px; font-weight: normal; color: rgb(170, 168, 160); }
+}
+
+/* 터치 화면 (body.touch) */
+body.touch { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+body.touch canvas#view { touch-action: none; }
+body.touch button { touch-action: manipulation; }
+.t-root { display: none; }
+body.touch .t-root { display: block; }
+.t-btn { box-sizing: border-box; min-width: 44px; height: 44px; padding: 0 10px; font: bold 15px 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+  color: rgb(238, 232, 214); background: rgba(46, 52, 64, 0.92); border: 2px solid rgb(96, 100, 112); outline: 2px solid rgb(10, 10, 14);
+  box-shadow: inset 0 2px 0 rgb(86, 92, 104); text-shadow: 1px 1px 0 #000; white-space: nowrap; }
+.t-btn:active { background: rgb(68, 74, 86); }
+.t-btn.on { background: rgb(120, 92, 44); border-color: rgb(255, 214, 120); }
+.t-btn.warm { color: rgb(255, 220, 200); }
+.t-btn.ok { background: rgb(36, 102, 104); border-color: rgb(120, 214, 200); }
+.t-btn:disabled { opacity: 0.4; }
+.t-btn.wide { min-width: 120px; }
+.t-top { position: fixed; right: max(8px, env(safe-area-inset-right)); top: 8px; display: flex; gap: 8px; }
+.t-groups { position: fixed; left: max(8px, env(safe-area-inset-left)); top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 10px; }
+.t-group { position: relative; }
+.t-group::after { content: attr(data-count); position: absolute; right: 2px; bottom: 0; font-size: 10px; color: rgb(255, 214, 120); }
+.t-side { position: fixed; right: max(8px, env(safe-area-inset-right)); top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 10px; }
+.t-selrow { position: fixed; left: 50%; bottom: 74px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px;
+  padding: 4px 6px; background: rgba(0, 0, 0, 0.45); max-width: calc(100vw - 130px); }
+.t-sellabel { max-width: 34vw; padding: 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px;
+  color: rgb(238, 232, 214); text-shadow: 1px 1px 0 #000; }
+.t-selrow .t-btn { height: 38px; font-size: 13px; padding: 0 8px; }
+.t-confirm { position: fixed; display: none; gap: 8px; }
+.t-info { position: fixed; display: none; padding: 8px 10px; font-size: 13px; line-height: 1.45; color: rgb(238, 232, 214);
+  background: rgba(16, 18, 24, 0.92); border: 1px solid rgb(120, 104, 70); pointer-events: none; word-break: keep-all; }
+.t-menu-back { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.5); }
+.t-menu { box-sizing: border-box; width: min(600px, calc(100vw - 24px)); max-height: calc(100vh - 24px); overflow: auto; padding: 14px 16px;
+  background: rgba(16, 18, 24, 0.95); border: 2px solid rgb(120, 104, 70); color: rgb(238, 232, 214); }
+.t-menu-title { font-size: 20px; font-weight: bold; color: rgb(255, 214, 120); margin-bottom: 10px; }
+.t-menu-head { font-size: 15px; font-weight: bold; color: rgb(255, 214, 120); margin: 4px 0 6px; }
+.t-menu-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.t-help { font-size: 13px; line-height: 1.55; word-break: keep-all; }
+.t-help b { color: rgb(255, 214, 120); margin-right: 4px; }
+/* 터치일 때 기존 패널: 작게, 겹치지 않는 자리로 */
+body.touch .hud { font-size: 12px; line-height: 16px; padding: 4px 6px; left: max(8px, env(safe-area-inset-left)); }
+body.touch .hud-nations { top: 60px; font-size: 11px; line-height: 15px; }
+body.touch .hud-sel, body.touch .hud-hover { display: none !important; }
+body.touch .hud-prompt { top: 62px; bottom: auto !important; max-width: calc(100vw - 150px); white-space: normal; text-align: center;
+  font-size: 13px; word-break: keep-all; }
+body.touch .hud-msgs { left: 64px; bottom: 124px; font-size: 12px; }
+body.touch .action-bar { bottom: 6px; padding: 4px 6px; gap: 10px; }
+body.touch .act-btn { width: 50px; height: 50px; }
+body.touch .hud-banner { top: 96px; }
