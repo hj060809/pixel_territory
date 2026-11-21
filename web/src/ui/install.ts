@@ -1,7 +1,11 @@
-// 모바일은 웹 앱(홈 화면에 설치한 앱)으로만 플레이: 주소창 없이 화면 전체를 쓰려고.
-// 브라우저로 열면 게임 대신 이 안내 화면 (환경마다 설치 방법이 달라서 맞춰 보여 준다). PC는 해당 없음.
+// 모바일에서 브라우저로 열면: 웹 앱 설치(주소창 없이 화면 전체)와 브라우저에서 계속하기 중에서 고른다.
+// 설치 방법은 환경마다 달라서 맞춰 보여 준다. 브라우저에서 계속하면 '게임 시작'을 누를 때 주소창을 내린다 (안드로이드).
+// 브라우저를 고르면 기억해 두고 다음부터는 묻지 않는다 (이 브라우저에만). PC는 해당 없음.
 
-import { isStandalone } from './device.ts';
+import { canFullscreen, isStandalone } from './device.ts';
+
+const CHOSE_BROWSER = 'pt.browser';
+const choseBrowser = () => { try { return localStorage.getItem(CHOSE_BROWSER) === '1'; } catch { return false; } };
 
 // 안드로이드 Chrome: 설치할 수 있으면 이 이벤트가 온다 (페이지를 열자마자 올 수 있어서 처음부터 받아 둔다)
 let installEvent: any = null;
@@ -17,9 +21,9 @@ export function registerServiceWorker() {
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 }
 
-/** 모바일인데 앱으로 열지 않았으면 true (안내 화면을 띄워야 한다). ?nogate=1: 개발·시험용으로 건너뛰기. */
+/** 모바일인데 앱으로 열지 않았고 아직 브라우저를 고르지 않았으면 true (고르기 화면). ?nogate=1: 개발·시험용으로 건너뛰기. */
 export function needsInstall(touchDevice: boolean): boolean {
-  return touchDevice && !isStandalone() && !new URLSearchParams(location.search).has('nogate');
+  return touchDevice && !isStandalone() && !choseBrowser() && !new URLSearchParams(location.search).has('nogate');
 }
 
 type Env = 'kakao' | 'inapp' | 'ios' | 'samsung' | 'android';
@@ -33,8 +37,8 @@ function env(): Env {
   return 'android';
 }
 
-/** 설치 안내 화면을 띄운다 (메뉴·게임은 열지 않는다). */
-export function showInstallGate() {
+/** 고르기 화면: 앱 설치 안내 + 브라우저에서 계속하기 (onBrowser: 로비로). */
+export function showInstallGate(onBrowser: () => void) {
   const back = document.createElement('div');
   back.className = 'install-gate';
   const box = document.createElement('div');
@@ -48,8 +52,10 @@ export function showInstallGate() {
     return e;
   };
   add('img', 'icon', '').setAttribute('src', '/icon-192.png');
-  add('div', 'title', '앱으로 설치해서 플레이해 주세요');
-  add('div', 'why', '주소창 없이 화면 전체로 플레이하도록, 모바일에서는 홈 화면에 설치한 앱으로만 열립니다. 설치는 몇 초면 끝나고 따로 내려받는 것은 없습니다.');
+  add('div', 'title', '어떻게 플레이할까요?');
+  add('div', 'why', '<b>앱으로 설치</b>하면 홈 화면 아이콘으로 열고, 주소창 없이 화면 전체로 플레이합니다 (몇 초면 끝나고 따로 내려받는 것은 없습니다).'
+    + (canFullscreen() ? ' <b>브라우저에서 계속</b>해도 게임 시작을 누르면 주소창이 내려갑니다.' : ' 브라우저에서 계속하면 주소창이 보이는 채로 플레이합니다.'));
+  add('div', 'sub', '앱으로 설치하기');
   const steps = add('ol', 'steps', '');
   const step = (html: string) => { const li = document.createElement('li'); li.innerHTML = html; steps.appendChild(li); };
   const actions = add('div', 'actions', '');
@@ -110,6 +116,16 @@ export function showInstallGate() {
       copyBtn = button('주소 복사', copy);
     }
   }
+  const alt = add('div', 'alt', '');                 // 브라우저에서 계속하기 (기억해 두고 다음부터 묻지 않는다)
+  const go = document.createElement('button');
+  go.className = 't-btn';
+  go.textContent = '브라우저에서 계속하기';
+  go.addEventListener('click', () => {
+    try { localStorage.setItem(CHOSE_BROWSER, '1'); } catch { /* 저장 못 해도 그대로 */ }
+    back.remove();
+    onBrowser();
+  });
+  alt.appendChild(go);
   window.addEventListener('appinstalled', () => {
     add('div', 'done', '설치했습니다. 홈 화면의 Pixel Territory 아이콘으로 실행해 주세요.');
   });

@@ -215,3 +215,7 @@ body.touch .hud-banner { top: 96px; }
 .install-gate .key { padding: 0 4px; border: 1px solid rgb(120, 124, 136); font-size: 12px; }
 .install-gate .actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .install-gate .done { margin-top: 10px; color: rgb(140, 220, 160); }
+.install-gate .why b { color: rgb(238, 232, 214); }
+.install-gate .sub { clear: both; margin-top: 12px; font-weight: bold; color: rgb(255, 214, 120); }
+.install-gate .sub + .steps { margin-top: 4px; }
+.install-gate .alt { margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(120, 104, 70, 0.6); }

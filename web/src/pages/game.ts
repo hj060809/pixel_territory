@@ -52,9 +52,9 @@ class App {
   async boot() {
     const p = new URLSearchParams(location.search);
     registerServiceWorker();
-    if (needsInstall(isTouchDevice())) {      // 모바일은 홈 화면에 설치한 앱으로만 (주소창 없이 전체 화면). 브라우저면 설치 안내만
+    if (needsInstall(isTouchDevice())) {      // 모바일을 브라우저로 열면: 앱 설치 / 브라우저에서 계속하기 중에서 고른다
       this.startArt();
-      showInstallGate();
+      showInstallGate(() => void this.show('lobby'));
       return;
     }
     if (p.has('map') || p.has('quick')) {

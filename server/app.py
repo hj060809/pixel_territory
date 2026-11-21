@@ -254,14 +254,19 @@ def create_app(cfg: ServerConfig | None = None) -> FastAPI:
 
 class PrecompressedStatic(StaticFiles):
     """웹 빌드가 만들어 둔 파일.gz가 있고 브라우저가 gzip을 받으면 그것을 보낸다 (JS/CSS/HTML이 1/3 크기).
-    해시가 붙은 static/ 파일은 오래 캐시한다."""
+    해시가 붙은 static/ 파일은 오래 캐시하고, 나머지(index.html, manifest.json, sw.js, 아이콘)는 매번 새 버전이 있는지
+    확인하게 한다 (no-cache: 바뀌지 않았으면 304로 짧게). 그래야 다시 올린 뒤 휴대폰이 예전 화면을 붙들고 있지 않는다."""
 
     async def get_response(self, path, scope):
         resp = await super().get_response(path, scope)
+        static = path.replace(os.sep, '/').startswith('static/')     # 윈도우에서는 경로가 static\... 로 온다
+        cache = 'public, max-age=31536000, immutable' if static else 'no-cache'
+        if resp.status_code == 304:
+            resp.headers['Cache-Control'] = cache
+            return resp
         if resp.status_code != 200 or not hasattr(resp, 'path'):
             return resp
-        if path.startswith('static/'):
-            resp.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        resp.headers['Cache-Control'] = cache
         accept = dict(scope.get('headers') or []).get(b'accept-encoding', b'')
         gz = str(resp.path) + '.gz'
         if b'gzip' in accept and os.path.exists(gz):
