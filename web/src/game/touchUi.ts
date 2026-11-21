@@ -10,6 +10,7 @@ import type { Camera } from '../sim/camera.ts';
 import type { Controller } from './controller.ts';
 import type { GameState } from './state.ts';
 import type { TouchInput } from './touch.ts';
+import { addToHomeHint, canFullscreen, enterFullscreen, isStandalone } from '../ui/device.ts';
 
 export interface TouchUiHooks {
   st(): GameState | null;
@@ -135,7 +136,10 @@ export class TouchUi {
     item('같은 지도로 새 판', () => this.h.restart());
     item('새 지도', () => this.h.newMap());
     item('로비로', () => this.h.lobby());
+    if (canFullscreen() && !isStandalone() && !document.fullscreenElement) item('전체 화면 (주소창 내리기)', () => void enterFullscreen());
     item('닫기', () => {});
+    const hint = addToHomeHint();
+    if (hint) el('div', 't-help', box, hint);
     el('div', 't-menu-head', box, '조작');
     for (const [k, v] of HELP) {
       const line = el('div', 't-help', box);

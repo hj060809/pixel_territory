@@ -11,3 +11,28 @@ export function isTouchDevice(): boolean {
 /** 화면을 터치 방식으로 (body.touch: 터치용 버튼과 크기). */
 export function setTouchMode(on: boolean) { document.body.classList.toggle('touch', on); }
 export function touchMode(): boolean { return document.body.classList.contains('touch'); }
+
+/** 사이트가 전체 화면을 요청할 수 있나 (안드로이드 Chrome 등. 아이폰 Safari는 안 된다). */
+export function canFullscreen(): boolean {
+  return !!document.documentElement.requestFullscreen && document.fullscreenEnabled;
+}
+
+/** 홈 화면에 추가해서 앱처럼 열었나 (이미 주소창이 없다). */
+export function isStandalone(): boolean {
+  return matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || (navigator as any).standalone === true;
+}
+
+/** 전체 화면으로 (주소창을 내린다) + 가로로 고정. 사용자가 무언가를 누른 순간에만 된다 (브라우저 정책). */
+export async function enterFullscreen() {
+  if (!canFullscreen() || document.fullscreenElement || isStandalone()) return;
+  try {
+    await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+    await (screen.orientation as any)?.lock?.('landscape');
+  } catch { /* 거절되면 그대로 */ }
+}
+
+/** 주소창을 내릴 수 없는 기기 (아이폰 Safari)에서 보여 줄 안내. 이미 앱처럼 열었거나 내릴 수 있으면 null. */
+export function addToHomeHint(): string | null {
+  if (isStandalone() || canFullscreen()) return null;
+  return '주소창 없이 하려면: 공유 버튼 → 홈 화면에 추가';
+}

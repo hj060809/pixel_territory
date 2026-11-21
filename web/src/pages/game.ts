@@ -9,7 +9,7 @@ import { Lobby } from '../menu/lobby.ts';
 import { LobbyArt, type LobbyInfo } from '../menu/lobbyArt.ts';
 import { Setup, defaultSettings, type PlayRequest, type Settings } from '../menu/setup.ts';
 import { applyUiScale, shadeLeft, uiScale } from '../menu/widgets.ts';
-import { isTouchDevice, setTouchMode } from '../ui/device.ts';
+import { enterFullscreen, isTouchDevice, setTouchMode, touchMode } from '../ui/device.ts';
 
 type Screen = 'lobby' | 'setup' | 'game';
 
@@ -35,7 +35,10 @@ class App {
     this.artLoad = this.art.load().then((info) => { this.lobbyInfo = info; });
     this.artCanvas.id = 'menu-art';
     document.body.appendChild(this.artCanvas);
-    this.lobby = new Lobby(() => void this.show('setup'));
+    this.lobby = new Lobby(() => {
+      if (touchMode()) void enterFullscreen();     // 모바일: '게임 시작'을 누르는 순간 주소창을 내린다 (누른 순간에만 허용된다)
+      void this.show('setup');
+    });
     window.addEventListener('resize', () => { applyUiScale(); this.resizeArt(); this.setup?.layoutPreview(); });
     applyUiScale();
     window.addEventListener('keydown', (e) => {

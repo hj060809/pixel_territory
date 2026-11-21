@@ -2,7 +2,7 @@
 // 배경(LobbyArt)과 왼쪽 그늘은 메뉴 캔버스에 따로 그린다 (pages/game.ts).
 
 import { button, div, pixelTitle } from './widgets.ts';
-import { touchMode } from '../ui/device.ts';
+import { addToHomeHint, touchMode } from '../ui/device.ts';
 
 /** 터치 기기에서 '조작' 항목 대신 */
 const TOUCH_CONTROLS: string[] = [
@@ -40,7 +40,8 @@ export class Lobby {
     const col = div('lobby-buttons', this.el);
     button(col, '게임 시작', onStart, { size: 20, w: 260, h: 50 });
     button(col, '게임 방법', () => this.showHelp(), { size: 20, w: 260, h: 50 });
-    div('footer', this.el, '자원지를 차지하고, 병사와 건물로 지키세요.');
+    const hint = touchMode() ? addToHomeHint() : null;      // 아이폰: 사이트가 주소창을 못 내리니 홈 화면에 추가를 안내
+    div('footer', this.el, hint ? `자원지를 차지하고, 병사와 건물로 지키세요.   ·   ${hint}` : '자원지를 차지하고, 병사와 건물로 지키세요.');
   }
 
   showHelp() {
