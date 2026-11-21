@@ -10,6 +10,7 @@ import { LobbyArt, type LobbyInfo } from '../menu/lobbyArt.ts';
 import { Setup, defaultSettings, type PlayRequest, type Settings } from '../menu/setup.ts';
 import { applyUiScale, shadeLeft, uiScale } from '../menu/widgets.ts';
 import { enterFullscreen, isTouchDevice, setTouchMode, touchMode } from '../ui/device.ts';
+import { needsInstall, registerServiceWorker, showInstallGate } from '../ui/install.ts';
 
 type Screen = 'lobby' | 'setup' | 'game';
 
@@ -50,6 +51,12 @@ class App {
 
   async boot() {
     const p = new URLSearchParams(location.search);
+    registerServiceWorker();
+    if (needsInstall(isTouchDevice())) {      // 모바일은 홈 화면에 설치한 앱으로만 (주소창 없이 전체 화면). 브라우저면 설치 안내만
+      this.startArt();
+      showInstallGate();
+      return;
+    }
     if (p.has('map') || p.has('quick')) {
       const key = p.get('map') ?? (await (await fetch('/api/maps')).json()).demo[0].key;
       this.play({ key, options: {

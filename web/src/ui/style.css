@@ -199,3 +199,19 @@ body.touch .hud-msgs { left: 64px; bottom: 124px; font-size: 12px; }
 body.touch .action-bar { bottom: 6px; padding: 4px 6px; gap: 10px; }
 body.touch .act-btn { width: 50px; height: 50px; }
 body.touch .hud-banner { top: 96px; }
+
+/* 모바일 앱 설치 안내 (브라우저로 열었을 때) */
+.install-gate { position: fixed; inset: 0; z-index: 55; display: flex; align-items: center; justify-content: center; padding: 12px;
+  background: rgba(8, 10, 14, 0.6); overflow: auto; }
+.install-gate .box { box-sizing: border-box; width: min(560px, 100%); max-height: 100%; overflow: auto; padding: 16px 18px;
+  background: rgba(16, 18, 24, 0.94); border: 2px solid rgb(120, 104, 70); color: rgb(238, 232, 214); font-size: 14px; line-height: 1.55;
+  word-break: keep-all; text-shadow: 1px 1px 0 #000; }
+.install-gate .icon { float: left; width: 56px; height: 56px; margin: 0 12px 6px 0; image-rendering: pixelated; border: 2px solid rgb(10, 10, 14); }
+.install-gate .title { font-size: 19px; font-weight: bold; color: rgb(255, 214, 120); margin-bottom: 4px; }
+.install-gate .why { color: rgb(190, 186, 176); font-size: 13px; }
+.install-gate .steps { clear: both; margin: 12px 0 10px; padding-left: 22px; }
+.install-gate .steps li { margin-bottom: 4px; }
+.install-gate .steps b { color: rgb(255, 214, 120); }
+.install-gate .key { padding: 0 4px; border: 1px solid rgb(120, 124, 136); font-size: 12px; }
+.install-gate .actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.install-gate .done { margin-top: 10px; color: rgb(140, 220, 160); }
