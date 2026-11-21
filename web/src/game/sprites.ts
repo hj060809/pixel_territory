@@ -1,8 +1,9 @@
-// 픽셀 스프라이트 (데스크톱 game/sprites.py의 SpriteBank를 옮겼다).
-// - 어떤 지형 위에서도 보이게 어두운 1칸 테두리. 병사는 걷는 동안 다리가 번갈아 움직인다 (2프레임).
-// - 건물은 지붕/깃발에 나라 색, 짓는 중이면 반투명. 배는 왼쪽으로 갈 때 뒤집는다.
+// 그림 묶음: 유닛·건물·배·동물은 스프라이트 스태킹 (stack.ts, 아이콘은 정오 빛), 자원지 표시는 납작한 픽셀 그림.
+// 게임 화면은 stack으로 지금 빛·방향에 맞춰 그리고, 버튼·로비·설정 화면은 아래 함수(아이콘)를 쓴다.
 
 import { SPRITES } from './spriteData.ts';
+import { StackRenderer } from './stack.ts';
+import { model } from './models.ts';
 
 type Img = HTMLCanvasElement;
 const dark = (c: readonly number[], k = 0.6) => c.map((v) => Math.trunc(v * k));
@@ -45,7 +46,8 @@ function scaled(src: Img, k: number, flip = false): Img {
 
 export class SpriteBank {
   private cache = new Map<string, Img>();
-  constructor(private colors: number[][]) {}
+  readonly stack: StackRenderer;
+  constructor(colors: number[][]) { this.stack = new StackRenderer(colors); }
 
   private get(key: string, build: () => Img): Img {
     let s = this.cache.get(key);
@@ -53,23 +55,36 @@ export class SpriteBank {
     return s;
   }
 
+  /** 병사 아이콘 (조금 비스듬히 앞을 본다. flip: 왼쪽). */
   unit(kind: number, nid: number, frame: number, k: number, flip = false): Img {
-    return this.get(`u${kind},${nid},${frame},${k},${flip}`,
-      () => scaled(make(SPRITES.units[kind][frame], this.colors[nid]), k, flip));
+    return this.stack.icon(`u${kind}`, nid, k, { frame, dir: flip ? 7 : 1 });
   }
 
   building(kind: number, nid: number, k: number, ghost = false): Img {
-    return this.get(`b${kind},${nid},${k},${ghost}`,
-      () => scaled(make((SPRITES.buildings as any)[kind], this.colors[nid], ghost ? 120 : 255), k));
+    const img = this.stack.icon(`b${kind}`, nid, k, { dirs: 4 });
+    if (!ghost) return img;
+    return this.get(`g${kind},${nid},${k}`, () => {
+      const c = document.createElement('canvas');
+      c.width = img.width; c.height = img.height;
+      const g = c.getContext('2d')!;
+      g.globalAlpha = 0.5;
+      g.drawImage(img, 0, 0);
+      return c;
+    });
   }
 
   ship(kind: 'ferry' | 'warship', nid: number, k: number, left = false): Img {
-    return this.get(`s${kind},${nid},${k},${left}`, () => scaled(make(SPRITES.ships[kind], this.colors[nid]), k, left));
+    return this.stack.icon(kind, nid, k, { dir: left ? 7 : 1 });
+  }
+
+  /** 야생 동물 (나라 색 없음). frame: 0 서 있기, 1 달리기, 2 풀 뜯기, 3 앞발 들기. */
+  animal(name: 'horse', frame: number, k: number, flip = false): Img {
+    return this.stack.icon(name, 0, k, { frame, dir: flip ? 7 : 1 });
   }
 
   site(kind: number, k: number): Img {
     return this.get(`t${kind},${k}`, () => scaled(make((SPRITES.sites as any)[kind], [0, 0, 0], 200), k));
   }
 
-  static buildingWidth(kind: number): number { return (SPRITES.buildings as any)[kind][0].length; }
+  static buildingWidth(kind: number): number { return model(`b${kind}`).W; }
 }

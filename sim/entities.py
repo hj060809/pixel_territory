@@ -6,6 +6,7 @@
 - AMOVE: 공격하며 이동. 가다가 시야 안의 적과 싸운다
 - ATTACK: 정해 준 적 병사/건물을 쫓아가 친다
 - BUILD: 건물 자리로 가서 짓는다
+- TAME: 야생 동물에게 곧장 다가가 길들인다 (sim/wildlife.py가 움직인다. 싸우지 않는다)
 
 자연: 숲 속의 병사는 화살을 덜 맞는다 (cover). 걷는 속도는 지형을 따른다 (평지 1, 숲·습지·산은 느리다).
 """
@@ -13,7 +14,7 @@ from __future__ import annotations
 
 import numpy as np
 
-IDLE, MOVE, AMOVE, ATTACK, BUILD = range(5)
+IDLE, MOVE, AMOVE, ATTACK, BUILD, TAME = range(6)
 
 
 class Units:

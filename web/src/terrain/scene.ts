@@ -93,6 +93,15 @@ export class TerrainScene {
     this.renderer.present(canvasW, canvasH, camX, camY, zoom);
   }
 
+  /** 밤의 횃불 (지도 칸 [x, y, 세기]...). 바뀌면 빛을 다시 입힌다. */
+  setTorches(pts: Float32Array) {
+    if (pts.length === 0 && this.torchCount === 0) return;
+    this.renderer.setTorches(pts);
+    this.torchCount = pts.length;
+    this.dirty = true;
+  }
+  private torchCount = 0;
+
   /** 정해진 순간 하나를 그려 지도 해상도 RGBA로 돌려준다 (기준 그림 비교용). season: null이면 계절 효과 없이. */
   async renderAt(season: number[] | null, waveT: number | null, hour: number): Promise<Uint8Array> {
     const f = await this.client.request(season, waveT);

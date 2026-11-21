@@ -9,8 +9,9 @@ import type { GameState } from './state.ts';
 
 /** 숫자 키 1~ → 건물 종류 번호 (sim/rules.py: 거점 0, 농장 1, 벌목장 2, 채석장 3, 망루 4, 항구 5). 7~9는 나중 건물용. */
 export const BUILD_KEYS = [0, 4, 5, 1, 2, 3];
-/** Q W E (R T Y는 나중 병종용) */
+/** Q W E (R T Y는 나중 병종용). 기병(창기병, 기마궁수)은 버튼이 없다: 병사로 야생말을 길들인다. */
 export const TRAIN_KEYS: [string, TrainKind][] = [['q', 'infantry'], ['w', 'archer'], ['e', 'warship']];
+const UNIT_OF: Record<string, number> = { infantry: 0, archer: 1 };
 
 const ICON = 40;      // 아이콘 칸 (CSS 픽셀)
 
@@ -35,7 +36,7 @@ export class ActionBar {
     const R = st.info.rules, me = st.info.me;
     this.el.className = 'action-bar';
     const group = () => { const d = document.createElement('div'); d.className = 'act-group'; this.el.appendChild(d); return d; };
-    const make = (parent: HTMLElement, key: string, img: HTMLCanvasElement, name: string, cost: number[]) => {
+    const make = (parent: HTMLElement, key: string, img: HTMLCanvasElement, name: string, cost: number[], extra = '') => {
       const b = document.createElement('button');
       b.className = 'act-btn';
       const k = document.createElement('div');
@@ -43,7 +44,7 @@ export class ActionBar {
       k.textContent = key.toUpperCase();
       b.append(k, icon(img));
       const c = cost.map((v, i) => (v ? `${R.res_names[i]} ${v}` : '')).filter(Boolean).join(', ');
-      b.title = `${name}  [${key.toUpperCase()}]${c ? `\n${c}` : ''}`;
+      b.title = `${name}  [${key.toUpperCase()}]${c || extra ? `\n${[c, extra].filter(Boolean).join(', ')}` : ''}`;
       b.addEventListener('mousedown', (e) => e.stopPropagation());
       parent.appendChild(b);
       return b;
@@ -56,9 +57,10 @@ export class ActionBar {
     });
     const gu = group();
     for (const [key, what] of TRAIN_KEYS) {
-      const img = what === 'warship' ? bank.ship('warship', me, 1) : bank.unit(what === 'infantry' ? 0 : 1, me, 0, 1);
-      const cost = what === 'warship' ? R.warship_cost : R.unit_cost[what === 'infantry' ? 0 : 1];
-      const name = what === 'warship' ? '전함' : R.unit_names[what === 'infantry' ? 0 : 1];
+      const ui = UNIT_OF[what];
+      const img = what === 'warship' ? bank.ship('warship', me, 1) : bank.unit(ui, me, 0, 1);
+      const cost = what === 'warship' ? R.warship_cost : R.unit_cost[ui];
+      const name = what === 'warship' ? '전함' : R.unit_names[ui];
       const el = make(gu, key, img, name, cost);
       el.addEventListener('click', () => this.ctl.train(what));
       this.btns.push({ el, cost, train: what });

@@ -2,7 +2,8 @@
 데스크톱 판(최상위 game/app.py)의 _command / _place / _train과 같은 규칙이다. 서버가 이것으로 처리하고,
 브라우저는 '어디를 클릭했는지'만 보낸다.
 
-오른쪽 클릭 (병사):  적 병사 → 공격 / 적 건물 → 공격 / 짓다 만 내 건물 → 거들기 /
+오른쪽 클릭 (병사):  적 병사 → 공격 / 야생 동물 → 그 무리를 길들이러 (동물마다 가까운 병사 하나씩) /
+                     적 건물 → 공격 / 짓다 만 내 건물 → 거들기 /
                      빈 자원지 → 가까운 3명이 짓고 나머지는 곁을 지킨다 / 그 밖 → 이동 (A를 눌렀으면 공격하며 이동)
 오른쪽 클릭 (전함):  적 배 → 쫓아가 공격 / 물 → 이동
 오른쪽 클릭 (병사를 태운 나룻배):  물 → 그 자리로 가서 기다림 / 땅 → 가까운 해안에 내려 주고 병사는 그곳으로
@@ -14,9 +15,9 @@ import numpy as np
 from sim import rules as R
 
 PLACE_KINDS = {'tower': R.TOWER, 'hall': R.HALL, 'harbor': R.HARBOR,
-               'farm': R.FARM, 'lumber': R.LUMBER, 'quarry': R.QUARRY}      # 뒤의 셋은 빈 자원지에
-SITE_OF = {v: k for k, v in R.SITE_BUILDING.items()}                       # 건물 → 자원 종류
-TRAIN_KINDS = {'infantry': R.INFANTRY, 'archer': R.ARCHER, 'warship': R.WARSHIP}
+               'farm': R.FARM, 'lumber': R.LUMBER, 'quarry': R.QUARRY}   # 뒤의 셋은 빈 자원지에
+SITE_OF = {v: k for k, v in R.SITE_BUILDING.items()}                       # 건물 → 자원지 종류
+TRAIN_KINDS = {'infantry': R.INFANTRY, 'archer': R.ARCHER, 'warship': R.WARSHIP}     # 기병은 훈련하지 않는다 (길들인다)
 
 
 class PlayerCommands:
@@ -46,7 +47,7 @@ class PlayerCommands:
 
     # ------------------------------------------------------------- 오른쪽 클릭
     def command(self, unit_refs, ship_ids, x, y, attack=False, r=2.0) -> str | None:
-        """반환: 화면에 표시할 명령 종류 ('attack' / 'build' / 'move' / 'amove' / 'ship' / None)."""
+        """반환: 화면에 표시할 명령 종류 ('attack' / 'tame' / 'build' / 'move' / 'amove' / 'ship' / None)."""
         w = self.w
         sel = self.units(unit_refs)
         boats = self.ships(ship_ids)
@@ -70,6 +71,9 @@ class PlayerCommands:
         if foe >= 0 and w.units.own[foe] != self.nid:
             w.order_attack(sel, unit=foe)
             return 'attack'
+        a = self._animal_at(y, x, max(1.8, r))
+        if a is not None and not attack:
+            return 'tame' if w.wild.order_tame(self.nid, sel, a) else None
         b = w.building_at(y, x)
         if b >= 0 and w.builds.own[b] != self.nid:
             w.order_attack(sel, building=b)
@@ -91,6 +95,14 @@ class PlayerCommands:
             return 'amove' if attack else 'move'
         return None
 
+    def _animal_at(self, y, x, r):
+        best, bd = None, r
+        for a in self.w.wild.animals.values():
+            d = float(np.hypot(a.x - x, a.y - 0.4 - y))          # 그림 가운데 (발보다 조금 위)
+            if d < bd:
+                best, bd = a.id, d
+        return best
+
     def _builders(self, sel, y, x, k=3):
         """고른 병사 중 가장 가까운 몇 명이 짓는다."""
         u = self.w.units
@@ -107,7 +119,7 @@ class PlayerCommands:
         if kind in SITE_OF:
             site = self._free_site(SITE_OF[kind], y, x, 8.0)
             if site < 0:
-                w.say(f'{R.BUILD_NAMES[kind]}은(는) 빈 {R.RES_NAMES[SITE_OF[kind]]} 자원지에 지어야 합니다')
+                w.say(f'{R.josa(R.BUILD_NAMES[kind], "은", "는")} 빈 {R.RES_NAMES[SITE_OF[kind]]} 자리에 지어야 합니다')
                 return False
             y, x = w.sites[site].y, w.sites[site].x
         sel = self.units(unit_refs)

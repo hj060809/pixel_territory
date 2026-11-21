@@ -67,6 +67,9 @@ class Bot:
                 pick = self._nearest(w, idle, b.y[f], b.x[f], 2)
                 w.order_build(pick, f)
                 idle = np.setdiff1d(idle, pick)
+        # 7. 길들이기: 집 가까이(같은 땅)에 야생 동물이 있으면 쉬는 병사 몇을 보낸다
+        if len(idle) >= 4 and threat is None and self.rng.random() < 0.5:
+            idle = self._tame(w, idle, home)
         # 2. 확장
         if len(builders) < 4 and len(idle) >= 3 and self.rng.random() < self.greed:
             site = self._pick_site(w, nat, home)
@@ -163,6 +166,24 @@ class Bot:
             return None
         j = foes[close][0]
         return float(u.y[j]), float(u.x[j])
+
+    def _tame(self, w, idle, home):
+        u, comp = w.units, w.map.comp
+        hc = comp[int(home[0]), int(home[1])]
+        best, bd = None, 45.0
+        for a in w.wild.animals.values():
+            if comp[int(a.y), int(a.x)] != hc or w.wild.taming(a.id):
+                continue
+            d = np.hypot(a.y - home[0], a.x - home[1])
+            if d < bd:
+                best, bd = a, d
+        if best is None:
+            return idle
+        ok = idle[np.isin(u.kind[idle], list(R.WILDLIFE[best.kind]['mounts']))]
+        pick = self._nearest(w, ok, best.y, best.x, 2) if len(ok) else ok
+        if len(pick) and w.wild.order_tame(self.id, pick, best.id, quiet=True):
+            idle = np.setdiff1d(idle, pick)
+        return idle
 
     def _pick_site(self, w, nat, home):
         u = w.units

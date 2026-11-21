@@ -27,9 +27,14 @@ def rules_info() -> dict:
     from sim.terrain import FORD_COST, SEA_ICE_COST, SNOWY
     return {
         'res_names': list(R.RES_NAMES), 'unit_names': list(R.UNIT_NAMES), 'build_names': list(R.BUILD_NAMES),
-        'unit_hp': [R.UNIT_STATS[k]['hp'] for k in (R.INFANTRY, R.ARCHER)],
-        'unit_cost': [list(R.UNIT_STATS[k]['cost']) for k in (R.INFANTRY, R.ARCHER)],
-        'unit_time': [R.UNIT_STATS[k]['time'] for k in (R.INFANTRY, R.ARCHER)], 'warship_time': R.WARSHIP_TIME,
+        'unit_hp': [R.UNIT_STATS[k]['hp'] for k in range(len(R.UNIT_STATS))],
+        'unit_cost': [list(R.UNIT_STATS[k]['cost']) for k in range(len(R.UNIT_STATS))],
+        'unit_time': [R.UNIT_STATS[k]['time'] for k in range(len(R.UNIT_STATS))], 'warship_time': R.WARSHIP_TIME,
+        'unit_speed': [R.UNIT_STATS[k]['speed'] for k in range(len(R.UNIT_STATS))],
+        'unit_dmg': [R.UNIT_STATS[k]['dmg'] for k in range(len(R.UNIT_STATS))],
+        'trainable': list(R.TRAINABLE), 'mounted': sorted(R.MOUNTED),
+        'wildlife': {str(k): {'name': a['name'], 'tame': a['tame'], 'mounts': {str(u): v for u, v in a['mounts'].items()}}
+                     for k, a in R.WILDLIFE.items()},
         'build': {str(k): {'r': v['r'], 'cost': list(v['cost']), 'hp': v['hp']} for k, v in R.BUILD_STATS.items()},
         'kinds': {'HALL': R.HALL, 'FARM': R.FARM, 'LUMBER': R.LUMBER, 'QUARRY': R.QUARRY, 'TOWER': R.TOWER,
                   'HARBOR': R.HARBOR},

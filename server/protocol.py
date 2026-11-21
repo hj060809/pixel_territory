@@ -13,13 +13,18 @@
     u16 m, 그다음 m개: u16 칸 (사라진 병사)
     -- 건물 (바뀐 것만) --
     u16 n, 그다음 n개: u16 칸, u16 세대, u16 x×2, u16 y×2, u8 종류, u8 나라, u8 체력(0~255), u8 지은 정도(0~255),
-                      u8 대기열 길이, u8 맨 앞 종류(0 보병 1 궁수 2 전함 255 없음), u16 맨 앞 남은 시간×10, i16 자원지 = 20바이트
+                      u8 대기열 길이, u8 맨 앞 종류(0 보병 1 궁수 2 전함 255 없음), u16 맨 앞 남은 시간×10, i16 자원지,
+                      u16 대기열 앞 5개 (3비트씩)                                                = 22바이트
     u16 m, 그다음 m개: u16 칸 (사라진 건물)
     -- 배 (전부, 수가 적다) --
     u16 n, 그다음 n개: u32 번호, u8 종류(0 나룻배 1 전함), u8 나라, u16 x×64, u16 y×64, u8 체력(0~255), i8 방향,
                       u8 상태, u8 탄 병사 수, u8 비트(1 출발 전이라 숨김)                          = 17바이트
     -- 공격 (이번 걸음에 새로 난 것) --
     u16 n, 그다음 n개: u16 x0×64, u16 y0×64, u16 x1×64, u16 y1×64, u8 종류(0 칼 1 화살·망루 2 포탄) = 9바이트
+    -- 야생 동물 (바뀐 것만) --
+    u16 n, 그다음 n개: u32 번호, u8 종류(rules.WILDLIFE), u16 x×64, u16 y×64, u8 상태(0 풀 뜯기 1 거닒 2 달아남 3 기다림 4 길드는 중),
+                      u8 길든 정도(0~255), i8 방향                                              = 12바이트
+    u16 m, 그다음 m개: u32 번호 (사라진 동물: 길들었거나 물에 빠짐)
     -- 나라 (몇 걸음마다) --
     u8 있음(0/1), 있으면 u8 n, 그다음 n개: f32 자원×3, f32 증감×3, u16 병사 수, u16 건물 수, u8 살아 있음, u8 굶주림 = 30바이트
 """
@@ -35,8 +40,8 @@ MSG_STATE = 1
 POS = 64.0                         # 위치 단위 (1/64칸)
 BOAT_STATES = {'idle': 0, 'move': 1, 'hunt': 2, 'pickup': 3, 'wait': 4, 'cross': 5, 'return': 6,
                'load': 7, 'ahead': 8, 'anchor': 9}     # 나룻배: 항구에서 태우는 중 / 앞바다로 / 기다림
-_U_HP = np.array([R.UNIT_STATS[R.INFANTRY]['hp'], R.UNIT_STATS[R.ARCHER]['hp']], np.float32)
-_QUEUE_KIND = {R.INFANTRY: 0, R.ARCHER: 1, R.WARSHIP: 2}
+_U_HP = np.array([R.UNIT_STATS[k]['hp'] for k in range(len(R.UNIT_STATS))], np.float32)
+_QUEUE_KIND = {R.INFANTRY: 0, R.ARCHER: 1, R.WARSHIP: 2}    # 대기열 병종 번호
 
 
 def _q(v, scale=POS):
@@ -50,16 +55,19 @@ class StateEncoder:
                         ('hp', 'u1'), ('state', 'u1'), ('bits', 'u1')])
     BUILD_DT = np.dtype([('slot', '<u2'), ('gen', '<u2'), ('x', '<u2'), ('y', '<u2'), ('kind', 'u1'), ('own', 'u1'),
                          ('hp', 'u1'), ('prog', 'u1'), ('qlen', 'u1'), ('qkind', 'u1'), ('qtime', '<u2'), ('site', '<i2'),
-                         ('qbits', '<u2')])     # 대기열 내용: 앞에서부터 5개까지 2비트씩 (0 없음, 1 보병, 2 궁수, 3 전함)
+                         ('qbits', '<u2')])   # qbits: 대기열 앞 5개를 3비트씩 (0 없음, 대기열 병종 번호+1)
     BOAT_DT = np.dtype([('id', '<u4'), ('kind', 'u1'), ('own', 'u1'), ('x', '<u2'), ('y', '<u2'), ('hp', 'u1'),
                         ('dir', 'i1'), ('state', 'u1'), ('cargo', 'u1'), ('bits', 'u1')])
     SHOT_DT = np.dtype([('x0', '<u2'), ('y0', '<u2'), ('x1', '<u2'), ('y1', '<u2'), ('kind', 'u1')])
+    ANIMAL_DT = np.dtype([('id', '<u4'), ('kind', 'u1'), ('x', '<u2'), ('y', '<u2'), ('state', 'u1'), ('prog', 'u1'),
+                          ('dir', 'i1')])
     NATION = struct.Struct('<6f2HBB')
 
     def __init__(self, world):
         self.w = world
         self.prev_units = np.zeros(0, self.UNIT_DT)
         self.prev_builds = np.zeros(0, self.BUILD_DT)
+        self.prev_animals: dict = {}
         self.shot_time = -1.0
         self.tick = 0
 
@@ -69,6 +77,7 @@ class StateEncoder:
             self.w = world
         self.prev_units = np.zeros(0, self.UNIT_DT)
         self.prev_builds = np.zeros(0, self.BUILD_DT)
+        self.prev_animals = {}
         self.shot_time = -1.0
 
     # ------------------------------------------------------------- 지금 상태 → 배열
@@ -103,7 +112,7 @@ class StateEncoder:
                 a['qlen'][i] = min(len(q), 255)
                 a['qkind'][i] = _QUEUE_KIND.get(q[0][0], 255)
                 a['qtime'][i] = min(int(round(q[0][1] * 10)), 65535)
-                a['qbits'][i] = sum((_QUEUE_KIND.get(item[0], 0) + 1) << (2 * k) for k, item in enumerate(q[:5]))
+                a['qbits'][i] = sum((_QUEUE_KIND.get(item[0], 0) + 1) << (3 * k) for k, item in enumerate(q[:5]))
         return a, b.alive[:n].copy()
 
     @staticmethod
@@ -151,6 +160,15 @@ class StateEncoder:
         for i, (_, x0, y0, x1, y1, kind) in enumerate(new):
             s[i] = (_q(x0), _q(y0), _q(x1), _q(y1), int(kind))
         parts.append(struct.pack('<H', len(s)) + s.tobytes())
+        # 야생 동물: 바뀐 것과 사라진 것
+        cur = {}
+        for an in w.wild.animals.values():
+            cur[an.id] = (an.id, an.kind, int(_q(an.x)), int(_q(an.y)), an.mode, int(min(an.prog, 1.0) * 255), an.dir)
+        ch = [r for k, r in cur.items() if self.prev_animals.get(k) != r]
+        gone = np.array([k for k in self.prev_animals if k not in cur], '<u4')
+        a = np.array(ch, self.ANIMAL_DT) if ch else np.zeros(0, self.ANIMAL_DT)
+        parts.append(struct.pack('<H', len(a)) + a.tobytes() + struct.pack('<H', len(gone)) + gone.tobytes())
+        self.prev_animals = cur
         # 나라
         if nations:
             body = b''.join(self.NATION.pack(*n.res, *n.rate, min(n.n_units, 65535), min(n.n_buildings, 65535),
@@ -182,6 +200,8 @@ def decode(blob: bytes) -> dict:
     out['builds_gone'] = arr(np.dtype('<u2'))
     out['boats'] = arr(StateEncoder.BOAT_DT)
     out['shots'] = arr(StateEncoder.SHOT_DT)
+    out['animals'] = arr(StateEncoder.ANIMAL_DT)
+    out['animals_gone'] = arr(np.dtype('<u4'))
     has = blob[off]
     off += 1
     if has:

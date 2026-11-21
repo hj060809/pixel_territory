@@ -31,7 +31,7 @@ def _downhill(f, x, y, H, W):
 @njit(cache=True, nogil=True)
 def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, usearch, uanim, umoving, ualive, uaboard,
          nb, bx, by, bkind, bown, bhp, br, bprog, bcd, balive,
-         k_speed, k_range, k_dmg, k_cd, k_sight, k_ranged,
+         k_speed, k_range, k_dmg, k_cd, k_sight, k_ranged, k_terrain, k_charge, k_vs,
          walk, speed_mul, cover, fields, ready, tower_kind, tower_range, tower_dmg, tower_cd,
          shots, builders):
     H, W = walk.shape
@@ -114,7 +114,10 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
                 if ucd[i] <= 0:
                     ucd[i] = k_cd[k]
                     dmg = k_dmg[k]
+                    if umoving[i]:                  # 달려와서 처음 치는 한 방 (기병 돌격)
+                        dmg *= k_charge[k]
                     if utgt[i] >= 0:
+                        dmg *= k_vs[k, ukind[t]]    # 상성 (보병 → 기병, 기병 → 궁수)
                         if k_ranged[k]:
                             dmg *= cover[int(uy[t]), int(ux[t])]
                         uhp[t] -= dmg
@@ -123,7 +126,7 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
                     else:
                         bhp[t] -= dmg
                     if ns < shots.shape[0]:
-                        shots[ns, 0], shots[ns, 1], shots[ns, 2], shots[ns, 3], shots[ns, 4] = ux[i], uy[i], tx, ty, k
+                        shots[ns, 0], shots[ns, 1], shots[ns, 2], shots[ns, 3], shots[ns, 4] = ux[i], uy[i], tx, ty, 1 if k_ranged[k] else 0
                         ns += 1
             elif st == ATTACK and uslot[i] >= 0 and dist > sight and ready[uslot[i]]:
                 dx, dy, _, _ = _downhill(fields[uslot[i]], ux[i], uy[i], H, W)   # 멀면 길을 따라간다
@@ -176,7 +179,7 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
                             sy += (np.random.random() - 0.5)
                     j = nxt[j]
         L = np.sqrt(dx * dx + dy * dy)
-        sp = k_speed[k] * speed_mul[int(uy[i]), int(ux[i])]
+        sp = k_speed[k] * speed_mul[int(uy[i]), int(ux[i])] ** k_terrain[k]   # 지형을 타는 정도 (병종마다, 지금은 모두 1)
         vx, vy = 0.0, 0.0
         if L > 1e-6:
             vx, vy = dx / L * sp, dy / L * sp

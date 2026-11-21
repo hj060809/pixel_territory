@@ -42,6 +42,8 @@ def sites_for(gmap, map_seed: int) -> list[Site]:
 
 # 지도마다 종류별 최소 개수: 육지 넓이에 비례하는 목표의 절반, 아래 한도는 이만큼 (작은 섬 지도에서도 자원이 모자라지 않게)
 MIN_FLOOR = {FOOD: 5, WOOD: 5, STONE: 3}
+# 시작할 수 있는 섬마다 목재 자원지 최소 개수: 이 넓이(칸) 이상이면 2개, 아니면 1개 (어디서 시작해도 목재가 조금은 있게)
+WOOD_ISLAND_BIG = 8000
 
 # 기준에 맞는 곳이 모자랄 때 '가장 비슷한 곳'을 고르는 재질 점수 (1 = 기준에 맞음)
 _LIKE = {
@@ -65,6 +67,20 @@ def _like_score(gmap, kind, mat, walk):
     elif kind == STONE:                                # 험할수록
         like = like * (0.7 + 0.3 * np.clip((gmap.base_cost - 1.0) / 1.5, 0, 1))
     return ndimage.uniform_filter(like.astype(np.float32), 9) * walk
+
+
+def _most_like(kind, mat, walk, y, x, r=4):
+    """(y, x) 둘레 r칸 안에서 그 종류와 가장 비슷한 재질의 칸 (같으면 가까운 쪽)."""
+    lut = np.full(256, 0.1, np.float32)
+    for m, v in _LIKE[kind].items():
+        lut[m] = v
+    H, W = mat.shape
+    y0, y1, x0, x1 = max(y - r, 0), min(y + r + 1, H), max(x - r, 0), min(x + r + 1, W)
+    score = lut[mat[y0:y1, x0:x1]] * walk[y0:y1, x0:x1]
+    yy, xx = np.mgrid[y0:y1, x0:x1]
+    score = score - 0.01 * np.hypot(yy - y, xx - x)
+    k = np.unravel_index(int(np.argmax(score)), score.shape)
+    return int(yy[k]), int(xx[k])
 
 
 def _spread(order, ys, xs, pool, npool, spacing, limit):
@@ -128,4 +144,43 @@ def find_sites(gmap, rng, spacing: float = 30.0) -> list[Site]:
             sites.append(Site(len(sites), kind, x, y, r, float(gmap.cold[y, x])))
         if chosen:
             taken = np.vstack([taken, np.array(chosen)])
+    _wood_per_island(gmap, sites, mat, walk, spacing)
     return sites
+
+
+def _wood_per_island(gmap, sites, mat, walk, spacing):
+    """시작할 수 있는 섬마다 목재 자원지를 1~2개 (넓은 섬 2개). 모자라면 그 섬에서 숲과 가장 비슷한 곳
+    (숲 → 관목 → 습지 → 사바나 → 풀밭, 그런 칸이 넓게 모인 곳의 가운데)에 둔다. 작은 섬에도 들어가게 간격은 필요하면 줄인다.
+    기준대로 생긴 목재가 이미 있는 섬은 그대로."""
+    from sim.spawn import start_islands
+    comp = gmap.comp
+    area = np.bincount(comp[gmap.land & (comp > 0)], minlength=int(comp.max()) + 1)
+    like = None
+    for c in start_islands(gmap, sites):
+        need = 2 if area[c] >= WOOD_ISLAND_BIG else 1
+        have = sum(1 for s in sites if s.kind == WOOD and comp[s.y, s.x] == c)
+        if have >= need:
+            continue
+        if like is None:
+            like = _like_score(gmap, WOOD, mat, walk)
+        fb = np.random.default_rng([WOOD, int(c), gmap.land_count])          # 섬마다 따로 쓰는 난수 (다른 자리는 그대로)
+        pool = np.zeros((len(sites) + need, 2))
+        pool[:len(sites)] = [(s.y, s.x) for s in sites]
+        npool, got = len(sites), []
+        # 숲과 비슷한 정도를 간격보다 먼저: 풀밭 이상으로 비슷한 곳에서 간격을 줄여 가며 찾고, 그래도 없을 때만 다른 곳
+        for floor in (0.3, 0.02):
+            ys, xs = np.nonzero((comp == c) & walk & (like > floor))
+            if not len(ys):
+                continue
+            order = np.argsort(-(like[ys, xs] * fb.uniform(0.95, 1.05, len(ys))))[:20000]
+            for gap in (spacing * 0.6, spacing * 0.35, 6.0):
+                more, npool = _spread(order, ys, xs, pool, npool, gap, need - have - len(got))
+                got += more
+                if have + len(got) >= need:
+                    break
+            if have + len(got) >= need:
+                break
+        for y, x in got:
+            y, x = _most_like(WOOD, mat, walk, int(y), int(x))              # 둘레 4칸 안에서 가장 숲다운 칸에 (아이콘이 숲 위에)
+            rich = float(np.clip(0.4 + 0.5 * like[y, x], 0.6, 1.0))      # 숲과 비슷할수록 풍부하게 (진짜 숲보다는 덜)
+            sites.append(Site(len(sites), WOOD, x, y, rich, float(gmap.cold[y, x])))

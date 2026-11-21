@@ -4,6 +4,8 @@ export const POS = 64;
 
 export interface UnitRec { slot: number; gen: number; x: number; y: number; own: number; kind: number; hp: number; state: number; bits: number }
 export interface BuildRec { slot: number; gen: number; x: number; y: number; kind: number; own: number; hp: number; prog: number; qlen: number; qkind: number; qtime: number; site: number; qbits: number }
+/** 야생 동물. state: 0 풀 뜯기 1 거닒 2 달아남 3 길들이러 오는 병사를 기다림 4 길드는 중. prog: 길든 정도 0~1. */
+export interface AnimalRec { id: number; kind: number; x: number; y: number; state: number; prog: number; dir: number }
 export interface BoatRec { id: number; kind: number; own: number; x: number; y: number; hp: number; dir: number; state: number; cargo: number; bits: number }
 export interface ShotRec { x0: number; y0: number; x1: number; y1: number; kind: number }
 export interface NationRec { res: number[]; rate: number[]; nUnits: number; nBuildings: number; alive: boolean; starving: boolean }
@@ -11,7 +13,7 @@ export interface NationRec { res: number[]; rate: number[]; nUnits: number; nBui
 export interface StateMsg {
   tick: number; time: number; hour: number; year: number; flags: number; speed: number; simMs: number;
   units: UnitRec[]; unitsGone: number[]; builds: BuildRec[]; buildsGone: number[];
-  boats: BoatRec[]; shots: ShotRec[]; nations: NationRec[] | null;
+  boats: BoatRec[]; shots: ShotRec[]; animals: AnimalRec[]; animalsGone: number[]; nations: NationRec[] | null;
 }
 
 export const BOAT_STATES = ['idle', 'move', 'hunt', 'pickup', 'wait', 'cross', 'return', 'load', 'ahead', 'anchor'];
@@ -48,6 +50,12 @@ export function decodeState(buf: ArrayBuffer): StateMsg {
   }
   const shots: ShotRec[] = [];
   for (let n = u16(); n > 0; n--) shots.push({ x0: u16() / POS, y0: u16() / POS, x1: u16() / POS, y1: u16() / POS, kind: u8() });
+  const animals: AnimalRec[] = [];
+  for (let n = u16(); n > 0; n--) {
+    animals.push({ id: u32(), kind: u8(), x: u16() / POS, y: u16() / POS, state: u8(), prog: u8() / 255, dir: i8() });
+  }
+  const animalsGone: number[] = [];
+  for (let n = u16(); n > 0; n--) animalsGone.push(u32());
   let nations: NationRec[] | null = null;
   if (u8()) {
     nations = [];
@@ -56,5 +64,5 @@ export function decodeState(buf: ArrayBuffer): StateMsg {
       nations.push({ res, rate, nUnits: u16(), nBuildings: u16(), alive: !!u8(), starving: !!u8() });
     }
   }
-  return { tick, time, hour, year, flags, speed, simMs, units, unitsGone, builds, buildsGone, boats, shots, nations };
+  return { tick, time, hour, year, flags, speed, simMs, units, unitsGone, builds, buildsGone, boats, shots, animals, animalsGone, nations };
 }

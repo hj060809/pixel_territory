@@ -9,6 +9,7 @@
 import type { Camera } from '../sim/camera.ts';
 import type { Controller } from './controller.ts';
 import type { GameState } from './state.ts';
+import { unitCounts } from './hud.ts';
 import type { TouchInput } from './touch.ts';
 import { addToHomeHint, canFullscreen, enterFullscreen, isStandalone } from '../ui/device.ts';
 
@@ -210,9 +211,7 @@ export class TouchUi {
   private selText(st: GameState, c: Controller): string {
     const R = st.info.rules, parts: string[] = [];
     if (c.sel.size) {
-      const k = [0, 0];
-      for (const s of c.sel.keys()) { const u = st.units.get(s); if (u) k[u.kind]++; }
-      parts.push(`보병 ${k[0]} · 궁수 ${k[1]}`);
+      parts.push(unitCounts(st, c.sel.keys(), ' · '));
     }
     if (c.selShips.size) {
       const boats = [...c.selShips].map((id) => st.boats.get(id)!).filter(Boolean);

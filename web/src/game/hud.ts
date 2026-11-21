@@ -6,10 +6,19 @@ import type { Controller } from './controller.ts';
 import type { GameState } from './state.ts';
 import { F_FORD, F_WATER, type TerrainRules } from './terrainRules.ts';
 import { touchMode } from '../ui/device.ts';
+import { A_HELD, A_TAMING, animalAt } from './wildlife.ts';
+
+/** 고른 병사 수: 병종마다 ('보병 3 · 창기병 2', 0인 병종은 뺀다). */
+export function unitCounts(st: GameState, slots: Iterable<number>, sep = '   '): string {
+  const R = st.info.rules, k = R.unit_names.map(() => 0);
+  for (const s of slots) { const u = st.units.get(s); if (u) k[u.kind]++; }
+  return k.map((n: number, i: number) => (n || i < 2 ? `${R.unit_names[i]} ${n}` : '')).filter(Boolean).join(sep);
+}
 
 export const HELP = [
   '왼쪽: 선택 / 드래그    오른쪽: 이동 · 공격 · 자원지에 짓기    A: 공격 이동    S: 정지',
   '1~6: 건물 (아래 버튼, 땅을 클릭해 놓기, Shift: 여러 개)    Q / W / E: 보병 / 궁수 / 전함 (건물들에서 돌아가며)',
+  '병사를 고르고 야생말을 오른쪽 클릭: 말마다 한 명씩 가서 길들인다 (보병 → 창기병, 궁수 → 기마궁수)',
   'Ctrl+숫자: 부대 지정    Shift+숫자: 부대 부르기    Space: 화면 이동    바다 건너로 보내면 그 땅의 항구에 모여 배를 탄다',
   '휠: 확대 (가까이서 보면 병사, 멀리서 보면 무리)    P: 일시정지    . : 속도    F1: 도움말',
 ];
@@ -92,7 +101,7 @@ export class Hud {
     let place = '';
     if (typeof mode === 'number') {
       const res = this.ctl.siteRes(mode);
-      place = res >= 0 ? `${R.build_names[mode]}: 빈 ${R.res_names[res]} 자원지를 클릭하세요`
+      place = res >= 0 ? `${R.build_names[mode]}: 빈 ${R.site_names[res]} 자원지를 클릭하세요`
         : `${R.build_names[mode]}${mode === R.kinds.HARBOR ? ' (바다에 맞닿은 해안)' : ''} 자리를 클릭하세요`;
       if (touch) place = place.replace('자원지를 클릭하세요', '자원지로 옮기세요').replace('자리를 클릭하세요', '자리로 옮기세요');
       if (touch) place = place.replace('로 옮기세요', '로 옮기고 ✓');           // 터치: 한 줄로 짧게 (✓ 버튼을 가리지 않게)
@@ -116,11 +125,10 @@ export class Hud {
     const st = this.st, R = st.info.rules, ctl = this.ctl, lines: string[] = [];
     ctl.prune();
     if (ctl.sel.size) {
-      const kinds = [0, 0];
-      let building = false;
-      for (const s of ctl.sel.keys()) { const u = st.units.get(s)!; kinds[u.kind]++; building ||= u.state === 4; }
-      lines.push(`보병 ${kinds[0]}   궁수 ${kinds[1]}` + (building ? '   (짓는 중)' : ''));
-      lines.push('오른쪽 클릭: 이동 · 공격 · 자원지에 짓기 (바다 건너면 배)    A: 공격 이동    S: 정지    1~6: 이 병사들로 건물 짓기');
+      let building = false, taming = false;
+      for (const s of ctl.sel.keys()) { const u = st.units.get(s); building ||= u?.state === 4; taming ||= u?.state === 5; }
+      lines.push(unitCounts(st, ctl.sel.keys()) + (building ? '   (짓는 중)' : '') + (taming ? '   (길들이는 중)' : ''));
+      lines.push('오른쪽 클릭: 이동 · 공격 · 자원지에 짓기 · 야생말 길들이기 (바다 건너면 배)    A: 공격 이동    S: 정지    1~6: 이 병사들로 건물 짓기');
     }
     if (ctl.selShips.size) {
       const boats = [...ctl.selShips].map((id) => st.boats.get(id)!);
@@ -137,16 +145,17 @@ export class Hud {
     if (b) {
       const maxhp = R.build[b.kind].hp;
       let s = `${R.build_names[b.kind]}  체력 ${Math.round(b.hp * maxhp)}/${Math.round(maxhp)}`;
-      const qtxt = b.qlen ? ` (${b.qkind === 2 ? '' : R.unit_names[b.qkind] + ' '}${Math.round(b.qtime)}초)` : '';
+      const qname = b.qkind === 2 ? '' : `${R.unit_names[b.qkind]} `;   // 대기열 번호: 0 보병, 1 궁수, 2 전함
+      const qtxt = b.qlen ? ` (${qname}${Math.round(b.qtime)}초)` : '';
       if (b.prog < 1) s += `  짓는 중 ${Math.round(b.prog * 100)}%`;
       else if (b.kind === R.kinds.HALL) {
         lines.push(s + `  훈련 대기 ${b.qlen}` + qtxt);
-        s = `Q: 보병 (식량 ${R.unit_cost[0][0]})    W: 궁수 (식량 ${R.unit_cost[1][0]}, 목재 ${R.unit_cost[1][1]})    이 거점에서 만든다`;
+        s = `Q: 보병 (식량 ${R.unit_cost[0][0]})    W: 궁수 (식량 ${R.unit_cost[1][0]}, 목재 ${R.unit_cost[1][1]})    이 거점에서 만든다 (기병은 야생말을 길들여서)`;
       } else if (b.kind === R.kinds.HARBOR) {
         const ships = [...st.boats.values()].filter((x) => x.own === st.info.me && x.kind === 1).length;
         lines.push(s + `  전함 ${ships}척  만드는 중 ${b.qlen}` + qtxt);
         s = `E: 전함 (목재 ${R.warship_cost[1]}, 석재 ${R.warship_cost[2]})    바다 건너로 보낸 이 땅의 병사들이 여기 모여 차례로 배를 탄다`;
-      } else if (b.site >= 0) {
+      } else if (b.site >= 0 && R.yield_res[b.kind] !== undefined) {
         const site = st.info.sites[b.site];
         s += `  ${R.res_names[R.yield_res[b.kind]]} 풍부함 ${site.rich.toFixed(1)}`;
       }
@@ -162,11 +171,20 @@ export class Hud {
     const st = this.st, R = st.info.rules, m = this.rules;
     const xi = Math.floor(x), yi = Math.floor(y);
     if (!(xi >= 0 && xi < m.W && yi >= 0 && yi < m.H)) return null;
+    const an = animalAt(st, x, y, Math.max(1.8, 8 / zoom));
+    if (an) {
+      const a = R.wildlife[an.kind], into = Object.entries(a.mounts as Record<string, number>)
+        .map(([u, v]) => `${R.unit_names[Number(u)]} → ${R.unit_names[v]}`).join(', ');
+      if (an.state === A_TAMING) return `길들이는 중인 ${a.name} · ${Math.round(an.prog * 100)}%`;
+      if (an.state === A_HELD) return `야생${a.name} · 병사가 길들이러 오는 중`;
+      return `야생${a.name} · 병사를 고르고 ${touchMode() ? '탭' : '오른쪽 클릭'}하면 말마다 한 명씩 가서 길들인다 (${Math.round(a.tame)}초) · ${into}`;
+    }
     const s = this.ctl.siteAt(x, y, Math.max(4.0, 10 / zoom));
     if (s && !st.siteTaken().has(s.id)) {
       const kind = R.site_building[s.kind];
       const cost = R.build[kind].cost.map((v: number, k: number) => (v ? `${R.res_names[k]} ${v}` : '')).filter(Boolean).join(', ');
-      return `${R.res_names[s.kind]} 자원지 · 풍부함 ${s.rich.toFixed(1)} · 병사를 고르고 ${touchMode() ? '탭' : '오른쪽 클릭'}하면 ${R.build_names[kind]} (${cost})`;
+      const act = `병사를 고르고 ${touchMode() ? '탭' : '오른쪽 클릭'}하면 ${R.build_names[kind]} (${cost})`;
+      return `${R.res_names[s.kind]} 자원지 · 풍부함 ${s.rich.toFixed(1)} · ${act}`;
     }
     const i = yi * m.W + xi, f = m.flags[i];
     const ice = !!this.scene.ice?.[i] && !!(f & F_WATER) && !(f & F_FORD);

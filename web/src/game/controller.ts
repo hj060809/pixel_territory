@@ -5,6 +5,8 @@ import type { Connection } from './net.ts';
 import type { GameState, Unit, Boat } from './state.ts';
 import type { BuildRec } from './protocol.ts';
 import type { TerrainRules } from './terrainRules.ts';
+import { josa } from '../ui/device.ts';
+import { animalAt } from './wildlife.ts';
 
 export const UNIT_ZOOM = 2.6;        // 이보다 가까이 보면 병사 하나하나, 멀면 무리 배지
 /** null / 'attack'(A 다음 클릭) / 숫자 = 놓을 건물 종류 (하단 버튼, 숫자 키) */
@@ -15,7 +17,7 @@ export type TrainKind = 'infantry' | 'archer' | 'warship';
 export interface Ping { t0: number; x: number; y: number; col: string }
 
 const PING = { attack: 'rgb(255,110,90)', build: 'rgb(140,200,255)', move: 'rgb(170,240,170)',
-               amove: 'rgb(255,170,120)', ship: 'rgb(170,220,255)' };
+               amove: 'rgb(255,170,120)', ship: 'rgb(170,220,255)', tame: 'rgb(240,200,90)' };
 
 export class Controller {
   sel = new Map<number, number>();        // 병사 칸 → 세대
@@ -141,6 +143,8 @@ export class Controller {
     if (!this.sel.size) return;
     const foe = this.unitAt(x, y, Math.max(2.0, r));
     if (foe && foe.own !== this.me) return this.ping(x, y, PING.attack);
+    const an = attack ? null : animalAt(this.st, x, y, Math.max(1.8, r));      // 야생 동물: 길들이러
+    if (an) return this.ping(an.x, an.y - 0.4, PING.tame);
     const b = this.buildingAt(x, y);
     if (b && b.own !== this.me) return this.ping(x, y, PING.attack);
     if (b && b.prog < 1) return this.ping(x, y, PING.build);
@@ -179,7 +183,7 @@ export class Controller {
     const t = this.placeTarget(kind, x, y, zoom);
     if (!t.ok) {
       const res = this.siteRes(kind);
-      this.st.say(res >= 0 ? `${R.build_names[kind]}은(는) 빈 ${R.res_names[res]} 자원지에 지어야 합니다`
+      this.st.say(res >= 0 ? `${josa(R.build_names[kind], '은', '는')} 빈 ${R.res_names[res]} 자리에 지어야 합니다`
         : '여기에는 지을 수 없습니다 (평평한 땅, 다른 건물과 떨어진 곳' + (kind === R.kinds.HARBOR ? ', 바다에 맞닿은 해안)' : ')'));
       return;
     }

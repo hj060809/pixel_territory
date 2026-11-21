@@ -1,6 +1,7 @@
 // 지형 그리기 (WebGL2).
 // 1) 빛 단계: 지도 해상도 프레임버퍼에 '워커가 준 낮 그림 × 해/달 빛과 산 그림자 + 물에 비친 하늘'
 //    (engine/render/daylight.py의 shade와 같은 계산. 빛/그늘 색표는 JS가 numpy와 같게 만들어 텍스처로 넘긴다)
+//    밤의 횃불: 횃불 빛 지도(점마다 둥글게 더한 것)만큼 따뜻한 색을 섞는다 (setTorches)
 // 2) 화면 단계: 카메라 위치와 배율로 가장 가까운 픽셀을 읽어 캔버스에 (도트가 번지지 않게)
 // 텍스처 좌표: 지도 행 y = 텍스처 y (빛 단계 프레임버퍼도 같다). 화면 단계에서만 위아래를 맞춘다.
 
@@ -24,6 +25,9 @@ uniform ivec2 uSize;          // (W, H)
 uniform vec3 uSkyA;           // 하늘색 × 비율 (float32)
 uniform float uKeep;          // 1 - 비율 (float32)
 uniform int uSkyOn;
+uniform sampler2D uTorch;     // 횃불 빛 (r: 0~1)
+uniform int uTorchOn;
+uniform vec3 uWarm;           // 횃불 빛 색 (낮 그림 × 이것)
 out vec4 outColor;
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
@@ -47,6 +51,11 @@ void main() {
                 texelFetch(uTable, ivec2(off + c.b, 0), 0).b) * 255.0;
   o = floor(o + 0.5);
   if (uSkyOn == 1 && texelFetch(uWater, p, 0).r > 0.0) o = floor(o * uKeep + uSkyA);
+  if (uTorchOn == 1) {
+    // 가운데서 멀어질수록 옅게 섞는다 (넓은 고른 땅에서 디더 체크무늬가 드러나지 않게. 땅의 결은 그대로)
+    float t = clamp(texelFetch(uTorch, p, 0).r * (0.65 + 0.55 * max(s.z, 0.0)) * 1.25, 0.0, 1.0);
+    if (t > 0.0) o = max(o, floor(mix(o, vec3(c) * uWarm, t)));
+  }
   outColor = vec4(o / 255.0, 1.0);
 }`;
 
@@ -66,6 +75,32 @@ void main() {
   outColor = texelFetch(uImg, ivec2(floor(m)), 0);
 }`;
 
+const TORCH_VS = `#version 300 es
+in vec3 aP;                   // 지도 x, y (칸), 세기
+uniform vec2 uMap;
+uniform float uR;
+out float vS;
+void main() {
+  gl_Position = vec4(aP.xy / uMap * 2.0 - 1.0, 0.0, 1.0);
+  gl_PointSize = uR * 2.0 + 2.0;
+  vS = aP.z;
+}`;
+
+const TORCH_FS = `#version 300 es
+precision highp float;
+in float vS;
+uniform float uR;
+out vec4 outColor;
+void main() {
+  float d = length(gl_PointCoord - 0.5) * (uR * 2.0 + 2.0);
+  float t = max(0.0, 1.0 - d / uR);
+  outColor = vec4(vS * pow(t, 0.9), 0.0, 0.0, 1.0);
+}`;
+
+/** 횃불 빛: 반지름 (칸), 색. */
+export const TORCH_R = 3.4;
+const TORCH_WARM = [1.02, 0.78, 0.48];
+
 export class TerrainRenderer {
   readonly W: number;
   readonly H: number;
@@ -80,6 +115,12 @@ export class TerrainRenderer {
   private screenProg: WebGLProgram;
   private meta: any;
   private vao: WebGLVertexArrayObject;
+  private torchTex: WebGLTexture;
+  private torchFB: WebGLFramebuffer;
+  private torchProg: WebGLProgram;
+  private torchBuf: WebGLBuffer;
+  private torchVao: WebGLVertexArrayObject;
+  private torchOn = false;
 
   constructor(gl: WebGL2RenderingContext, bundle: Bundle) {
     this.gl = gl;
@@ -107,6 +148,40 @@ export class TerrainRenderer {
     this.lightProg = program(gl, FULLSCREEN_VS, LIGHT_FS);
     this.screenProg = program(gl, FULLSCREEN_VS, SCREEN_FS);
     this.vao = gl.createVertexArray()!;
+    this.torchTex = texture(gl, W, H, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    this.torchFB = framebuffer(gl, this.torchTex);
+    this.torchProg = program(gl, TORCH_VS, TORCH_FS);
+    this.torchBuf = gl.createBuffer()!;
+    this.torchVao = gl.createVertexArray()!;
+    gl.bindVertexArray(this.torchVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.torchBuf);
+    const loc = gl.getAttribLocation(this.torchProg, 'aP');
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+  }
+
+  /** 밤의 횃불: [x, y, 세기]... (지도 칸, 0~1). 빈 배열이면 끈다. 다음 빛 단계부터 쓰인다. */
+  setTorches(pts: Float32Array) {
+    const gl = this.gl;
+    this.torchOn = pts.length > 0;
+    if (!this.torchOn) return;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.torchFB);
+    gl.viewport(0, 0, this.W, this.H);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    gl.useProgram(this.torchProg);
+    gl.uniform2f(gl.getUniformLocation(this.torchProg, 'uMap'), this.W, this.H);
+    gl.uniform1f(gl.getUniformLocation(this.torchProg, 'uR'), TORCH_R);
+    gl.bindVertexArray(this.torchVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.torchBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, pts, gl.DYNAMIC_DRAW);
+    gl.drawArrays(gl.POINTS, 0, pts.length / 3);
+    gl.bindVertexArray(null);
+    gl.disable(gl.BLEND);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
 
   /** 워커가 준 낮 그림 (RGBA, H*W*4). */
@@ -127,7 +202,8 @@ export class TerrainRenderer {
     gl.viewport(0, 0, this.W, this.H);
     gl.disable(gl.BLEND);
     gl.useProgram(p);
-    const tex = [[this.baseTex, 'uBase'], [this.surfTex, 'uSurf'], [this.waterTex, 'uWater'], [this.tableTex, 'uTable']] as const;
+    const tex = [[this.baseTex, 'uBase'], [this.surfTex, 'uSurf'], [this.waterTex, 'uWater'], [this.tableTex, 'uTable'],
+                 [this.torchTex, 'uTorch']] as const;
     tex.forEach(([t, name], k) => {
       gl.activeTexture(gl.TEXTURE0 + k);
       gl.bindTexture(gl.TEXTURE_2D, t);
@@ -152,6 +228,8 @@ export class TerrainRenderer {
     gl.uniform3fv(gl.getUniformLocation(p, 'uSkyA'), sky.map((c) => Math.fround(Math.fround(c) * a32)));
     gl.uniform1f(gl.getUniformLocation(p, 'uKeep'), Math.fround(1 - skyAmount));
     gl.uniform1i(gl.getUniformLocation(p, 'uSkyOn'), skyAmount > 0 ? 1 : 0);
+    gl.uniform1i(gl.getUniformLocation(p, 'uTorchOn'), this.torchOn ? 1 : 0);
+    gl.uniform3fv(gl.getUniformLocation(p, 'uWarm'), TORCH_WARM);
     gl.bindVertexArray(this.vao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);

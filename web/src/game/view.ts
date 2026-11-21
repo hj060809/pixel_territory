@@ -144,7 +144,7 @@ export class GameView {
         if (this.disposed) return;
         ctl = new Controller(st, net, rules);
         const bank = new SpriteBank(info.nations.map((n) => n.color));
-        draw = new Overlay(g, bank, st, ctl);
+        draw = new Overlay(g, bank, st, ctl, scene);
         this.bar?.dispose();
         this.bar = new ActionBar(st, ctl, bank);          // 하단 버튼 (건물 1~, 병종 QWE)
         if (!this.hud) this.hud = new Hud(st, ctl, scene, rules);

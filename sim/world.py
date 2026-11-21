@@ -75,13 +75,20 @@ class World:
         self._slow = 0.0
         self._bot_acc = 0.0
         self._bot_turn = 0
-        ks = [R.UNIT_STATS[k] for k in (R.INFANTRY, R.ARCHER)]
+        ks = [R.UNIT_STATS[k] for k in range(len(R.UNIT_STATS))]           # 병종 번호 순서
         self.k_speed = np.array([s['speed'] for s in ks], np.float32)
         self.k_range = np.array([s['range'] for s in ks], np.float32)
         self.k_dmg = np.array([s['dmg'] for s in ks], np.float32)
         self.k_cd = np.array([s['cd'] for s in ks], np.float32)
         self.k_sight = np.array([s['sight'] for s in ks], np.float32)
-        self.k_ranged = np.array([False, True])
+        self.k_ranged = np.array([s['ranged'] for s in ks])
+        self.k_terrain = np.array([s['terrain'] for s in ks], np.float32)
+        self.k_charge = np.array([s['charge'] for s in ks], np.float32)
+        self.k_vs = np.ones((len(ks), len(ks)), np.float32)              # 상성 (치는 쪽, 맞는 쪽)
+        for (a, b), v in R.UNIT_VS.items():
+            self.k_vs[a, b] = v
+        self.k_upkeep = np.array([s['upkeep'] for s in ks], np.float32)
+        self.k_hp = np.array([s['hp'] for s in ks], np.float32)
         n = min(n_bots + 1, len(R.COLORS))
         if colors is None or len(colors) != n:
             colors = pick_colors(self.rng, n, player_color)
@@ -94,6 +101,8 @@ class World:
             word, col, light = R.COLORS[c]
             self.nations.append(Nation(i, f'{word} {animals[i - 1]}', col, light, bonus=difficulty))
         self._spawn_all(starts)
+        from sim.wildlife import Wildlife
+        self.wild = Wildlife(self, np.random.default_rng([abs(int(seed)) & 0xFFFFFFFF, 7]))   # 야생 동물 (거점이 선 다음에: 거점 곁엔 안 생기게)
         from sim.ai import Bot
         self.bots = {i: Bot(i, self.rng, difficulty) for i in range(1, n)}
 
@@ -187,6 +196,7 @@ class World:
         ids = self._mine(ids)
         if len(ids) == 0:
             return False
+        self.wild.release(ids)
         ids, far, dst = self._split(ids, y, x)
         ok = False
         for group, src in far:                       # 바다 건너: 나룻배를 타고 간다
@@ -206,6 +216,7 @@ class World:
         ids = self._mine(ids)
         if len(ids) == 0:
             return
+        self.wild.release(ids)
         u, b = self.units, self.builds
         ty, tx = (u.y[unit], u.x[unit]) if unit >= 0 else (b.y[building], b.x[building])
         ids, far, dst = self._split(ids, ty, tx)
@@ -222,6 +233,7 @@ class World:
 
     def order_stop(self, ids) -> None:
         ids = self._mine(ids)
+        self.wild.release(ids)
         u = self.units
         u.state[ids] = IDLE
         u.slot[ids] = u.tgt[ids] = u.tgb[ids] = u.bld[ids] = -1
@@ -271,6 +283,7 @@ class World:
         ids = self._mine(ids)
         if len(ids) == 0:
             return
+        self.wild.release(ids)
         ids, far, dst = self._split(ids, self.builds.y[b], self.builds.x[b])
         for group, src in far:
             self.fleet.ferry(group, self.builds.y[b], self.builds.x[b], ('build', b), src, dst)
@@ -289,9 +302,11 @@ class World:
         if kind == R.WARSHIP:
             st = dict(cost=R.WARSHIP_COST, time=R.WARSHIP_TIME)
             where, name = R.HARBOR, '전함'
-        else:
+        elif kind in R.TRAINABLE:
             st = R.UNIT_STATS[kind]
             where, name = R.HALL, R.UNIT_NAMES[kind]
+        else:
+            return False                                           # 기병은 훈련하지 않는다 (야생말을 길들인다)
         if not (b.alive[hall] and b.kind[hall] == where and b.own[hall] == nid and b.prog[hall] >= 1):
             return False
         if len(b.queue[hall]) >= 5:
@@ -373,6 +388,7 @@ class World:
                             u.search, u.anim, u.moving, u.alive, u.aboard,
                             b.n, b.x, b.y, b.kind, b.own, b.hp, b.r, b.prog, b.cd, b.alive,
                             self.k_speed, self.k_range, self.k_dmg, self.k_cd, self.k_sight, self.k_ranged,
+                            self.k_terrain, self.k_charge, self.k_vs,
                             m.walk, m.speed_mul, m.cover, self.fields.fields, self.fields.ready, R.TOWER, R.TOWER_RANGE, R.TOWER_DMG,
                             R.TOWER_CD, self.shots, self._builders)
         if self.n_shots:                                    # 화면에 잠깐 그릴 공격 (화살, 칼부림)
@@ -380,6 +396,7 @@ class World:
                 self.recent.append((self.time, *row))
         while self.recent and self.time - self.recent[0][0] > 0.3:
             self.recent.popleft()
+        self.wild.update(dt)                                # 야생 동물, 길들이기 (병사가 움직인 다음에)
         # 짓기
         for i in np.flatnonzero(self._builders[:b.n]):
             if b.alive[i] and b.prog[i] < 1:
@@ -399,11 +416,12 @@ class World:
             if b.site[i] >= 0:
                 self.sites[b.site[i]].building = -1
             if b.own[i] == 0:
-                self.say(f'{R.BUILD_NAMES[int(b.kind[i])]}이(가) 무너졌습니다!')
+                self.say(f'{R.josa(R.BUILD_NAMES[int(b.kind[i])], "이", "가")} 무너졌습니다!')
         self._slow += dt
         if self._slow >= 0.5:
             self._slow = 0.0
             self._drown()
+            self.wild.drown()
             self._census()
         # AI는 돌아가며 생각한다 (0.5초를 AI 수로 나눠 한 걸음에 하나씩): 길찾기 계산이 한 걸음에 몰리지 않게
         if self.bots:
@@ -433,8 +451,8 @@ class World:
         for nat in self.nations:                       # 난이도: AI의 자원 수입 배율
             if nat.bonus != 1.0:
                 nat.rate = [r * nat.bonus for r in nat.rate]
-        own = u.own[:u.n][u.alive[:u.n]]
-        counts = np.bincount(own, minlength=len(self.nations))
+        live = u.alive[:u.n]                           # 먹는 양: 병종마다 (기병은 말까지 먹어서 더)
+        counts = np.bincount(u.own[:u.n][live], weights=self.k_upkeep[u.kind[:u.n][live]], minlength=len(self.nations))
         winter = 1 + 0.5 * w[3]
         for nat in self.nations:
             nat.rate[R.FOOD] -= counts[nat.id] * R.UPKEEP * winter
@@ -453,7 +471,7 @@ class World:
                 hx, hy, ho = b.x[halls], b.y[halls], b.own[halls]
                 d = np.hypot(u.x[alive][:, None] - hx[None], u.y[alive][:, None] - hy[None])
                 near = ((d < 12) & (u.own[alive][:, None] == ho[None])).any(1)
-                hmax = np.array([R.UNIT_STATS[k]['hp'] for k in (0, 1)], np.float32)[u.kind[alive]]
+                hmax = self.k_hp[u.kind[alive]]
                 u.hp[alive[near]] = np.minimum(u.hp[alive[near]] + R.HEAL_NEAR_HALL * dt, hmax[near])
             u.alive[alive[u.hp[alive] <= 0]] = False
 
@@ -495,7 +513,7 @@ class World:
                     b.alive[i] = False
                     if b.site[i] >= 0:
                         self.sites[b.site[i]].building = -1
-                self.say('나라를 잃었습니다' if nat.player else f'{nat.name}이(가) 멸망했습니다')
+                self.say('나라를 잃었습니다' if nat.player else f'{R.josa(nat.name, "이", "가")} 멸망했습니다')
         if not self.nations[0].alive:
             self.phase, self.result = 'over', '패배'
         elif not any(n.alive for n in self.nations[1:]):

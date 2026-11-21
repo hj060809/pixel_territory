@@ -39,3 +39,9 @@ export function addToHomeHint(): string | null {
   if (isStandalone() || canFullscreen()) return null;
   return '주소창 없이 하려면: 공유 버튼 → 홈 화면에 추가';
 }
+
+/** 받침에 맞는 조사 (josa('목장', '은', '는') → '목장은'). */
+export function josa(word: string, a: string, b: string): string {
+  const c = word.charCodeAt(word.length - 1);
+  return word + (c >= 0xac00 && c <= 0xd7a3 && (c - 0xac00) % 28 !== 0 ? a : b);
+}

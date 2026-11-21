@@ -3,10 +3,11 @@
 // 도착 시각은 걸음 간격에 맞춰 부드럽게 따라가므로 (sched), 상태가 들쭉날쭉 와도 끊기거나 튀지 않는다.
 // 순간 이동(배에서 내림, 새로 생김)은 섞지 않는다.
 
-import type { BoatRec, BuildRec, NationRec, ShotRec, StateMsg, UnitRec } from './protocol.ts';
+import type { AnimalRec, BoatRec, BuildRec, NationRec, ShotRec, StateMsg, UnitRec } from './protocol.ts';
 
 export interface Unit extends UnitRec { px: number; py: number }
 export interface Boat extends BoatRec { px: number; py: number }
+export interface Animal extends AnimalRec { px: number; py: number }
 export interface Shot extends ShotRec { t0: number }
 
 export interface StartInfo {
@@ -25,6 +26,7 @@ export class GameState {
   units = new Map<number, Unit>();
   builds = new Map<number, BuildRec>();
   boats = new Map<number, Boat>();
+  animals = new Map<number, Animal>();     // 야생 동물 (번호 → 동물)
   shots: Shot[] = [];
   nations: NationRec[] = [];
   messages: { text: string; t: number }[] = [];
@@ -54,6 +56,7 @@ export class GameState {
     const a = this.alpha(now);                          // 지금 그리고 있는 위치에서 이어서
     for (const u of this.units.values()) { u.px += (u.x - u.px) * a; u.py += (u.y - u.py) * a; }
     for (const b of this.boats.values()) { b.px += (b.x - b.px) * a; b.py += (b.y - b.py) * a; }
+    for (const b of this.animals.values()) { b.px += (b.x - b.px) * a; b.py += (b.y - b.py) * a; }
     for (const r of m.units) {
       const old = this.units.get(r.slot);
       const keep = old && old.gen === r.gen && Math.hypot(old.px - r.x, old.py - r.y) < SNAP;
@@ -70,6 +73,12 @@ export class GameState {
       this.boats.set(r.id, { ...r, px: keep ? old!.px : r.x, py: keep ? old!.py : r.y });
     }
     for (const id of [...this.boats.keys()]) if (!seen.has(id)) this.boats.delete(id);
+    for (const r of m.animals) {
+      const old = this.animals.get(r.id);
+      const keep = old && Math.hypot(old.px - r.x, old.py - r.y) < SNAP;
+      this.animals.set(r.id, { ...r, px: keep ? old!.px : r.x, py: keep ? old!.py : r.y });
+    }
+    for (const id of m.animalsGone) this.animals.delete(id);
     for (const s of m.shots) this.shots.push({ ...s, t0: m.time });
     this.shots = this.shots.filter((s) => m.time - s.t0 <= 0.3);
     if (m.nations) this.nations = m.nations;
