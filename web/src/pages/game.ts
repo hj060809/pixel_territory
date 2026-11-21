@@ -9,8 +9,8 @@ import { Lobby } from '../menu/lobby.ts';
 import { LobbyArt, type LobbyInfo } from '../menu/lobbyArt.ts';
 import { Setup, defaultSettings, type PlayRequest, type Settings } from '../menu/setup.ts';
 import { applyUiScale, shadeLeft, uiScale } from '../menu/widgets.ts';
-import { enterFullscreen, isTouchDevice, setTouchMode, touchMode } from '../ui/device.ts';
-import { needsInstall, registerServiceWorker, showInstallGate } from '../ui/install.ts';
+import { enterFullscreen, isStandalone, isTouchDevice, setTouchMode, touchMode } from '../ui/device.ts';
+import { registerServiceWorker, showFullscreenNote } from '../ui/install.ts';
 
 type Screen = 'lobby' | 'setup' | 'game';
 
@@ -28,7 +28,8 @@ class App {
   private artLoad: Promise<void>;
 
   constructor() {
-    setTouchMode(isTouchDevice());              // 처음엔 기기에 맞춰. 게임 중에는 마지막으로 쓴 입력(터치 / 마우스)으로 바뀐다
+    setTouchMode(isTouchDevice());
+    document.body.classList.toggle('standalone', isStandalone());   // 앱으로 열었으면 [앱으로 설치]를 숨긴다              // 처음엔 기기에 맞춰. 게임 중에는 마지막으로 쓴 입력(터치 / 마우스)으로 바뀐다
     const rotate = document.createElement('div');   // 터치 기기를 세로로 들면 (CSS로만 보인다)
     rotate.className = 'rotate-notice';
     rotate.innerHTML = '<div>화면을 가로로 돌려 주세요<div class="dim">Pixel Territory는 가로 화면에서 플레이합니다</div></div>';
@@ -52,11 +53,13 @@ class App {
   async boot() {
     const p = new URLSearchParams(location.search);
     registerServiceWorker();
-    if (needsInstall(isTouchDevice())) {      // 모바일을 브라우저로 열면: 앱 설치 / 브라우저에서 계속하기 중에서 고른다
-      this.startArt();
-      showInstallGate(() => void this.show('lobby'));
-      return;
-    }
+    // 터치 기기로 알아보지 못했으면 (PC처럼 보이는 기기): 처음 터치하는 순간 터치 화면으로 (게임 시작 → 전체 화면도 걸리게)
+    const firstTouch = (e: PointerEvent) => {
+      if (e.pointerType !== 'touch') return;
+      window.removeEventListener('pointerdown', firstTouch, true);
+      setTouchMode(true);
+    };
+    if (!touchMode()) window.addEventListener('pointerdown', firstTouch, true);
     if (p.has('map') || p.has('quick')) {
       const key = p.get('map') ?? (await (await fetch('/api/maps')).json()).demo[0].key;
       this.play({ key, options: {
@@ -65,6 +68,7 @@ class App {
       return;
     }
     await this.show('lobby');
+    if (touchMode()) showFullscreenNote();       // 모바일: 처음 한 번 '게임 시작을 누르면 전체 화면' 안내
   }
 
   private async show(screen: Screen) {

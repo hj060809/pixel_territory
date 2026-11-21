@@ -4,8 +4,11 @@
 export function isTouchDevice(): boolean {
   const ua = navigator.userAgent;
   if (/Android|iPhone|iPad|iPod|Mobile|Silk|Kindle/i.test(ua)) return true;
+  if ((navigator as any).userAgentData?.mobile === true) return true;
   if (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) return true;     // Mac처럼 보이는 아이패드
-  return matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches;
+  // '데스크톱 사이트'를 켠 휴대폰은 PC처럼 보이는 이름을 보낸다: 주 입력이 손가락이고 마우스 올리기가 안 되면 터치 기기
+  if (navigator.maxTouchPoints > 0 && (matchMedia('(pointer: coarse)').matches || matchMedia('(hover: none)').matches)) return true;
+  return false;
 }
 
 /** 화면을 터치 방식으로 (body.touch: 터치용 버튼과 크기). */

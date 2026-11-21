@@ -2,7 +2,8 @@
 // 배경(LobbyArt)과 왼쪽 그늘은 메뉴 캔버스에 따로 그린다 (pages/game.ts).
 
 import { button, div, pixelTitle } from './widgets.ts';
-import { addToHomeHint, touchMode } from '../ui/device.ts';
+import { touchMode } from '../ui/device.ts';
+import { installApp } from '../ui/install.ts';
 
 /** 터치 기기에서 '조작' 항목 대신 */
 const TOUCH_CONTROLS: string[] = [
@@ -40,8 +41,9 @@ export class Lobby {
     const col = div('lobby-buttons', this.el);
     button(col, '게임 시작', onStart, { size: 20, w: 260, h: 50 });
     button(col, '게임 방법', () => this.showHelp(), { size: 20, w: 260, h: 50 });
-    const hint = touchMode() ? addToHomeHint() : null;      // 아이폰: 사이트가 주소창을 못 내리니 홈 화면에 추가를 안내
-    div('footer', this.el, hint ? `자원지를 차지하고, 병사와 건물로 지키세요.   ·   ${hint}` : '자원지를 차지하고, 병사와 건물로 지키세요.');
+    // 모바일만 (CSS: body.touch), 앱으로 열었으면 숨김: 홈 화면에 설치하면 주소창 없이 전체 화면
+    button(col, '앱으로 설치', () => void installApp(), { size: 20, w: 260, h: 50 }).classList.add('install-btn');
+    div('footer', this.el, '자원지를 차지하고, 병사와 건물로 지키세요.');
   }
 
   showHelp() {
