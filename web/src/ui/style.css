@@ -22,6 +22,10 @@ canvas#view { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 .loading.hidden { display: none; }
 .loading .msg { font-size: 18px; color: #e1e4ee; }
 .loading .sec { font-size: 14px; color: #969aaa; }
+.loading .loading-btn { margin-top: 18px; padding: 10px 28px; font-size: 16px; color: #e1e4ee; background: #2a2f3e;
+  border: 1px solid #4a5068; border-radius: 4px; cursor: pointer; pointer-events: auto; }
+.loading .loading-btn:hover { background: #363c50; }
+.loading .loading-btn.hidden { display: none; }
 .spinner { position: relative; width: 60px; height: 60px; margin-bottom: 12px; }
 .spinner i {
   position: absolute; left: 50%; top: 50%; border-radius: 50%; background: #e6e6fa;

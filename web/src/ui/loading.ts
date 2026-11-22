@@ -4,6 +4,7 @@ export class Loading {
   private el: HTMLDivElement;
   private msg: HTMLDivElement;
   private sec: HTMLDivElement;
+  private btn: HTMLButtonElement;
   private dots: HTMLElement[] = [];
   private start = performance.now();
   private raf = 0;
@@ -26,7 +27,9 @@ export class Loading {
     this.msg.className = 'msg';
     this.sec = document.createElement('div');
     this.sec.className = 'sec';
-    this.el.append(sp, this.msg, this.sec);
+    this.btn = document.createElement('button');
+    this.btn.className = 'loading-btn hidden';
+    this.el.append(sp, this.msg, this.sec, this.btn);
     parent.appendChild(this.el);
     const tick = () => {
       const t = (performance.now() / 1000) * 4;
@@ -48,7 +51,14 @@ export class Loading {
     this.set(text);
   }
 
-  hide() { this.el.classList.add('hidden'); }
+  hide() { this.el.classList.add('hidden'); this.action(null); }
+
+  /** 화면 아래 버튼 (예: 오류일 때 '로비로'). null이면 숨긴다. 터치에서도 누를 수 있게. */
+  action(label: string | null, fn?: () => void) {
+    this.btn.classList.toggle('hidden', !label);
+    this.btn.textContent = label ?? '';
+    this.btn.onclick = label && fn ? (e) => { e.stopPropagation(); fn(); } : null;
+  }
 
   /** 메뉴 배경 위에 반투명하게 (게임 시작 때: 설정 화면에서 게임으로 넘어가는 사이). */
   soft(on = true) { this.el.classList.toggle('soft', on); }

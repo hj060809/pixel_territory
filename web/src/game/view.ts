@@ -76,7 +76,7 @@ export class GameView {
     this.run().catch((e) => {
       if (this.disposed) return;
       console.error(e);
-      this.loading.set(`오류: ${String((e as Error).message ?? e)}  (F10: 로비로)`);
+      this.stuck(`오류: ${String((e as Error).message ?? e)}`, false);
       this.listen(window, 'keydown', (ev: KeyboardEvent) => { if (ev.key === 'F10') { ev.preventDefault(); this.hooks.lobby(); } });
     });
   }
@@ -96,6 +96,14 @@ export class GameView {
     this.canvas.remove();
     this.overlay.remove();
     delete (window as any).__game;
+  }
+
+  /** 더 이어 갈 수 없는 화면: 알림과 '로비로' 버튼 (키보드면 F10 안내도). show: 로딩 화면을 새로 띄운다. */
+  private stuck(text: string, show = true) {
+    const t = touchMode() ? text : `${text}  (F10: 로비로)`;
+    if (show) this.loading.show(t); else this.loading.set(t);
+    this.loading.soft(false);                          // 뒤의 게임 화면·버튼이 비치지 않게
+    this.loading.action('로비로', () => this.hooks.lobby());
   }
 
   private listen<K extends keyof WindowEventMap>(target: Window | Document | HTMLElement, type: K | string,
@@ -131,6 +139,7 @@ export class GameView {
     let st: GameState | null = null, ctl: Controller | null = null, draw: Overlay | null = null;
     let rules: TerrainRules | null = null;
     loading.set('판 준비 중...');
+    const stuck = (text: string, show = true) => this.stuck(text, show);
     const net = (this.net = new Connection(key, this.opts, {
       start: async (info: StartInfo) => {
         const first = !st;
@@ -163,13 +172,13 @@ export class GameView {
       error(text, fatal) {
         if (fatal) {                          // 판을 이어 갈 수 없다: 다시 접속하지 않는다
           gaveUp = true;
-          loading.show(`${text}  (F10: 로비로)`);
+          stuck(text);
         } else if (st) st.say(text);
-        else loading.set(`오류: ${text}  (F10: 로비로)`);
+        else stuck(`오류: ${text}`, false);
       },
       closed: () => {
         if (this.disposed || gaveUp) return;
-        if (!st || !sid) { loading.show('서버와 연결이 끊겼습니다  (F10: 로비로)'); return; }
+        if (!st || !sid) { this.stuck('서버와 연결이 끊겼습니다'); return; }
         if (!reconnecting) {                  // 처음 끊긴 순간
           reconnecting = true;
           lostAt = performance.now();
@@ -178,7 +187,7 @@ export class GameView {
         }
         if (performance.now() - lostAt > 55000) {
           gaveUp = true;
-          loading.set('다시 연결하지 못했습니다  (F10: 로비로)');
+          this.stuck('다시 연결하지 못했습니다', false);
           return;
         }
         setTimeout(() => { if (!this.disposed && reconnecting) net.resume(sid!); }, 1500);
