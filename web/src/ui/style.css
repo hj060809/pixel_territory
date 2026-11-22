@@ -82,9 +82,13 @@ canvas#menu-art { position: fixed; inset: 0; width: 100vw; height: 100vh; displa
 .modal { position: relative; box-sizing: border-box; width: min(980px, calc((100vw - 60px) / var(--ui-scale, 1))); height: min(640px, calc((100vh - 60px) / var(--ui-scale, 1)));
   background: rgba(16, 18, 24, 0.8); border: 2px solid rgb(120, 104, 70); padding: 20px 28px; overflow: auto; }
 .modal-title { font-size: 26px; font-weight: bold; color: var(--gold); text-shadow: 1px 2px 0 #000; margin-bottom: 22px; }
-.howto-cols { display: flex; gap: 28px; }
-.howto-col { flex: 1; min-width: 0; }
-.howto-sec { margin-bottom: 12px; }
+.modal.howto { display: flex; flex-direction: column; overflow: hidden; }
+.modal.howto .modal-title { margin-bottom: 14px; flex: none; }
+.howto-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-right: 8px; }
+.howto-cols { column-count: 2; column-gap: 36px; }
+.howto-sec { break-inside: avoid; margin-bottom: 14px; }
+.modal.howto .modal-foot { position: static; flex: none; display: flex; justify-content: flex-end; padding-top: 12px; }
+@media (max-width: 700px) { .howto-cols { column-count: 1; } }
 .howto-head { font-size: 18px; font-weight: bold; color: var(--gold); text-shadow: 1px 2px 0 #000; margin-bottom: 6px; }
 .howto-line { font-size: 15px; line-height: 22px; padding-left: 8px; word-break: keep-all; }
 .modal-foot { position: absolute; right: 30px; bottom: 20px; }
