@@ -19,6 +19,7 @@ export const HELP = [
   '왼쪽: 선택 / 드래그    오른쪽: 이동 · 공격 · 자원지에 짓기    A: 공격 이동    S: 정지',
   '1~6: 건물 (아래 버튼, 땅을 클릭해 놓기, Shift: 여러 개)    Q / W / E: 보병 / 궁수 / 전함 (건물들에서 돌아가며)',
   '병사를 고르고 야생말을 오른쪽 클릭: 말마다 한 명씩 가서 길들인다 (보병 → 창기병, 궁수 → 기마궁수)',
+  '사막의 바위거북: 병사를 보내 먹이(식량 300)를 주면 함께 싸우는 탱커 (발 구르기, 낮은 포효, 껍질 숨기)',
   '설원의 드래곤: 쳐서 쓰러뜨린 뒤 오른쪽 클릭으로 길들이면 용기사 (날아다님, 활·망루만 맞힌다, 나라마다 2기)',
   'Ctrl+숫자: 부대 지정    Shift+숫자: 부대 부르기    Space: 화면 이동    바다 건너로 보내면 그 땅의 항구에 모여 배를 탄다',
   '휠: 확대 (가까이서 보면 병사, 멀리서 보면 무리)    P: 일시정지    . : 속도    F1: 도움말',
@@ -183,6 +184,10 @@ export class Hud {
         if (an.state === A_FIGHT) return `${a.name} · 싸우는 중 · ${hp} · 서리 숨결 (범위 피해, 느려짐) · ${Math.round(a.subdue * 100)}% 아래면 쓰러진다`;
         if (an.state === A_TAMING) return `${a.name} · 길들이는 중 ${Math.round(an.prog * 100)}% · 쓰러짐 ${an.sub}초 남음`;
         return `${a.name} · 쓰러짐 ${an.sub}초 · 병사를 고르고 ${act}하면 한 명이 가서 길들인다 (${Math.round(a.tame)}초) → ${rider} (나라마다 ${a.limit}기)`;
+      }
+      if (a.companion >= 0) {                                    // 함께 싸우는 동물 (바위거북)
+        if (an.state === A_TAMING) return `먹이를 받아먹는 ${a.name} · ${Math.round(an.prog * 100)}%`;
+        return `야생 ${a.name} · 병사를 고르고 ${act}하면 한 명이 가서 먹이를 준다 (식량 ${a.food}, ${Math.round(a.tame)}초) → 함께 싸우는 탱커 (발 구르기, 낮은 포효, 껍질 숨기)`;
       }
       if (an.state === A_TAMING) return `길들이는 중인 ${a.name} · ${Math.round(an.prog * 100)}%`;
       if (an.state === A_HELD) return `야생${a.name} · 병사가 길들이러 오는 중`;

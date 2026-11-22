@@ -179,7 +179,7 @@ class Bot:
                 best, bd = a, d
         if best is None:
             return idle
-        ok = idle[np.isin(u.kind[idle], list(R.WILDLIFE[best.kind]['mounts']))]
+        ok = idle[np.isin(u.kind[idle], list(R.tamers_of(R.WILDLIFE[best.kind])))]
         pick = self._nearest(w, ok, best.y, best.x, 2) if len(ok) else ok
         if len(pick) and w.wild.order_tame(self.id, pick, best.id, quiet=True):
             idle = np.setdiff1d(idle, pick)

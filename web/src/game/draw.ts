@@ -21,6 +21,9 @@ const TAU = Math.PI * 2;
 export const FLY_LIFT = 18;
 /** 드래곤 입의 자리 (모델 점): 몸 가운데에서 앞으로, 바닥에서 위로 (숨결 그림). */
 const MOUTH_FWD = 30, MOUTH_UP = 22;
+const STOMP_MS = 500;                // 바위거북 발 구르기 그림 (앞발을 들었다 내리찍기)
+const TORTOISE = 6;                  // 병종 번호 (sim/rules.py)
+const SAND = ['rgb(236,214,170)', 'rgb(214,186,132)', 'rgb(184,150,98)'];
 const ICE = ['rgb(236,248,255)', 'rgb(190,228,246)', 'rgb(150,196,232)'];
 /** 그림 한 점의 화면 크기 (확대에 따라). 건물 모델 너비가 2r × 2.4 점이라 땅 넓이와 맞는다. */
 export const spriteK = (z: number) => Math.max(1, Math.round(z / 2.4));
@@ -52,10 +55,50 @@ export class Overlay {
   private lastNow = 0;
   private ang = new Map<number, number>();        // 병사가 보는 방향 (라디안)
   private breathAt = new Map<number, number>();   // 숨결을 뿜은 화면 시각 (용기사)
+  private spinAt = new Map<number, number>();     // 발 구르기를 한 화면 시각 (바위거북)
+  private roarAt = new Map<number, number>();     // 낮은 포효를 한 화면 시각 (바위거북)
+  private rings: { x: number; y: number; at: number; kind: number }[] = [];   // 발 구르기·포효 표시
   private breaths: { x: number; y: number; at: number }[] = [];   // 야생 드래곤이 숨결을 뿜은 자리
   private frost: { x0: number; y0: number; x1: number; y1: number; at: number; air: boolean; src: string }[] = [];   // 그리는 중인 숨결
   private mouths = new Map<string, number[]>();   // 이번 장면에서 숨결 자세로 그린 드래곤: [입 x, y, 숨결이 닿는 앞쪽 땅 x, y] (u칸 / a번호)
   private seenShots = new WeakSet<object>();       // 이미 본 공격 (처음 본 것만 효과를 시작한다: 화면이 느려도 놓치지 않게)
+
+  /** 바위거북: 발 구르기는 내리찍는 순간 흙먼지와 땅이 갈라지는 고리 (짧게), 포효는 낮게 퍼지는 두 겹 고리. */
+  private drawRings(sx: (x: number) => number, sy: (y: number) => number, K: number, z: number, now: number, R: any) {
+    const g = this.g, P = Math.max(K, 2);
+    this.rings = this.rings.filter((r) => now - r.at < (r.kind === 4 ? 650 : 800));
+    const dot = (x: number, y: number, s: number) => g.fillRect(Math.round(x / P) * P, Math.round(y / P) * P, s, s);
+    for (const r of this.rings) {
+      const cx = sx(r.x), cy = sy(r.y);
+      if (r.kind === 4) {
+        const e = (now - r.at) / 650, f = Math.max(0, (e - 0.42) / 0.58);   // 앞발을 든 동안은 아직, 내리찍은 뒤 퍼진다
+        if (f <= 0) continue;
+        const rr = (R.stomp_r ?? 2.6) * z * Math.min(1, f * 2.4);
+        g.globalAlpha = 0.9 * (1 - f);
+        for (let i = 0; i < 44; i++) {                                  // 흙먼지
+          const an = (i / 44) * TAU, d = rr * (0.7 + ((i * 37) % 10) / 33);
+          g.fillStyle = SAND[i % 3];
+          dot(cx + Math.cos(an) * d, cy + Math.sin(an) * d * 0.7 - (i % 5) * P * (1 - f), i % 3 === 0 ? 2 * P : P);
+        }
+        g.fillStyle = 'rgb(70,54,40)';                                  // 갈라진 땅: 바깥으로 뻗는 금
+        for (let k = 0; k < 6; k++) {
+          const an = k * 1.05 + 0.3;
+          for (let q = 0.3; q < Math.min(1, f * 3); q += 0.12) dot(cx + Math.cos(an) * rr * q, cy + Math.sin(an) * rr * q * 0.7, P);
+        }
+      } else {                                                          // 낮은 포효: 두 겹 고리가 바깥으로
+        const f = (now - r.at) / 800;
+        for (const lag of [0, 0.22]) {
+          const q = Math.min(Math.max((f - lag) / 0.78, 0), 1), rr = (R.taunt_r ?? 7) * z * q;
+          if (q <= 0 || q >= 1) continue;
+          g.globalAlpha = 0.75 * (1 - q);
+          g.fillStyle = lag ? SAND[1] : 'rgb(236,214,170)';
+          const n = Math.max(24, Math.round(rr / P));
+          for (let i = 0; i < n; i++) { const an = (i / n) * TAU; dot(cx + Math.cos(an) * rr, cy + Math.sin(an) * rr * 0.7, P); }
+        }
+      }
+    }
+    g.globalAlpha = 1;
+  }
 
   /** 서리 숨결 (0.9초): 입에서 굵은 얼음 줄기가 뻗어 나가 넓게 퍼지고, 맞은 자리에 서리 안개와 얼음 고리.
    *  얼음 알갱이는 점 크기(K)의 2배까지, 앞으로 갈수록 크게 흩어진다. */
@@ -332,7 +375,11 @@ export class Overlay {
       for (const s of st.shots) {                                 // 치는 병사는 맞는 쪽을 본다
         if (!fresh.includes(s)) continue;
         const u = this.ctl.unitAt(s.x0, s.y0, 0.7, undefined, true);
-        if (u) { this.ang.set(u.slot, Math.atan2(s.y1 - s.y0, s.x1 - s.x0)); if (s.kind === 3) this.breathAt.set(u.slot, now); }
+        if (!u) continue;
+        if (s.kind === 4) { this.spinAt.set(u.slot, now); continue; }   // 바위거북 발 구르기
+        if (s.kind === 5) { this.roarAt.set(u.slot, now); continue; }   // 바위거북 낮은 포효
+        this.ang.set(u.slot, Math.atan2(s.y1 - s.y0, s.x1 - s.x0));
+        if (s.kind === 3) this.breathAt.set(u.slot, now);
       }
       const list = units.map((u) => ({ u, x: sx(lerp(u.px, u.x, a)), y: sy(lerp(u.py, u.y, a)) }))
         .filter((p) => p.x > -80 && p.x < W + 80 && p.y > -120 && p.y < H + 80).sort((p, q) => p.y - q.y);
@@ -349,14 +396,17 @@ export class Overlay {
       for (const { u, x, y: y0 } of [...list.filter((p) => !flying(p.u)), ...air]) {   // 걷는 병사, 그 위로 나는 병사
         const fly = flying(u), y = fly ? y0 - FLY_LIFT * K : y0;
         const breath = now - (this.breathAt.get(u.slot) ?? -1e9) < 900, dragon = !!R.unit_fly?.[u.kind];
-        const frame = fly ? (breath ? 6 : 1 + (Math.trunc(t * 3 + u.slot * 0.3) % 2))                // 날갯짓, 날며 숨결
+        const pang = u.kind === TORTOISE, spun = now - (this.spinAt.get(u.slot) ?? -1e9), roared = now - (this.roarAt.get(u.slot) ?? -1e9);
+        const frame = pang ? (u.state === 5 ? 2 : spun < STOMP_MS * 0.55 ? 3 : roared < 700 ? 4 : u.bits & 1 ? Math.trunc(t * 2.2 + u.slot * 0.3) % 2 : 0)   // 바위거북: 숨기, 발 구르기, 포효, 걷기
+          : fly ? (breath ? 6 : 1 + (Math.trunc(t * 3 + u.slot * 0.3) % 2))                // 날갯짓, 날며 숨결
           : dragon ? (breath ? 5 : u.bits & 1 ? (Math.trunc(t * 3.2 + u.slot * 0.3) % 2 ? 7 : 8) : 0)   // 땅의 용기사: 숨결, 걷기, 서기
           : u.bits & 1 ? Math.trunc(t * 4.5 * 1.2 + u.slot * 0.37) % 2 : 0;   // 걸을 때 다리
         const mx = u.x - u.px, my = u.y - u.py;                    // 가는 쪽으로 몸을 돌린다
         let ang = this.ang.get(u.slot) ?? (u.slot % 2 ? Math.PI * 0.5 : Math.PI * 0.25);
         if (Math.hypot(mx, my) > 0.01) ang = turn(ang, Math.atan2(my, mx), dt * 10);
         this.ang.set(u.slot, ang);
-        const rc = stack.draw(g, `u${u.kind}`, u.own, L, x, y, K, { frame, dir: dirOf(ang), torch: tl(lerp(u.px, u.x, a), lerp(u.py, u.y, a)), shadow: !fly });
+        const shake = pang && spun > STOMP_MS * 0.55 && spun < STOMP_MS ? (Math.floor(spun / 40) % 2 ? K : -K) : 0;   // 내리찍을 때 흔들림
+        const rc = stack.draw(g, `u${u.kind}`, u.own, L, x + shake, y, K, { frame, dir: dirOf(ang), torch: tl(lerp(u.px, u.x, a), lerp(u.py, u.y, a)), shadow: !fly });
         if (dragon && DRAGON_MOUTH[frame]) {                            // 숨결이 나올 입 자리
           const [mx, my, mz] = DRAGON_MOUTH[frame], d = dirOf(ang);
           const [dx, dy] = modelPoint(DRAGON_SIZE[0], DRAGON_SIZE[1], mx, my, mz, d, 16, K);
@@ -398,6 +448,8 @@ export class Overlay {
           g.fillStyle = 'rgb(30,28,34)'; g.beginPath();
           g.arc(ax + (bx - ax) * f, ay + (by - ay) * f - 6 * z * f * (1 - f), Math.max(1, Math.trunc(z * 0.45)), 0, 7); g.fill();
         } else { g.strokeStyle = WAKE; g.lineWidth = 1; g.beginPath(); g.arc(bx, by, Math.max(2, Math.trunc(z)), 0, 7); g.stroke(); }
+      } else if (s.kind === 4 || s.kind === 5) {                 // 바위거북: 발 구르기 / 포효 (아래 rings에서)
+        if (fresh.includes(s)) this.rings.push({ x: s.x0, y: s.y0, at: now, kind: s.kind });
       } else if (s.kind === 3) {                                 // 서리 숨결: 아래 frost에서 (더 오래, 굵게)
         if (fresh.includes(s)) {
           const shooter = this.ctl.unitAt(s.x0, s.y0, 0.8, undefined, true);
@@ -417,6 +469,7 @@ export class Overlay {
       }
     }
     this.drawFrost(sx, sy, K, z, now);
+    this.drawRings(sx, sy, K, z, now, R);
     for (const p of tameBars) this.bar(p.x, p.y, p.w, p.prog, p.col || undefined);   // 길들이기 진행, 드래곤 체력 (병사에 가리지 않게 나중에)
     for (const p of tameBars) if (p.label) this.text(p.label, p.x, p.y - 8, 11, 'rgb(205,232,255)', true, 'center');
     // 거점 위 말풍선: 대기열에 있는 병사 아이콘 (맨 앞은 훈련 진행 막대)

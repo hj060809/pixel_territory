@@ -5,6 +5,8 @@
   (보병 → 창기병, 궁수 → 기마궁수. sim/wildlife.py, WILDLIFE 표).
   넓은 설원의 가장 높은 곳에는 드래곤 둥지가 있다. 드래곤은 둥지를 지키며 서리 숨결을 뿜는다.
   체력을 깎아 제압하면 잠시 쓰러지고, 그동안 병사 하나가 길들이면 용기사가 된다 (날아다님, 나라마다 2기까지).
+  넓은 사막에는 거대 바위거북이 1~2마리씩 산다. 병사가 가서 먹이(식량)를 주면 금방 길들여 함께 싸우는 탱커가 된다
+  (발 구르기 범위 공격, 낮은 포효로 둘레 적의 어그로 끌기, 위험하면 껍질 속으로 숨어 버팀. sim/companions.py).
 병사는 식량을 먹는다 (겨울에 더). 식량이 바닥나면 굶어서 조금씩 약해진다.
 건물과 병사를 모두 잃으면 패배.
 """
@@ -14,8 +16,8 @@ FOOD, WOOD, STONE = range(3)
 RES_NAMES = ('식량', '목재', '석재')
 
 # --- 유닛
-INFANTRY, ARCHER, LANCER, HORSE_ARCHER, DRAGON_RIDER, WILD_DRAGON = range(6)
-UNIT_NAMES = ('보병', '궁수', '창기병', '기마궁수', '용기사', '드래곤')
+INFANTRY, ARCHER, LANCER, HORSE_ARCHER, DRAGON_RIDER, WILD_DRAGON, TORTOISE = range(7)
+UNIT_NAMES = ('보병', '궁수', '창기병', '기마궁수', '용기사', '드래곤', '바위거북')
 NEUTRAL = 250             # 야생 (어느 나라도 아님): 야생 드래곤의 나라 번호. 병사들이 저절로 덤비지 않는다
 TRAINABLE = (INFANTRY, ARCHER)            # 거점에서 훈련하는 병종. 기병은 야생말을 길들여야만 생긴다
 #   체력, 공격, 사거리, 공격 간격(초), 속도(칸/초, 평지), 시야, 비용(식량, 목재, 석재), 훈련 시간,
@@ -39,10 +41,20 @@ UNIT_STATS = {
                        terrain=1.0, charge=1.0, upkeep=4.0, ranged=True, fly=True, splash=2.6),       # 병사 + 드래곤
     WILD_DRAGON:  dict(hp=900.0, dmg=22.0, range=8.0, cd=3.5, speed=3.5, sight=16.0, cost=(0, 0, 0), time=0.0,
                        terrain=1.0, charge=1.0, upkeep=0.0, ranged=True, fly=False, splash=2.6),      # 둥지를 지키는 야생 드래곤
+    TORTOISE:     dict(hp=600.0, dmg=5.0, range=2.2, cd=1.5, speed=4.0, sight=13.0, cost=(0, 0, 0), time=0.0,
+                       terrain=1.0, charge=1.0, upkeep=3.0, ranged=False, fly=False, splash=0.0),     # 길든 거대 바위거북 (탱커)
 }
 # 상성: (치는 쪽, 맞는 쪽) → 피해 배율. 보병은 기병에 강하고 (막아선다), 창기병은 궁수에 강하다 (달려들어 흩는다)
 UNIT_VS = {(INFANTRY, LANCER): 1.3, (INFANTRY, HORSE_ARCHER): 1.3, (LANCER, ARCHER): 1.5, (LANCER, HORSE_ARCHER): 1.2,
-           (ARCHER, DRAGON_RIDER): 1.4, (HORSE_ARCHER, DRAGON_RIDER): 1.4}     # 활은 날아다니는 용기사에 강하다
+           (ARCHER, DRAGON_RIDER): 1.4, (HORSE_ARCHER, DRAGON_RIDER): 1.4,     # 활은 날아다니는 용기사에 강하다
+           (ARCHER, TORTOISE): 0.6, (HORSE_ARCHER, TORTOISE): 0.6}             # 바위 껍질은 화살을 막는다
+# 바위거북의 능력 (sim/companions.py)
+#   발 구르기: 붙은 적이 있으면 cd초마다 앞발로 땅을 내리찍어 r칸 안의 땅의 적 모두에게 dmg, push칸 밀어낸다
+#   낮은 포효 (어그로): cd초마다 r칸 안의 적 병사가 t초 동안 바위거북만 노린다 (명령받은 적도)
+#   껍질 숨기: 체력이 hp 비율 아래면 t초 동안 껍질 속으로 숨어 받는 피해를 cut만큼 줄인다 (움직이지도 치지도 않는다, cd초에 한 번)
+STOMP = dict(cd=3.5, r=2.6, dmg=10.0, push=0.8)
+TAUNT = dict(cd=15.0, r=7.0, t=4.0)
+HIDE = dict(hp=0.25, t=5.0, cut=0.7, cd=30.0)
 HEAL_RIDER = 1.5           # 용기사가 어디서든 1초에 회복하는 체력
 HEAL_ON_SNOW = 4.0         # 용기사가 눈 위에서 1초에 회복하는 체력 (설원에 진지를 둘 이유)
 UPKEEP = 0.035             # 병사 하나가 1초에 먹는 식량 (겨울에는 1.5배까지)
@@ -87,7 +99,9 @@ SITE_BUILDING = {FOOD: FARM, WOOD: LUMBER, STONE: QUARRY}     # 자원지 종류
 #   사나운 동물 (hostile): 둥지(lair)에 하나씩 살며 지킨다. unit: 싸울 때의 병종, wake: 이만큼 다가오면 깬다,
 #   guard: 둥지에서 이만큼 안의 병사를 친다, subdue: 체력이 이 비율 아래면 쓰러진다 (subdue_time초 동안,
 #   그동안만 길들일 수 있고 맞지 않는다), regrow: 길들여진 뒤 둥지에 새로 나는 시간, limit: 나라마다 탈 수 있는 수
-HORSE, DRAGON = range(2)
+#   함께 싸우는 동물 (companion): 길들여도 병사는 그대로이고, 동물이 그 나라의 병사(companion 병종)가 된다.
+#   food: 길들일 때 주는 먹이 (식량), tamers: 길들일 수 있는 병사, calm: 사람이 와도 달아나지 않는다
+HORSE, DRAGON, TORTOISE_W = range(3)
 _ANY = (INFANTRY, ARCHER, LANCER, HORSE_ARCHER)
 WILDLIFE = {
     HORSE: dict(name='말', habitat='grass', group=(2, 4), per_area=1500, cap=36, regrow=45.0, tame=11.0,
@@ -95,8 +109,15 @@ WILDLIFE = {
     DRAGON: dict(name='드래곤', habitat='lair', hostile=True, unit=WILD_DRAGON, cap=3, regrow=360.0, tame=15.0,
                  wake=8.0, guard=14.0, subdue=0.3, subdue_time=30.0, limit=2,
                  mounts={k: DRAGON_RIDER for k in _ANY}),
+    TORTOISE_W: dict(name='바위거북', habitat='desert', group=(1, 2), per_area=2500, cap=8, regrow=360.0, tame=4.0,
+                     food=300, companion=TORTOISE, tamers=_ANY, calm=True),
 }
-MOUNTED = {v for a in WILDLIFE.values() for v in a['mounts'].values()}     # 동물을 탄 병종
+MOUNTED = {v for a in WILDLIFE.values() for v in a.get('mounts', {}).values()}     # 동물을 탄 병종
+
+
+def tamers_of(info: dict) -> set:
+    """이 동물을 길들일 수 있는 병종."""
+    return set(info['mounts']) if 'mounts' in info else set(info.get('tamers', ()))
 
 
 def josa(word: str, a: str, b: str) -> str:

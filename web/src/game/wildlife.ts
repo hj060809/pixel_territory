@@ -9,7 +9,7 @@ import { type Animal, type GameState, lerp } from './state.ts';
 
 export const A_GRAZE = 0, A_WALK = 1, A_FLEE = 2, A_HELD = 3, A_TAMING = 4;     // 동물 상태 (서버와 같은 번호)
 export const A_SLEEP = 5, A_FIGHT = 6, A_SUBDUED = 7;                           // 사나운 동물
-const NAMES = ['horse', 'dragon'] as const;                                      // 동물 종류 → 모델 (rules.WILDLIFE 순서)
+const NAMES = ['horse', 'dragon', 'tortoise'] as const;                                      // 동물 종류 → 모델 (rules.WILDLIFE 순서)
 const ang = new Map<number, number>();                                           // 동물이 보는 방향 (라디안)
 const DIRS = 16, TAU = Math.PI * 2;
 
@@ -36,7 +36,9 @@ export function drawAnimals(g: CanvasRenderingContext2D, stack: StackRenderer, L
     const seed = (an.id * 0.618) % 1 * 10, hostile = isHostile(R, an.kind);
     const k = hostile ? kBig : k0;                            // 큰 동물은 멀리서 땅 넓이에 맞게 줄인다
     let frame = 0, hop = 0;
-    if (hostile) {
+    if (NAMES[an.kind] === 'tortoise') {                      // 바위거북: 느릿느릿 걷거나 서 있다
+      frame = Math.hypot(an.x - an.px, an.y - an.py) > 0.004 ? Math.trunc(t * 2.4 + seed) % 2 : 0;
+    } else if (hostile) {
       const moving = Math.hypot(an.x - an.px, an.y - an.py) > 0.01;
       frame = an.state === A_SLEEP ? 3 : an.state !== A_FIGHT ? 4
         : breathing(an.x, an.y) ? 5 : moving ? (Math.trunc(t * 3.2 + seed) % 2 ? 7 : 8) : 0;   // 숨결 / 걷기 / 서기

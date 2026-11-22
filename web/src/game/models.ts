@@ -526,12 +526,86 @@ function lair(): Vol {
   return v;
 }
 
+
+// ------------------------------------------------------------- 거대 바위거북 (사막, 함께 싸우는 탱커)
+// 바위로 된 높은 등껍질: 사암빛 판이 육각으로 갈라지고 이음매는 어둡다. 등마루에는 검은 바위가 솟고, 가장자리는 톱니처럼.
+// 굵은 기둥 같은 다리와 뭉툭한 발톱, 부리 같은 입의 묵직한 머리, 짧은 꼬리.
+// frame: 0 서기, 1 걷기, 2 껍질 속으로 숨기, 3 발 구르기 (앞발을 들어 올린다), 4 낮은 포효 (고개를 들고 입을 벌린다)
+const TCY = 13;
+
+/** 등껍질 판: 육각에 가깝게 엇갈린 칸, 이음매는 어둡고 판 가운데는 밝다. */
+function shellBias(x: number, y: number) {
+  const row = Math.floor((y + 0.5) / 4.2), xs = x + 0.5 + (row % 2) * 2.5;
+  const fx = (xs % 5) / 5, fy = ((y + 0.5) % 4.2) / 4.2;
+  const edge = Math.min(fx, 1 - fx) < 0.14 || Math.min(fy, 1 - fy) < 0.12;
+  return edge ? -2 : Math.abs(fx - 0.5) + Math.abs(fy - 0.5) < 0.3 ? 1 : 0;
+}
+
+function tortoiseBody(v: Vol, frame: number) {
+  const Sh = Mat.SHELL, Sk = Mat.HIDE, cy = TCY;
+  const hide = frame === 2, stomp = frame === 3, roar = frame === 4;
+  const lift = stomp ? 1.5 : 0, base = hide ? 1 : 3;                     // 발 구르기: 앞이 들린다 / 숨기: 껍질이 땅에 내려앉는다
+  // 등껍질: 높은 돔 (앞이 들리면 앞쪽이 위로)
+  const sc = [15, cy], rx = 10, ry = 8.2, rz = 7.4;
+  for (let x = 4; x <= 26; x++) for (let y = cy - 9; y <= cy + 9; y++) {
+    const dx = (x + 0.5 - sc[0]) / rx, dy = (y + 0.5 - sc[1]) / ry, d2 = dx * dx + dy * dy;
+    if (d2 > 1) continue;
+    const tilt = lift * ((x - 4) / 22);
+    const top = base + tilt + rz * Math.sqrt(1 - d2);
+    const rim = d2 > 0.82;                                               // 가장자리: 톱니처럼 들쭉날쭉
+    for (let z = Math.floor(base + tilt - 1); z <= Math.round(top); z++) {
+      if (z < 0) continue;
+      const under = z < base + tilt;
+      if (under) { v.set(x, y, z, Sk, -1); continue; }                    // 배딱지 (어두운 살)
+      if (rim && z > base + tilt + 1 && (x + y) % 3 === 0) continue;
+      v.set(x, y, z, Sh, rim ? -1 : shellBias(x, y));
+    }
+  }
+  for (const [x, y, h] of [[13, 0, 2.6], [17, 0, 2.2], [10, 2, 1.6], [19, -2, 1.8], [15, 3, 1.4]]) {   // 등마루의 검은 바위
+    const zt = base + lift * ((x - 4) / 22) + rz * Math.sqrt(Math.max(0, 1 - ((x + 0.5 - sc[0]) / rx) ** 2 - (y / ry) ** 2));
+    chunk(v, x, cy + y, zt + 0.4, h, Mat.BASALT, 0, 0.9, -9);
+  }
+  if (hide) {                                                            // 숨기: 머리와 다리를 넣었다 (구멍 안에 어둠만)
+    v.box(26, cy - 1, base, 26, cy + 1, base + 1, Mat.DARK);
+    return;
+  }
+  // 다리: 굵은 기둥, 뭉툭한 발톱 (걸을 때 엇갈린다, 발 구르기는 앞발을 든다)
+  for (const [x, s, front] of [[8, -1, 0], [8, 1, 0], [22, -1, 1], [22, 1, 1]] as [number, number, number][]) {
+    const step = frame === 1 ? (front ? s : -s) * 1.5 : 0;
+    const up = stomp && front ? 3 : 0;
+    const fx = Math.round(x + step + (stomp && front ? 1 : 0)), y = cy + s * 7;
+    v.box(fx, y - 1, up, fx + 2, y + 1, base + 2 + up, Sk, 0);
+    for (const dy of [-1, 0, 1]) v.set(fx + 3, y + dy, up, Mat.PLASTER, 1);
+  }
+  // 목과 머리: 묵직하게 앞으로 (포효: 고개를 쳐들고 입을 벌린다)
+  const hz = base + 3 + lift + (roar ? 3 : 0), hx = roar ? 28 : 29;
+  limb(v, [25, cy, base + 2 + lift], [hx, cy, hz], 2.2, 1.9, Sk, 0, -9);
+  for (let d = 0; d <= 3; d++) {
+    const w = 2 - d * 0.3;
+    for (let y = Math.round(cy - w); y <= Math.round(cy + w); y++) {
+      v.set(hx + d, y, hz + 1, Sk, d === 0 ? 1 : 0);
+      v.set(hx + d, y, hz, Sk, 0);
+      v.set(hx + d, y, hz - 1 - (roar ? 1 : 0), Sk, -1);
+    }
+  }
+  v.set(hx + 4, cy, hz + (roar ? 1 : 0), Mat.DARK);                       // 부리 끝
+  if (roar) for (let d = 1; d <= 3; d++) v.set(hx + d, cy, hz - 1, Mat.DARK);   // 벌린 입
+  for (const s of [-1, 1]) { v.set(hx + 1, cy + s * 2, hz + 1, Mat.DARK); v.set(hx + 1, cy + s * 2, hz + 2, Mat.GLOW, 1); }   // 눈
+  v.box(3, cy, base, 4, cy, base + 1, Sk, -1);                            // 짧은 꼬리
+}
+
+function tortoise(frame: number): Vol {
+  const v = new Vol(34, 26, 16);
+  tortoiseBody(v, frame);
+  return v;
+}
+
 // ------------------------------------------------------------- 찾기
 const BUILD = [hall, farm, lumber, quarry, tower, harbor];
-const UNIT = [infantry, archer, lancer, horseArcher, dragonRider, dragon];   // sim/rules.py 병종 번호 순서
+const UNIT = [infantry, archer, lancer, horseArcher, dragonRider, dragon, tortoise];   // sim/rules.py 병종 번호 순서
 const cache = new Map<string, Vol>();
 
-/** 모델 이름: u0~u5 (병종: 걷는 병사 frame 0/1, 용기사·드래곤 frame 0~6), b0~b5 (건물), horse (frame 0~3), dragon, lair,
+/** 모델 이름: u0~u6 (병종: 걷는 병사 frame 0/1, 용기사·드래곤 frame 0~8, 바위거북 frame 0~4), b0~b5 (건물), horse (frame 0~3), dragon, lair, tortoise,
  *  ferry, warship, torch. */
 export function model(name: string, frame = 0): Vol {
   const key = `${name}:${frame}`;
@@ -539,7 +613,7 @@ export function model(name: string, frame = 0): Vol {
   if (!v) {
     const k = Number(name.slice(1));
     v = name[0] === 'u' ? UNIT[k](frame) : name[0] === 'b' ? BUILD[k]()
-      : name === 'dragon' ? dragon(frame) : name === 'lair' ? lair()
+      : name === 'dragon' ? dragon(frame) : name === 'lair' ? lair() : name === 'tortoise' ? tortoise(frame)
       : name === 'horse' ? horse(frame) : name === 'ferry' ? ferry() : name === 'warship' ? warship() : torch();
     cache.set(key, v);
   }

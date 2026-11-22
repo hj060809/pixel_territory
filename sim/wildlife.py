@@ -57,7 +57,16 @@ def _grass(gmap):
     return flat & (ndimage.uniform_filter(flat.astype(np.float32), 15) > 0.6)
 
 
-HABITATS = {'grass': _grass}    # 사는 땅 이름 → 지도에서 그 땅 고르기 (사막 동물이면 'desert' 하나 더)
+def _desert(gmap):
+    """넓은 사막·모래 언덕 (둘레 15칸의 60% 넘게 사막인 칸)."""
+    from engine.render import materials as S
+    d = np.isin(gmap.layers['pre'], (S.DESERT, S.DUNE)) & gmap.walk_static
+    if d.sum() < 300:
+        return np.zeros_like(d)
+    return d & (ndimage.uniform_filter(d.astype(np.float32), 15) > 0.6)
+
+
+HABITATS = {'grass': _grass, 'desert': _desert}    # 사는 땅 이름 → 지도에서 그 땅 고르기
 
 
 def lairs_for(gmap, cap: int = 3) -> list[tuple[int, int]]:
@@ -240,11 +249,12 @@ class Wildlife:
         ids = np.asarray(ids, np.int64)
         ids = ids[u.alive[ids] & ~u.aboard[ids] & (u.own[ids] == nid)] if len(ids) else ids
         dst = comp[int(a0.y), int(a0.x)]
-        ok = [int(i) for i in ids if int(u.kind[i]) in info['mounts'] and comp[int(u.y[i]), int(u.x[i])] == dst]
+        can = R.tamers_of(info)
+        ok = [int(i) for i in ids if int(u.kind[i]) in can and comp[int(u.y[i]), int(u.x[i])] == dst]
         if not ok:
             if not quiet and len(ids):
-                names = ', '.join(R.UNIT_NAMES[k] for k in info['mounts'])
-                far = any(int(u.kind[i]) in info['mounts'] for i in ids)
+                names = ', '.join(R.UNIT_NAMES[k] for k in sorted(can))
+                far = any(int(u.kind[i]) in can for i in ids)
                 w.say(f'{R.josa(info["name"], "은", "는")} 같은 땅에 있는 병사만 길들일 수 있습니다' if far
                       else f'{R.josa(info["name"], "은", "는")} {names}만 길들일 수 있습니다')
             return 0
@@ -260,6 +270,15 @@ class Wildlife:
             return 0
         free = list(ok)
         pairs = []
+        food = info.get('food', 0)
+        if food:                                         # 먹이: 줄 수 있는 만큼만 (식량은 다 길들였을 때 낸다)
+            afford = int(w.nations[nid].res[R.FOOD] // food) - sum(
+                1 for k, t in self.tamers.items() if u.own[k] == nid and t.aid in self.animals and self.animals[t.aid].kind == a0.kind)
+            if afford <= 0:
+                if not quiet:
+                    w.say(f'{R.josa(info["name"], "을", "를")} 길들일 먹이가 모자랍니다 (식량 {food})')
+                return 0
+            herd = herd[:afford]
         for a in herd:
             if not free:
                 break
@@ -278,7 +297,8 @@ class Wildlife:
                 break                                    # 사나운 동물은 한 명만
         if nid == 0 and not quiet:
             w.say(f'{R.josa(info["name"], "을", "를")} 길들이러 갑니다 ({info["tame"]:.0f}초, 쓰러져 있는 동안 끝내야 합니다)'
-                  if hostile else f'{info["name"]} {len(pairs)}마리를 길들이러 갑니다 ({info["tame"]:.0f}초)')
+                  if hostile else f'{info["name"]} {len(pairs)}마리를 길들이러 갑니다 ({info["tame"]:.0f}초'
+                  + (f', 먹이 식량 {food * len(pairs)})' if food else ')'))
         return 1 if hostile else len(pairs)
 
     def release(self, ids, scare=False) -> None:
@@ -376,8 +396,27 @@ class Wildlife:
                 self._mount(i, a)
 
     def _mount(self, i, a) -> None:
-        """병사와 동물이 합쳐진다."""
+        """병사와 동물이 합쳐진다 (함께 싸우는 동물이면 동물이 그 나라의 병사가 되고 병사는 그대로)."""
         w, u = self.w, self.w.units
+        info = R.WILDLIFE[a.kind]
+        if 'companion' in info:
+            nid = int(u.own[i])
+            if w.nations[nid].res[R.FOOD] < info.get('food', 0):
+                if nid == 0:
+                    w.say(f'{R.josa(info["name"], "을", "를")} 길들일 먹이가 모자랍니다 (식량 {info.get("food", 0)})')
+                self.release([i])
+                return
+            w.nations[nid].res[R.FOOD] -= info.get('food', 0)
+            k = info['companion']
+            j = u.add(nid, k, a.x, a.y, R.UNIT_STATS[k]['hp'])
+            if j >= 0:
+                u.tx[j], u.ty[j] = a.x, a.y
+            u.state[i], u.slot[i] = IDLE, -1
+            del self.tamers[i]
+            del self.animals[a.id]
+            if nid == 0:
+                w.say(f'{R.josa(info["name"], "을", "를")} 길들였습니다: 함께 싸웁니다')
+            return
         old = int(u.kind[i])
         new = R.WILDLIFE[a.kind]['mounts'][old]
         ratio = float(u.hp[i]) / R.UNIT_STATS[old]['hp']
@@ -406,7 +445,8 @@ class Wildlife:
 
     def _scare(self) -> None:
         """길들이는 중이 아닌 동물: 가까운 병사나 싸움에서 달아난다."""
-        free = [a for a in self.animals.values() if a.mode not in (HELD, TAMING) and a.unit < 0]
+        free = [a for a in self.animals.values() if a.mode not in (HELD, TAMING) and a.unit < 0
+                and not R.WILDLIFE[a.kind].get('calm')]                 # 느긋한 동물(바위거북)은 달아나지 않는다
         if not free:
             return
         w, u = self.w, self.w.units

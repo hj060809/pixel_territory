@@ -34,7 +34,10 @@ def rules_info() -> dict:
         'unit_dmg': [R.UNIT_STATS[k]['dmg'] for k in range(len(R.UNIT_STATS))],
         'trainable': list(R.TRAINABLE), 'mounted': sorted(R.MOUNTED),
         'unit_fly': [R.UNIT_STATS[k]['fly'] for k in range(len(R.UNIT_STATS))],
-        'wildlife': {str(k): {'name': a['name'], 'tame': a['tame'], 'mounts': {str(u): v for u, v in a['mounts'].items()},
+        'stomp_r': R.STOMP['r'], 'taunt_r': R.TAUNT['r'],
+        'wildlife': {str(k): {'name': a['name'], 'tame': a['tame'], 'mounts': {str(u): v for u, v in a.get('mounts', {}).items()},
+                              'companion': a.get('companion', -1), 'food': a.get('food', 0),
+                              'tamers': sorted(R.tamers_of(a)), 'calm': bool(a.get('calm')),
                               'hostile': bool(a.get('hostile')), 'limit': a.get('limit', 0),
                               'subdue': a.get('subdue', 0), 'subdue_time': a.get('subdue_time', 0)}
                      for k, a in R.WILDLIFE.items()},

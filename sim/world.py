@@ -109,6 +109,8 @@ class World:
             word, col, light = R.COLORS[c]
             self.nations.append(Nation(i, f'{word} {animals[i - 1]}', col, light, bonus=difficulty))
         self._spawn_all(starts)
+        from sim.companions import Companions
+        self.companions = Companions(self)
         from sim.wildlife import Wildlife
         self.wild = Wildlife(self, np.random.default_rng([abs(int(seed)) & 0xFFFFFFFF, 7]))   # 야생 동물 (거점이 선 다음에: 거점 곁엔 안 생기게)
         from sim.ai import Bot
@@ -458,6 +460,7 @@ class World:
         while self.recent and self.time - self.recent[0][0] > 0.3:
             self.recent.popleft()
         self._lift()                                        # 용기사: 움직이거나 싸울 때만 난다
+        self.companions.update(dt)                          # 바위거북: 발 구르기, 낮은 포효, 껍질 숨기
         self.wild.update(dt)                                # 야생 동물, 길들이기 (병사가 움직인 다음에)
         # 짓기
         for i in np.flatnonzero(self._builders[:b.n]):
