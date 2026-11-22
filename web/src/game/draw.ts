@@ -58,6 +58,39 @@ export class Overlay {
   private spinAt = new Map<number, number>();     // 발 구르기를 한 화면 시각 (바위거북)
   private roarAt = new Map<number, number>();     // 낮은 포효를 한 화면 시각 (바위거북)
   private rings: { x: number; y: number; at: number; kind: number }[] = [];   // 발 구르기·포효 표시
+  private flames: { x0: number; y0: number; x1: number; y1: number; at: number; weak: boolean }[] = [];   // 화염탑 불
+
+  /** 화염탑 불 (0.6초): 분사구에서 목표로 뻗는 불꽃 줄기 (안쪽은 노랗고 바깥은 붉다), 맞은 자리에 불길과 그을음.
+   *  약한 불(유황이 없을 때)은 가늘고 짧다. */
+  private drawFlames(sx: (x: number) => number, sy: (y: number) => number, K: number, z: number, now: number) {
+    const g = this.g, LIFE = 600, P = Math.max(K, 2);
+    this.flames = this.flames.filter((f) => now - f.at < LIFE);
+    const dot = (x: number, y: number, s: number) => g.fillRect(Math.round(x / P) * P, Math.round(y / P) * P, s, s);
+    const FIRE = ['rgb(255,236,150)', 'rgb(255,178,70)', 'rgb(232,96,40)', 'rgb(170,50,30)'];
+    for (const f of this.flames) {
+      const age = (now - f.at) / LIFE, grow = Math.min(age / 0.25, 1), fade = age < 0.5 ? 1 : 1 - (age - 0.5) / 0.5;
+      const ox = sx(f.x0), oy = sy(f.y0) - 18 * K, bx = sx(f.x1), by = sy(f.y1);   // 분사구 (탑 꼭대기 앞)
+      const len = Math.hypot(bx - ox, by - oy), ang = Math.atan2(by - oy, bx - ox), ca = Math.cos(ang), sa = Math.sin(ang);
+      const n = f.weak ? 60 : 150, width = f.weak ? 0.12 : 0.22, seed = Math.floor(f.x0 * 7 + f.y0 * 13);
+      for (let i = 0; i < n; i++) {
+        const h = ((i * 37 + seed) % 97) / 97, r = h * len * grow;
+        const sp = r * width * ((((i * 53 + seed) % 89) / 44.5) - 1) + Math.sin(now * 0.025 + i) * P;
+        g.globalAlpha = fade * (0.95 - h * 0.25);
+        g.fillStyle = FIRE[Math.min(3, Math.floor(h * 2.2 + (Math.abs(sp) / (r * width + 1)) * 1.5))];
+        dot(ox + ca * r - sa * sp, oy + sa * r + ca * sp - h * (1 - h) * 3 * K, h > 0.5 && !f.weak ? 2 * P : P);
+      }
+      if (age > 0.2 && !f.weak) {                                       // 맞은 자리: 불길과 그을음
+        const sp2 = Math.min((age - 0.2) / 0.25, 1), rr = 2.5 * z * sp2;
+        for (let i = 0; i < 30; i++) {
+          const an = (i / 30) * TAU + seed, d = (((i * 29 + seed) % 23) / 23) * rr;
+          g.globalAlpha = fade * 0.8;
+          g.fillStyle = FIRE[(i % 3) + 1];
+          dot(bx + Math.cos(an) * d, by + Math.sin(an) * d * 0.7 - ((i * 7) % 4) * P * (1 - age), P);
+        }
+      }
+    }
+    g.globalAlpha = 1;
+  }
   private breaths: { x: number; y: number; at: number }[] = [];   // 야생 드래곤이 숨결을 뿜은 자리
   private frost: { x0: number; y0: number; x1: number; y1: number; at: number; air: boolean; src: string }[] = [];   // 그리는 중인 숨결
   private mouths = new Map<string, number[]>();   // 이번 장면에서 숨결 자세로 그린 드래곤: [입 x, y, 숨결이 닿는 앞쪽 땅 x, y] (u칸 / a번호)
@@ -448,6 +481,8 @@ export class Overlay {
           g.fillStyle = 'rgb(30,28,34)'; g.beginPath();
           g.arc(ax + (bx - ax) * f, ay + (by - ay) * f - 6 * z * f * (1 - f), Math.max(1, Math.trunc(z * 0.45)), 0, 7); g.fill();
         } else { g.strokeStyle = WAKE; g.lineWidth = 1; g.beginPath(); g.arc(bx, by, Math.max(2, Math.trunc(z)), 0, 7); g.stroke(); }
+      } else if (s.kind === 6 || s.kind === 7) {                 // 화염탑: 불 (아래 flames에서)
+        if (fresh.includes(s)) this.flames.push({ x0: s.x0, y0: s.y0, x1: s.x1, y1: s.y1, at: now, weak: s.kind === 7 });
       } else if (s.kind === 4 || s.kind === 5) {                 // 바위거북: 발 구르기 / 포효 (아래 rings에서)
         if (fresh.includes(s)) this.rings.push({ x: s.x0, y: s.y0, at: now, kind: s.kind });
       } else if (s.kind === 3) {                                 // 서리 숨결: 아래 frost에서 (더 오래, 굵게)
@@ -470,6 +505,7 @@ export class Overlay {
     }
     this.drawFrost(sx, sy, K, z, now);
     this.drawRings(sx, sy, K, z, now, R);
+    this.drawFlames(sx, sy, K, z, now);
     for (const p of tameBars) this.bar(p.x, p.y, p.w, p.prog, p.col || undefined);   // 길들이기 진행, 드래곤 체력 (병사에 가리지 않게 나중에)
     for (const p of tameBars) if (p.label) this.text(p.label, p.x, p.y - 8, 11, 'rgb(205,232,255)', true, 'center');
     // 거점 위 말풍선: 대기열에 있는 병사 아이콘 (맨 앞은 훈련 진행 막대)

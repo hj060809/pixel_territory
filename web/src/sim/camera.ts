@@ -11,6 +11,8 @@ export class Camera {
   viewW = 1;
   viewH = 1;
   private anchor: [number, number] = [0, 0];
+  /** 지도 가장자리가 화면 가운데까지 오게 더 움직일 수 있다 (게임). 아니면 지도 밖이 보이지 않게 (뷰어). */
+  overscroll = false;
 
   constructor(readonly mapW: number, readonly mapH: number) {}
 
@@ -26,7 +28,9 @@ export class Camera {
 
   fit() {
     this.zoom = this.zoomTarget = this.fitZoom();
-    this.x = this.y = 0;
+    const [vw, vh] = this.view();
+    this.x = (this.mapW - vw) / 2;                        // 지도 전체를 화면 가운데에
+    this.y = (this.mapH - vh) / 2;
     this.clamp();
   }
 
@@ -38,6 +42,12 @@ export class Camera {
     if (this.zoom < this.zoomMin()) this.zoom = this.zoomMin();
     this.zoomTarget = Math.min(Math.max(this.zoomTarget, this.zoomMin()), this.zoomMax());
     const vw = this.viewW / this.zoom, vh = this.viewH / this.zoom;
+    if (this.overscroll) {
+      // 게임: 지도 가장자리가 화면 가운데까지 오게 (가장자리 땅이 버튼·패널에 가리지 않게). 화면 가운데는 늘 지도 위
+      this.x = Math.min(Math.max(this.x, -vw / 2), this.mapW - vw / 2);
+      this.y = Math.min(Math.max(this.y, -vh / 2), this.mapH - vh / 2);
+      return;
+    }
     // 지도가 화면보다 작은 방향은 가운데에, 큰 방향은 지도 밖으로 나가지 않게
     this.x = this.mapW <= vw ? (this.mapW - vw) / 2 : Math.min(Math.max(this.x, 0), this.mapW - vw);
     this.y = this.mapH <= vh ? (this.mapH - vh) / 2 : Math.min(Math.max(this.y, 0), this.mapH - vh);

@@ -1,18 +1,18 @@
 // 개발용 숨은 콘솔: 서버를 --dev로 켰을 때만 (start 정보의 dev). 게임 중 ` 키로 열고 닫는다.
-//   res 5000            세 자원 모두 +5000
-//   res food 2000       식량만 (food/wood/stone 또는 식량/목재/석재)
+//   res 5000            모든 자원 +5000 (식량·목재·석재·유황)
+//   res food 2000       하나만 (food/wood/stone/sulfur 또는 식량/목재/석재/유황)
 // 서버도 --dev가 아니면 이 명령을 받지 않는다 (배포 서버에서는 쓸 수 없다).
 
 import type { Connection } from './net.ts';
 
-const RES: Record<string, number> = { food: 0, wood: 1, stone: 2, 식량: 0, 목재: 1, 석재: 2 };
+const RES: Record<string, number> = { food: 0, wood: 1, stone: 2, sulfur: 3, 식량: 0, 목재: 1, 석재: 2, 유황: 3 };
 
 export class DevConsole {
   readonly el = document.createElement('input');
 
   constructor(private net: Connection, private say: (t: string) => void) {
     this.el.className = 'dev-console';
-    this.el.placeholder = 'res 5000 · res food 2000  (Enter 보내기, ` 닫기)';
+    this.el.placeholder = 'res 5000 · res sulfur 200  (Enter 보내기, ` 닫기)';
     this.el.style.cssText = 'position:fixed;left:50%;top:70px;transform:translateX(-50%);width:420px;z-index:30;display:none;'
       + 'font:14px monospace;padding:6px 10px;background:rgba(10,12,20,0.92);color:#d8f0c8;border:1px solid #5a8a50;outline:none';
     this.el.addEventListener('keydown', (e) => {
@@ -35,8 +35,8 @@ export class DevConsole {
     if (cmd === 'res') {
       const amount = Number(b ?? a);
       if (!Number.isFinite(amount)) { this.say('개발: res 숫자 / res food 숫자'); return; }
-      const add = [0, 0, 0];
-      if (b !== undefined && RES[a] === undefined) { this.say('개발: 자원은 food / wood / stone'); return; }
+      const add = [0, 0, 0, 0];
+      if (b !== undefined && RES[a] === undefined) { this.say('개발: 자원은 food / wood / stone / sulfur'); return; }
       if (b === undefined) add.fill(amount); else add[RES[a]] = amount;
       this.net.send({ t: 'dev', cmd: 'res', add });
     } else if (line) this.say(`개발: 모르는 명령 ${cmd}`);

@@ -15,7 +15,8 @@ import numpy as np
 from sim import rules as R
 
 PLACE_KINDS = {'tower': R.TOWER, 'hall': R.HALL, 'harbor': R.HARBOR,
-               'farm': R.FARM, 'lumber': R.LUMBER, 'quarry': R.QUARRY}   # 뒤의 셋은 빈 자원지에
+               'farm': R.FARM, 'lumber': R.LUMBER, 'quarry': R.QUARRY, 'sulfur': R.SULFUR_PIT,   # 농장~유황은 빈 자원지에
+               'fire': R.FIRE_TOWER}
 SITE_OF = {v: k for k, v in R.SITE_BUILDING.items()}                       # 건물 → 자원지 종류
 TRAIN_KINDS = {'infantry': R.INFANTRY, 'archer': R.ARCHER, 'warship': R.WARSHIP}     # 기병은 훈련하지 않는다 (길들인다)
 
@@ -124,7 +125,7 @@ class PlayerCommands:
         if kind in SITE_OF:
             site = self._free_site(SITE_OF[kind], y, x, 8.0)
             if site < 0:
-                w.say(f'{R.josa(R.BUILD_NAMES[kind], "은", "는")} 빈 {R.RES_NAMES[SITE_OF[kind]]} 자리에 지어야 합니다')
+                w.say(f'{R.josa(R.BUILD_NAMES[kind], "은", "는")} 빈 {R.SITE_NAMES[SITE_OF[kind]]} 자리에 지어야 합니다')
                 return False
             y, x = w.sites[site].y, w.sites[site].x
         sel = self.units(unit_refs)

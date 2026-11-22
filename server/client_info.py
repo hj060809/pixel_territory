@@ -41,9 +41,11 @@ def rules_info() -> dict:
                               'hostile': bool(a.get('hostile')), 'limit': a.get('limit', 0),
                               'subdue': a.get('subdue', 0), 'subdue_time': a.get('subdue_time', 0)}
                      for k, a in R.WILDLIFE.items()},
-        'build': {str(k): {'r': v['r'], 'cost': list(v['cost']), 'hp': v['hp']} for k, v in R.BUILD_STATS.items()},
+        'build': {str(k): {'r': v['r'], 'cost': list(v['cost']), 'hp': v['hp'], 'sulfur': v.get('sulfur', 0)}
+                  for k, v in R.BUILD_STATS.items()},
+        'site_names': list(R.SITE_NAMES), 'fire': R.FIRE,
         'kinds': {'HALL': R.HALL, 'FARM': R.FARM, 'LUMBER': R.LUMBER, 'QUARRY': R.QUARRY, 'TOWER': R.TOWER,
-                  'HARBOR': R.HARBOR},
+                  'HARBOR': R.HARBOR, 'SULFUR_PIT': R.SULFUR_PIT, 'FIRE_TOWER': R.FIRE_TOWER, 'SULFUR': R.SULFUR},
         'site_building': {str(k): v for k, v in R.SITE_BUILDING.items()},
         'yield_res': {str(k): v[0] for k, v in R.YIELD.items()},
         'season_yield_food': list(R.SEASON_YIELD[R.FOOD]),

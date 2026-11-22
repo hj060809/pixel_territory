@@ -128,6 +128,7 @@ export class GameView {
     scene.season.auto = false;
     const life = new Life(scene.bundle, 0);
     const cam = new Camera(scene.W, scene.H);
+    cam.overscroll = true;                    // 지도 가장자리도 화면 가운데까지 끌어올 수 있게
     const dpr = () => Math.min(window.devicePixelRatio || 1, touchMode() ? 2 : 8);   // 터치 기기는 2로 제한
     const waveHz = scene.updateHz;
     const resize = () => {

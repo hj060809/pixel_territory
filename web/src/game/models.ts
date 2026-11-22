@@ -237,6 +237,54 @@ function harbor(): Vol {
   return v;
 }
 
+
+/** 유황 채취장: 노랗게 끓는 유황 웅덩이 위의 나무 도르래 틀, 둘레의 유황 결정, 쌓은 자루. */
+function sulfurPit(): Vol {
+  const v = new Vol(20, 20, 13);
+  for (let y = 4; y <= 15; y++) for (let x = 4; x <= 15; x++) {          // 웅덩이 (가장자리는 굳은 껍질)
+    const d = Math.hypot(x + 0.5 - 10, (y + 0.5 - 10) * 1.1) + hash(x, y, 21) * 1.2;
+    if (d < 4.6) v.set(x, y, 0, Mat.SULFUR, hash(x, y, 22) < 0.3 ? 1 : 0);
+    else if (d < 6.2) v.set(x, y, 0, Mat.SULFUR, -2);
+  }
+  for (const [x, y, h] of [[4, 5, 3], [15, 4, 2], [16, 13, 3], [5, 15, 2], [11, 3, 2]]) {   // 유황 결정
+    for (let z = 0; z < h; z++) v.set(x, y, z, Mat.SULFUR, z === h - 1 ? 2 : 1);
+    v.set(x + 1, y, 0, Mat.SULFUR, 1);
+  }
+  for (const [x, y] of [[6, 6], [13, 6], [6, 13], [13, 13]]) v.box(x, y, 0, x, y, 7, Mat.WOOD_D);   // 도르래 틀
+  for (let x = 6; x <= 13; x++) { v.set(x, 6, 8, Mat.WOOD, 1); v.set(x, 13, 8, Mat.WOOD, 1); }
+  for (let y = 6; y <= 13; y++) v.set(9, y, 9, Mat.WOOD_D, 1);
+  v.box(9, 9, 3, 9, 9, 8, Mat.DARK);                                      // 밧줄과 두레박
+  v.box(9, 9, 1, 10, 10, 2, Mat.WOOD_D, 1);
+  for (const [x, y, z] of [[16, 8, 0], [17, 9, 0], [16, 10, 0], [17, 8, 1]]) v.box(x, y, z, x, y, z, Mat.SAIL, z ? 1 : 0);   // 자루
+  flag(v, 3, 10, 0, 8);
+  return v;
+}
+
+/** 화염탑: 검은 띠를 두른 돌탑, 꼭대기의 쇠 화로와 앞을 보는 용머리 분사구, 옆에 늘어뜨린 나라 깃발. */
+function fireTower(): Vol {
+  const v = new Vol(12, 12, 24);
+  for (let z = 0; z <= 15; z++) {                                         // 위로 조금 좁아지는 팔각 돌탑
+    const r = 4.6 - z * 0.08;
+    for (let y = 0; y < 12; y++) for (let x = 0; x < 12; x++) {
+      const dx = Math.abs(x + 0.5 - 6), dy = Math.abs(y + 0.5 - 6);
+      if (Math.max(dx, dy) > r || dx + dy > r * 1.4) continue;
+      const band = z % 5 === 4;
+      v.set(x, y, z, band ? Mat.BASALT : Mat.STONE, band ? 0 : hash(x, y, z) < 0.25 ? -1 : 0);
+    }
+  }
+  v.box(5, 10, 3, 6, 10, 5, Mat.DARK);                                    // 문
+  for (let z = 16; z <= 18; z++) for (let y = 1; y <= 10; y++) for (let x = 1; x <= 10; x++) {   // 쇠 화로
+    const d = Math.hypot(x + 0.5 - 6, y + 0.5 - 6);
+    if (d <= 5 && (d > 3.8 || z === 16)) v.set(x, y, z, Mat.METAL, z === 18 ? 1 : 0);
+    else if (d <= 3.8 && z === 17) v.set(x, y, z, Mat.GOLD, 2);          // 화로 속 불씨
+  }
+  for (let k = 0; k <= 3; k++) v.box(5, 10 + Math.min(k, 1), 17 + (k > 1 ? 1 : 0), 6, 10 + Math.min(k, 1), 17 + (k > 1 ? 1 : 0), Mat.METAL, 1);   // 용머리 분사구
+  v.box(5, 11, 17, 6, 11, 18, Mat.METAL, 1); v.set(5, 11, 19, Mat.METAL, 2); v.set(6, 11, 19, Mat.METAL, 2);
+  v.box(5, 11, 16, 6, 11, 16, Mat.DARK);
+  v.box(10, 6, 9, 10, 6, 14, Mat.CLOTH, 1); v.box(10, 7, 10, 10, 7, 14, Mat.CLOTH);   // 나라 깃발
+  return v;
+}
+
 // ------------------------------------------------------------- 배 (앞이 +x)
 function ferry(): Vol {
   const v = new Vol(12, 6, 8);
@@ -601,7 +649,7 @@ function tortoise(frame: number): Vol {
 }
 
 // ------------------------------------------------------------- 찾기
-const BUILD = [hall, farm, lumber, quarry, tower, harbor];
+const BUILD = [hall, farm, lumber, quarry, tower, harbor, sulfurPit, fireTower];
 const UNIT = [infantry, archer, lancer, horseArcher, dragonRider, dragon, tortoise];   // sim/rules.py 병종 번호 순서
 const cache = new Map<string, Vol>();
 

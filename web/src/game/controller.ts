@@ -13,7 +13,7 @@ const FLY_CELLS = 18 / 2.4;           // 날고 있는 병종이 떠 있는 높�
 /** null / 'attack'(A 다음 클릭) / 숫자 = 놓을 건물 종류 (하단 버튼, 숫자 키) */
 export type Mode = null | 'attack' | number;
 /** 건물 버튼 (숫자 키 1~): 서버 이름 */
-export const BUILD_NAMES_EN = ['hall', 'farm', 'lumber', 'quarry', 'tower', 'harbor'];   // 건물 종류 번호 순서 (sim/rules.py)
+export const BUILD_NAMES_EN = ['hall', 'farm', 'lumber', 'quarry', 'tower', 'harbor', 'sulfur', 'fire'];   // 건물 종류 번호 순서 (sim/rules.py)
 export type TrainKind = 'infantry' | 'archer' | 'warship';
 export interface Ping { t0: number; x: number; y: number; col: string }
 
@@ -190,7 +190,7 @@ export class Controller {
     const t = this.placeTarget(kind, x, y, zoom);
     if (!t.ok) {
       const res = this.siteRes(kind);
-      this.st.say(res >= 0 ? `${josa(R.build_names[kind], '은', '는')} 빈 ${R.res_names[res]} 자리에 지어야 합니다`
+      this.st.say(res >= 0 ? `${josa(R.build_names[kind], '은', '는')} 빈 ${R.site_names[res]} 자리에 지어야 합니다`
         : '여기에는 지을 수 없습니다 (평평한 땅, 다른 건물과 떨어진 곳' + (kind === R.kinds.HARBOR ? ', 바다에 맞닿은 해안)' : ')'));
       return;
     }

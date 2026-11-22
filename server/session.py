@@ -217,9 +217,10 @@ class GameSession:
             self._new_world()
         elif t == 'dev' and self.cfg.dev:                # 개발용 (서버를 --dev로 켰을 때만)
             if m.get('cmd') == 'res':
-                add = [float(min(max(v, -1e6), 1e6)) for v in m.get('add', [0, 0, 0])[:3]]
+                add = [float(min(max(v, -1e6), 1e6)) for v in (list(m.get('add', [])) + [0, 0, 0, 0])[:4]]
                 nat = self.world.nations[0]
-                nat.res = [max(0.0, r + a) for r, a in zip(nat.res, add)]
-                self.world.say('개발: 자원 ' + ', '.join(f'{n} {a:+.0f}' for n, a in zip(('식량', '목재', '석재'), add) if a))
+                nat.res = [max(0.0, r + a) for r, a in zip(nat.res, add[:3])]
+                nat.sulfur = max(0.0, nat.sulfur + add[3])
+                self.world.say('개발: 자원 ' + ', '.join(f'{n} {a:+.0f}' for n, a in zip(('식량', '목재', '석재', '유황'), add) if a))
         else:
             raise ValueError(f'모르는 명령 {t}')

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import ndimage
 
-from sim.rules import FOOD, STONE, WOOD
+from sim.rules import FOOD, STONE, SULFUR, WOOD
 from engine.render import materials as S
 
 GRASSY = (S.GRASS, S.GRASS_YELLOW, S.GRASS_DEAD, S.DRYGRASS, S.SAVANNA, S.STEPPE)
@@ -145,7 +145,30 @@ def find_sites(gmap, rng, spacing: float = 30.0) -> list[Site]:
         if chosen:
             taken = np.vstack([taken, np.array(chosen)])
     _wood_per_island(gmap, sites, mat, walk, spacing)
+    _sulfur(gmap, sites, mat, walk)
     return sites
+
+
+def _sulfur(gmap, sites, mat, walk):
+    """유황 웅덩이: 넓은 사막(둘레 15칸의 60% 넘게 사막·모래 언덕) 가운데, 사막 넓이에 따라 0~6곳, 서로 45칸 넘게.
+    다른 자원지와 14칸 넘게. 사막이 없는 지도에는 없다."""
+    d = np.isin(mat, (S.DESERT, S.DUNE)) & walk
+    if d.sum() < 1500:
+        return
+    dens = ndimage.uniform_filter(d.astype(np.float32), 15)
+    ys, xs = np.nonzero(d & (dens > 0.6))
+    want = int(np.clip(d.sum() // 2500, 1, 6))
+    fb = np.random.default_rng([SULFUR, gmap.land_count])
+    chosen: list = []
+    for k in fb.permutation(len(ys))[:6000]:
+        y, x = int(ys[k]), int(xs[k])
+        if any((y - s.y) ** 2 + (x - s.x) ** 2 < 14 ** 2 for s in sites) or any((y - a) ** 2 + (x - b) ** 2 < 45 ** 2 for a, b in chosen):
+            continue
+        chosen.append((y, x))
+        if len(chosen) >= want:
+            break
+    for y, x in chosen:
+        sites.append(Site(len(sites), SULFUR, x, y, float(np.clip(0.8 + dens[y, x] * 0.4, 0.8, 1.2)), float(gmap.cold[y, x])))
 
 
 def _wood_per_island(gmap, sites, mat, walk, spacing):

@@ -7,8 +7,8 @@ import type { Controller, TrainKind } from './controller.ts';
 import type { SpriteBank } from './sprites.ts';
 import type { GameState } from './state.ts';
 
-/** 숫자 키 1~ → 건물 종류 번호 (sim/rules.py: 거점 0, 농장 1, 벌목장 2, 채석장 3, 망루 4, 항구 5). 7~9는 나중 건물용. */
-export const BUILD_KEYS = [0, 4, 5, 1, 2, 3];
+/** 숫자 키 1~ → 건물 종류 번호 (sim/rules.py: 거점 0, 농장 1, 벌목장 2, 채석장 3, 망루 4, 항구 5, 유황 채취장 6, 화염탑 7). */
+export const BUILD_KEYS = [0, 4, 5, 1, 2, 3, 7, 6];      // 7: 화염탑, 8: 유황 채취장 (사막의 유황 웅덩이에)
 /** Q W E (R T Y는 나중 병종용). 기병(창기병, 기마궁수)은 버튼이 없다: 병사로 야생말을 길들인다. */
 export const TRAIN_KEYS: [string, TrainKind][] = [['q', 'infantry'], ['w', 'archer'], ['e', 'warship']];
 const UNIT_OF: Record<string, number> = { infantry: 0, archer: 1 };
@@ -26,7 +26,7 @@ function icon(src: HTMLCanvasElement): HTMLCanvasElement {
   return c;
 }
 
-interface Btn { el: HTMLButtonElement; cost: number[]; build?: number; train?: TrainKind }
+interface Btn { el: HTMLButtonElement; cost: number[]; build?: number; train?: TrainKind; sulfur?: number }
 
 export class ActionBar {
   readonly el = document.createElement('div');
@@ -51,9 +51,10 @@ export class ActionBar {
     };
     const gb = group();
     BUILD_KEYS.forEach((kind, i) => {
-      const el = make(gb, String(i + 1), bank.building(kind, me, 1), R.build_names[kind], R.build[kind].cost);
+      const sul = R.build[kind].sulfur ?? 0;
+      const el = make(gb, String(i + 1), bank.building(kind, me, 1), R.build_names[kind], R.build[kind].cost, sul ? `유황 ${sul}` : '');
       el.addEventListener('click', () => this.pickBuild(kind));
-      this.btns.push({ el, cost: R.build[kind].cost, build: kind });
+      this.btns.push({ el, cost: R.build[kind].cost, build: kind, sulfur: sul });
     });
     const gu = group();
     for (const [key, what] of TRAIN_KEYS) {
@@ -83,7 +84,7 @@ export class ActionBar {
     const st = this.st, me = st.nations[st.info.me];
     const res = me?.res ?? [0, 0, 0];
     for (const b of this.btns) {
-      const afford = b.cost.every((v, i) => res[i] >= v);
+      const afford = b.cost.every((v, i) => res[i] >= v) && (me?.sulfur ?? 0) >= (b.sulfur ?? 0);
       let ok = afford;
       if (b.train) ok &&= this.ctl.producers(b.train).length > 0;
       b.el.classList.toggle('off', !ok);

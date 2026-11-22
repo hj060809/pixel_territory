@@ -7,7 +7,7 @@
     u32 걸음 번호
     f32 게임 시각(초), f32 하루 시각(0~24), f32 1년 위치(0~1)
     u8  상태 비트 (1 일시정지, 2 끝남, 4 승리), u8 속도×10, u16 서버 계산 시간(0.01 ms 단위)
-    (공격 종류: 0 칼 1 화살·망루 2 포탄 3 서리 숨결 4 발 구르기 5 포효 (x0,y0 = 바위거북 자리))
+    (공격 종류: 0 칼 1 화살·망루 2 포탄 3 서리 숨결 4 발 구르기 5 포효 (x0,y0 = 바위거북 자리) 6 화염탑 불 7 약한 불)
     -- 병사 (바뀐 것만) --
     u16 n, 그다음 n개: u16 칸, u16 세대, u16 x×64, u16 y×64, u8 나라, u8 종류, u8 체력(0~255, 최대 체력 비율),
                       u8 상태(IDLE MOVE AMOVE ATTACK BUILD TAME), u8 비트(1 걷는 중, 2 배에 탐, 4 날고 있음)   = 14바이트
@@ -29,7 +29,7 @@
                       u8 길든 정도(0~255), i8 방향, u8 체력(0~255), u8 쓰러져 있는 남은 초         = 14바이트
     u16 m, 그다음 m개: u32 번호 (사라진 동물: 길들었거나 물에 빠짐)
     -- 나라 (몇 걸음마다) --
-    u8 있음(0/1), 있으면 u8 n, 그다음 n개: f32 자원×3, f32 증감×3, u16 병사 수, u16 건물 수, u8 살아 있음, u8 굶주림 = 30바이트
+    u8 있음(0/1), 있으면 u8 n, 그다음 n개: f32 자원×3, f32 증감×3, f32 유황, f32 유황 증감, u16 병사 수, u16 건물 수, u8 살아 있음, u8 굶주림 = 38바이트
 """
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ class StateEncoder:
     SHOT_DT = np.dtype([('x0', '<u2'), ('y0', '<u2'), ('x1', '<u2'), ('y1', '<u2'), ('kind', 'u1')])
     ANIMAL_DT = np.dtype([('id', '<u4'), ('kind', 'u1'), ('x', '<u2'), ('y', '<u2'), ('state', 'u1'), ('prog', 'u1'),
                           ('dir', 'i1'), ('hp', 'u1'), ('sub', 'u1')])
-    NATION = struct.Struct('<6f2HBB')
+    NATION = struct.Struct('<8f2HBB')
 
     def __init__(self, world):
         self.w = world
@@ -175,7 +175,7 @@ class StateEncoder:
         self.prev_animals = cur
         # 나라
         if nations:
-            body = b''.join(self.NATION.pack(*n.res, *n.rate, min(n.n_units, 65535), min(n.n_buildings, 65535),
+            body = b''.join(self.NATION.pack(*n.res, *n.rate, n.sulfur, n.sulfur_rate, min(n.n_units, 65535), min(n.n_buildings, 65535),
                                              int(n.alive), int(n.starving)) for n in w.nations)
             parts.append(struct.pack('<BB', 1, len(w.nations)) + body)
         else:

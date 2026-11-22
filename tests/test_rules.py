@@ -25,6 +25,7 @@ def _setup(scene, extra=16, harbor=True):
     """내 거점 곁에 병사를 더 두고, 내 섬 해안에 완성된 항구 하나. 반환: (세계, 병사, 내 섬, 다른 섬의 목표 칸)."""
     gm = GameMap(scene)
     w = World(gm, 4, seed=5, map_seed=42, player_spot=None)
+    w.bots = {}                                              # 내 배만 본다 (AI도 배를 띄우면 수가 섞인다)
     m, b = gm, w.builds
     hall = next(i for i in range(b.n) if b.own[i] == 0 and b.kind[i] == R.HALL)
     hy, hx = int(b.y[hall]), int(b.x[hall])

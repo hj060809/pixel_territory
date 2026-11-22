@@ -64,6 +64,13 @@ export const SPRITES = {
    "rrRrr",
    "rRrrR",
    "RRRRR"
+  ],
+  "3": [
+   "..y..",
+   ".yYy.",
+   "y.Y.y",
+   "YyYyY",
+   ".RRR."
   ]
  }
 } as const;

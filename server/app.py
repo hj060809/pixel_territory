@@ -129,7 +129,8 @@ def create_app(cfg: ServerConfig | None = None) -> FastAPI:
         from sim.wildlife import lairs_for
         lairs = lairs_for(gmap, R.WILDLIFE[R.DRAGON]['cap'])               # 드래곤 둥지 (미리보기에 표시)
         return {'starts': [list(map(int, s)) for s in starts], 'colors': pick_colors(rng, n, color),
-                'lairs': [list(map(int, p)) for p in lairs]}
+                'lairs': [list(map(int, p)) for p in lairs],
+                'sulfur': [[s.y, s.x] for s in sites if s.kind == R.SULFUR]}                # 유황 웅덩이 (미리보기에 표시)
 
     def _layout_map(key):
         """(게임 지도, 자원지): 미리보기 배치용 (게임과 같은 자원지 → 같은 시작할 수 있는 섬). 하나만 둔다."""

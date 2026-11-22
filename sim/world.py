@@ -4,7 +4,7 @@
   추운 곳일수록 계절 차이가 크다: 가을에 수확이 많고 겨울에는 농장이 거의 쉰다.
 - 병사는 식량을 먹는다 (겨울엔 더). 식량이 바닥나면 굶어서 약해진다. 거점 가까이서는 회복한다.
 - 얼음 위에 있던 병사는 얼음이 녹으면 빠진다.
-- 건물과 병사를 모두 잃은 나라는 멸망. 나만 남으면 승리.
+- 거점과 병사를 모두 잃은 나라는 멸망 (남은 자원지·망루는 허물어진다). 나만 남으면 승리.
 """
 from __future__ import annotations
 
@@ -43,6 +43,8 @@ class Nation:
     player: bool = False
     res: list = field(default_factory=lambda: list(R.START_RES))
     rate: list = field(default_factory=lambda: [0.0, 0.0, 0.0])
+    sulfur: float = 0.0              # 유황 (화염탑 연료와 건설)
+    sulfur_rate: float = 0.0
     bonus: float = 1.0               # 자원 수입 배율 (AI 난이도)
     alive: bool = True
     starving: bool = False
@@ -111,6 +113,8 @@ class World:
         self._spawn_all(starts)
         from sim.companions import Companions
         self.companions = Companions(self)
+        from sim.firetower import FireTowers
+        self.fire = FireTowers(self)
         from sim.wildlife import Wildlife
         self.wild = Wildlife(self, np.random.default_rng([abs(int(seed)) & 0xFFFFFFFF, 7]))   # 야생 동물 (거점이 선 다음에: 거점 곁엔 안 생기게)
         from sim.ai import Bot
@@ -302,19 +306,21 @@ class World:
         ids = np.asarray(ids, np.int64)
         return ids[self.units.alive[ids]] if len(ids) else ids
 
-    def can_afford(self, nid, cost) -> bool:
-        return all(self.nations[nid].res[k] >= cost[k] for k in range(3))
+    def can_afford(self, nid, cost, sulfur=0) -> bool:
+        return all(self.nations[nid].res[k] >= cost[k] for k in range(3)) and self.nations[nid].sulfur >= sulfur
 
-    def _pay(self, nid, cost) -> None:
+    def _pay(self, nid, cost, sulfur=0) -> None:
         for k in range(3):
             self.nations[nid].res[k] -= cost[k]
+        self.nations[nid].sulfur -= sulfur
 
     def place_building(self, nid, kind, y, x, ids, site=-1, quiet=False) -> int:
         """건물 자리를 잡고(비용을 내고) ids 병사들을 보내 짓게 한다. 반환: 건물 번호 (못 지으면 -1)."""
         st = R.BUILD_STATS[kind]
-        if not self.can_afford(nid, st['cost']):
+        if not self.can_afford(nid, st['cost'], st.get('sulfur', 0)):
             if not quiet:
-                need = ', '.join(f'{R.RES_NAMES[k]} {st["cost"][k]}' for k in range(3) if st['cost'][k])
+                need = ', '.join([f'{R.RES_NAMES[k]} {st["cost"][k]}' for k in range(3) if st['cost'][k]]
+                                 + ([f'유황 {st["sulfur"]}'] if st.get('sulfur') else []))
                 self.say(f'{R.BUILD_NAMES[kind]}: 자원이 모자랍니다 ({need})')
             return -1
         if site >= 0:
@@ -332,7 +338,7 @@ class World:
             if not quiet:
                 self.say('여기에는 지을 수 없습니다 (평평한 땅, 다른 건물과 떨어진 곳)')
             return -1
-        self._pay(nid, st['cost'])
+        self._pay(nid, st['cost'], st.get('sulfur', 0))
         b = self.builds.add(nid, kind, x + 0.5, y + 0.5, st['hp'], st['r'], prog=0.0, site=site)
         if site >= 0:
             self.sites[site].building = b
@@ -461,6 +467,7 @@ class World:
             self.recent.popleft()
         self._lift()                                        # 용기사: 움직이거나 싸울 때만 난다
         self.companions.update(dt)                          # 바위거북: 발 구르기, 낮은 포효, 껍질 숨기
+        self.fire.update(dt)                                # 화염탑: 불을 뿜는다
         self.wild.update(dt)                                # 야생 동물, 길들이기 (병사가 움직인 다음에)
         # 짓기
         for i in np.flatnonzero(self._builders[:b.n]):
@@ -502,12 +509,15 @@ class World:
         u, b, w = self.units, self.builds, self.season_w
         for nat in self.nations:
             nat.rate = [0.0, 0.0, 0.0]
+            nat.sulfur_rate = 0.0
         for i in np.flatnonzero(b.alive[:b.n] & (b.prog[:b.n] >= 1)):
             nat = self.nations[b.own[i]]
             k = int(b.kind[i])
             if k == R.HALL:
                 for r in range(3):
                     nat.rate[r] += R.HALL_YIELD[r]
+            elif k == R.SULFUR_PIT and b.site[i] >= 0:      # 유황: 계절과 상관없이
+                nat.sulfur_rate += R.SULFUR_YIELD * self.sites[b.site[i]].rich
             elif k in R.YIELD:
                 s = self.sites[b.site[i]]
                 res, base = R.YIELD[k]
@@ -523,6 +533,7 @@ class World:
             nat.rate[R.FOOD] -= counts[nat.id] * R.UPKEEP * winter
             for r in range(3):
                 nat.res[r] += nat.rate[r] * dt
+            nat.sulfur += nat.sulfur_rate * (nat.bonus if nat.bonus != 1.0 else 1.0) * dt
             nat.starving = nat.res[R.FOOD] < 0
             if nat.starving:
                 nat.res[R.FOOD] = 0.0
@@ -581,11 +592,12 @@ class World:
         nu = np.bincount(u.own[:u.n][u.alive[:u.n]], minlength=R.NEUTRAL + 1)
         done = b.alive[:b.n] & (b.prog[:b.n] >= 1)                     # 짓다 만 건물은 나라를 지켜 주지 못한다
         nb = np.bincount(b.own[:b.n][done], minlength=len(self.nations))
+        nh = np.bincount(b.own[:b.n][done & (b.kind[:b.n] == R.HALL)], minlength=len(self.nations))
         for nat in self.nations:
             nat.n_units, nat.n_buildings = int(nu[nat.id]), int(nb[nat.id])
-            if nat.alive and nat.n_units == 0 and nat.n_buildings == 0:
+            if nat.alive and nat.n_units == 0 and nh[nat.id] == 0:      # 거점과 병사를 모두 잃으면 (자원지만 남아도 할 수 있는 게 없다)
                 nat.alive = False
-                for i in np.flatnonzero(b.alive[:b.n] & (b.own[:b.n] == nat.id)):   # 남은 공사장은 허물어진다
+                for i in np.flatnonzero(b.alive[:b.n] & (b.own[:b.n] == nat.id)):   # 남은 건물(자원지, 망루, 공사장)은 허물어진다
                     b.alive[i] = False
                     if b.site[i] >= 0:
                         self.sites[b.site[i]].building = -1

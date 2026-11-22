@@ -9,7 +9,7 @@ export interface BuildRec { slot: number; gen: number; x: number; y: number; kin
 export interface AnimalRec { id: number; kind: number; x: number; y: number; state: number; prog: number; dir: number; hp: number; sub: number }
 export interface BoatRec { id: number; kind: number; own: number; x: number; y: number; hp: number; dir: number; state: number; cargo: number; bits: number }
 export interface ShotRec { x0: number; y0: number; x1: number; y1: number; kind: number }
-export interface NationRec { res: number[]; rate: number[]; nUnits: number; nBuildings: number; alive: boolean; starving: boolean }
+export interface NationRec { res: number[]; rate: number[]; sulfur: number; sulfurRate: number; nUnits: number; nBuildings: number; alive: boolean; starving: boolean }
 
 export interface StateMsg {
   tick: number; time: number; hour: number; year: number; flags: number; speed: number; simMs: number;
@@ -62,8 +62,8 @@ export function decodeState(buf: ArrayBuffer): StateMsg {
   if (u8()) {
     nations = [];
     for (let n = u8(); n > 0; n--) {
-      const res = [f32(), f32(), f32()], rate = [f32(), f32(), f32()];
-      nations.push({ res, rate, nUnits: u16(), nBuildings: u16(), alive: !!u8(), starving: !!u8() });
+      const res = [f32(), f32(), f32()], rate = [f32(), f32(), f32()], sulfur = f32(), sulfurRate = f32();
+      nations.push({ res, rate, sulfur, sulfurRate, nUnits: u16(), nBuildings: u16(), alive: !!u8(), starving: !!u8() });
     }
   }
   return { tick, time, hour, year, flags, speed, simMs, units, unitsGone, builds, buildsGone, boats, shots, animals, animalsGone, nations };

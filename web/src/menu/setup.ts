@@ -31,7 +31,7 @@ export interface PlayRequest {
 }
 
 interface Listing { presets: { key: string; name: string }[]; sizes: number[] }
-interface Layout { key: string; starts: number[][]; colors: number[]; lairs: number[][] }
+interface Layout { key: string; starts: number[][]; colors: number[]; lairs: number[][]; sulfur: number[][] }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -248,7 +248,7 @@ export class Setup {
     this.layoutFetching = want;
     try {
       const r = await (await fetch(`/api/maps/${this.builtKey}/layout?bots=${this.s.bots}&color=${this.s.color}`)).json();
-      if (this.layoutFetching === want) this.layout = { key: want, starts: r.starts, colors: r.colors, lairs: r.lairs ?? [] };
+      if (this.layoutFetching === want) this.layout = { key: want, starts: r.starts, colors: r.colors, lairs: r.lairs ?? [], sulfur: r.sulfur ?? [] };
     } finally {
       if (this.layoutFetching === want) this.layoutFetching = '';
     }
@@ -375,6 +375,11 @@ export class Setup {
     };
     void this.ensureLayout();
     if (this.layout && this.layout.key === this.layoutWant()) {      // 드래곤 둥지 (설원의 가장 높은 곳)
+      const sul = this.bank.site(3, 3);                              // 유황 웅덩이 (사막)
+      for (const [y, x] of this.layout.sulfur) {
+        const sx = ((x + 0.5) / n) * size, sy = ((y + 0.5) / n) * size;
+        g.drawImage(sul, Math.trunc(sx - sul.width / 2), Math.trunc(sy - sul.height / 2));
+      }
       const img = this.lairIcon();
       for (const [y, x] of this.layout.lairs) {
         const sx = ((x + 0.5) / n) * size, sy = ((y + 0.5) / n) * size;
