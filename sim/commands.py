@@ -72,7 +72,11 @@ class PlayerCommands:
             w.order_attack(sel, unit=foe)
             return 'attack'
         a = self._animal_at(y, x, max(1.8, r))
-        if a is not None and not attack:
+        an = w.wild.animals.get(a) if a is not None else None
+        if an is not None and an.unit >= 0 and an.mode in (5, 6):     # 잠들었거나 싸우는 사나운 동물: 친다
+            w.order_attack(sel, unit=an.unit)
+            return 'attack'
+        if an is not None and not attack:
             return 'tame' if w.wild.order_tame(self.nid, sel, a) else None
         b = w.building_at(y, x)
         if b >= 0 and w.builds.own[b] != self.nid:
@@ -98,7 +102,8 @@ class PlayerCommands:
     def _animal_at(self, y, x, r):
         best, bd = None, r
         for a in self.w.wild.animals.values():
-            d = float(np.hypot(a.x - x, a.y - 0.4 - y))          # 그림 가운데 (발보다 조금 위)
+            big = 2.5 if a.unit >= 0 else 0.0                     # 큰 동물 (드래곤)은 넓게
+            d = float(np.hypot(a.x - x, a.y - 0.4 - big * 0.5 - y)) - big
             if d < bd:
                 best, bd = a.id, d
         return best

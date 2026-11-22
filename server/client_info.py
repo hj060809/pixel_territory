@@ -33,7 +33,10 @@ def rules_info() -> dict:
         'unit_speed': [R.UNIT_STATS[k]['speed'] for k in range(len(R.UNIT_STATS))],
         'unit_dmg': [R.UNIT_STATS[k]['dmg'] for k in range(len(R.UNIT_STATS))],
         'trainable': list(R.TRAINABLE), 'mounted': sorted(R.MOUNTED),
-        'wildlife': {str(k): {'name': a['name'], 'tame': a['tame'], 'mounts': {str(u): v for u, v in a['mounts'].items()}}
+        'unit_fly': [R.UNIT_STATS[k]['fly'] for k in range(len(R.UNIT_STATS))],
+        'wildlife': {str(k): {'name': a['name'], 'tame': a['tame'], 'mounts': {str(u): v for u, v in a['mounts'].items()},
+                              'hostile': bool(a.get('hostile')), 'limit': a.get('limit', 0),
+                              'subdue': a.get('subdue', 0), 'subdue_time': a.get('subdue_time', 0)}
                      for k, a in R.WILDLIFE.items()},
         'build': {str(k): {'r': v['r'], 'cost': list(v['cost']), 'hp': v['hp']} for k, v in R.BUILD_STATS.items()},
         'kinds': {'HALL': R.HALL, 'FARM': R.FARM, 'LUMBER': R.LUMBER, 'QUARRY': R.QUARRY, 'TOWER': R.TOWER,

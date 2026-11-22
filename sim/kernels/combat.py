@@ -1,6 +1,9 @@
 """병사와 망루의 한 걸음 (numba). 병사 상태는 sim.entities 참고.
 
 자연: 숲 속의 병사는 화살을 덜 맞는다 (cover). 걷는 속도는 지형을 따른다 (평지 1, 숲·습지·산은 느리다).
+날고 있는 병사 (uair, 움직이거나 싸우는 용기사): 지형·물을 무시하고 곧장 (utx, uty)로 간다. 근접 병종은 이들을 칠 수 없다.
+범위 피해 (k_splash): 맞은 자리 둘레의 적에게도 피해를 주고, 맞은 병사는 잠시 느려진다 (uslow).
+야생 (neutral 나라): 병사와 망루가 저절로 덤비지 않는다 (명령을 받아야 친다).
 """
 from __future__ import annotations
 
@@ -30,9 +33,10 @@ def _downhill(f, x, y, H, W):
 
 @njit(cache=True, nogil=True)
 def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, usearch, uanim, umoving, ualive, uaboard,
+         utx, uty, uslow, uair,
          nb, bx, by, bkind, bown, bhp, br, bprog, bcd, balive,
-         k_speed, k_range, k_dmg, k_cd, k_sight, k_ranged, k_terrain, k_charge, k_vs,
-         walk, speed_mul, cover, fields, ready, tower_kind, tower_range, tower_dmg, tower_cd,
+         k_speed, k_range, k_dmg, k_cd, k_sight, k_ranged, k_terrain, k_charge, k_vs, k_splash,
+         walk, speed_mul, cover, fields, ready, tower_kind, tower_range, tower_dmg, tower_cd, neutral,
          shots, builders):
     H, W = walk.shape
     gw = W // CELL + 1
@@ -56,19 +60,23 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
         o = uown[i]
         ucd[i] -= dt
         usearch[i] -= dt
+        if uslow[i] > 0:
+            uslow[i] -= dt
         st = ustate[i]
+        fly = uair[i]
         # 정해 준 목표가 사라졌으면 쉰다
         if st == ATTACK:
-            if (utgt[i] >= 0 and (not ualive[utgt[i]] or uaboard[utgt[i]])) or (utgb[i] >= 0 and not balive[utgb[i]]) or (utgt[i] < 0 and utgb[i] < 0):
+            if (utgt[i] >= 0 and (not ualive[utgt[i]] or uaboard[utgt[i]] or (uair[utgt[i]] and not k_ranged[k]))) or (utgb[i] >= 0 and not balive[utgb[i]]) or (utgt[i] < 0 and utgb[i] < 0):
                 ustate[i] = IDLE
                 utgt[i] = -1
                 utgb[i] = -1
                 st = IDLE
-        engage = st == IDLE or st == AMOVE
+        engage = (st == IDLE or st == AMOVE) and o != neutral
         sight = k_sight[k]
         if engage:
             t = utgt[i]
-            if t >= 0 and (not ualive[t] or uaboard[t] or (ux[t] - ux[i]) ** 2 + (uy[t] - uy[i]) ** 2 > (sight * 1.4) ** 2):
+            if t >= 0 and (not ualive[t] or uaboard[t] or (uair[t] and not k_ranged[k])
+                           or (ux[t] - ux[i]) ** 2 + (uy[t] - uy[i]) ** 2 > (sight * 1.4) ** 2):
                 utgt[i] = -1
             tb = utgb[i]
             if tb >= 0 and not balive[tb]:
@@ -82,7 +90,7 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
                     for gx in range(max(cx - rr, 0), min(cx + rr + 1, gw)):
                         j = head[gy * gw + gx]
                         while j >= 0:
-                            if uown[j] != o:
+                            if uown[j] != o and uown[j] != neutral and not (uair[j] and not k_ranged[k]):
                                 d = (ux[j] - ux[i]) ** 2 + (uy[j] - uy[i]) ** 2
                                 if d < bd:
                                     best, bd = j, d
@@ -123,13 +131,35 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
                         uhp[t] -= dmg
                         if uhp[t] <= 0:
                             ualive[t] = False
+                        if k_splash[k] > 0:
+                            uslow[t] = 2.5
                     else:
                         bhp[t] -= dmg
+                    if k_splash[k] > 0:                 # 서리 숨결: 둘레의 적도 (덜) 맞고 느려진다
+                        sr = k_splash[k]
+                        scx, scy = int(tx) // CELL, int(ty) // CELL
+                        for gy in range(max(scy - 1, 0), min(scy + 2, gh)):
+                            for gx in range(max(scx - 1, 0), min(scx + 2, gw)):
+                                j = head[gy * gw + gx]
+                                while j >= 0:
+                                    if j != utgt[i] and ualive[j] and not uaboard[j] and uown[j] != o and not uair[j] \
+                                            and (ux[j] - tx) ** 2 + (uy[j] - ty) ** 2 <= sr * sr:
+                                        uhp[j] -= dmg * 0.6
+                                        uslow[j] = 2.5
+                                        if uhp[j] <= 0:
+                                            ualive[j] = False
+                                    j = nxt[j]
                     if ns < shots.shape[0]:
-                        shots[ns, 0], shots[ns, 1], shots[ns, 2], shots[ns, 3], shots[ns, 4] = ux[i], uy[i], tx, ty, 1 if k_ranged[k] else 0
+                        shots[ns, 0], shots[ns, 1], shots[ns, 2], shots[ns, 3], shots[ns, 4] = ux[i], uy[i], tx, ty, 3 if k_splash[k] > 0 else (1 if k_ranged[k] else 0)
                         ns += 1
             elif st == ATTACK and uslot[i] >= 0 and dist > sight and ready[uslot[i]]:
                 dx, dy, _, _ = _downhill(fields[uslot[i]], ux[i], uy[i], H, W)   # 멀면 길을 따라간다
+            else:
+                dx, dy = ddx, ddy
+        elif fly and (st == MOVE or st == AMOVE):  # 날아서 곧장
+            ddx, ddy = utx[i] - ux[i], uty[i] - uy[i]
+            if ddx * ddx + ddy * ddy < 0.64:
+                ustate[i] = IDLE
             else:
                 dx, dy = ddx, ddy
         elif (st == MOVE or st == AMOVE or st == BUILD) and uslot[i] >= 0 and not ready[uslot[i]]:
@@ -167,7 +197,7 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
             for gx in range(max(cx - 1, 0), min(cx + 2, gw)):
                 j = head[gy * gw + gx]
                 while j >= 0:
-                    if j != i and ualive[j]:
+                    if j != i and ualive[j] and uair[j] == fly:   # 나는 것끼리, 걷는 것끼리만 밀어낸다
                         ex, ey = ux[i] - ux[j], uy[i] - uy[j]
                         d2 = ex * ex + ey * ey
                         if d2 < 2.2 and d2 > 1e-6:
@@ -179,7 +209,9 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
                             sy += (np.random.random() - 0.5)
                     j = nxt[j]
         L = np.sqrt(dx * dx + dy * dy)
-        sp = k_speed[k] * speed_mul[int(uy[i]), int(ux[i])] ** k_terrain[k]   # 지형을 타는 정도 (병종마다, 지금은 모두 1)
+        sp = k_speed[k] if fly else k_speed[k] * speed_mul[int(uy[i]), int(ux[i])] ** k_terrain[k]   # 지형을 타는 정도 (병종마다)
+        if uslow[i] > 0:
+            sp *= 0.55                              # 서리 숨결에 맞아 느려짐
         vx, vy = 0.0, 0.0
         if L > 1e-6:
             vx, vy = dx / L * sp, dy / L * sp
@@ -190,7 +222,10 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
             uanim[i] += dt * sp * 1.2
         # 저장하는 정밀도(float32)로 먼저 맞춘다: 191.9999가 저장되며 192.0(옆 물 칸)이 되지 않게
         nx_, ny_ = np.float32(ux[i] + vx * dt), np.float32(uy[i] + vy * dt)
-        if 0 <= nx_ < W and 0 <= ny_ < H and walk[int(ny_), int(nx_)]:
+        if fly:
+            if 0 <= nx_ < W and 0 <= ny_ < H:
+                ux[i], uy[i] = nx_, ny_
+        elif 0 <= nx_ < W and 0 <= ny_ < H and walk[int(ny_), int(nx_)]:
             ux[i], uy[i] = nx_, ny_
         elif 0 <= nx_ < W and walk[int(uy[i]), int(nx_)]:
             ux[i] = nx_
@@ -211,7 +246,7 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
             for gx in range(max(cx - rr, 0), min(cx + rr + 1, gw)):
                 j = head[gy * gw + gx]
                 while j >= 0:
-                    if ualive[j] and uown[j] != bown[b]:
+                    if ualive[j] and uown[j] != bown[b] and uown[j] != neutral:
                         d = (ux[j] - bx[b]) ** 2 + (uy[j] - by[b]) ** 2
                         if d < bd:
                             best, bd = j, d

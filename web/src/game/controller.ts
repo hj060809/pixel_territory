@@ -9,6 +9,7 @@ import { josa } from '../ui/device.ts';
 import { animalAt } from './wildlife.ts';
 
 export const UNIT_ZOOM = 2.6;        // 이보다 가까이 보면 병사 하나하나, 멀면 무리 배지
+const FLY_CELLS = 18 / 2.4;           // 날고 있는 병종이 떠 있는 높이 (지도 칸, draw.ts FLY_LIFT와 같다)
 /** null / 'attack'(A 다음 클릭) / 숫자 = 놓을 건물 종류 (하단 버튼, 숫자 키) */
 export type Mode = null | 'attack' | number;
 /** 건물 버튼 (숫자 키 1~): 서버 이름 */
@@ -34,11 +35,12 @@ export class Controller {
   private R() { return this.st.info.rules; }
 
   // ------------------------------------------------------------- 찾기 (서버 sim/world.py와 같은 규칙)
-  unitAt(x: number, y: number, r: number, own?: number): Unit | null {
+  /** ground: 날고 있는 병사도 땅 위치로 (아니면 그림이 떠 있는 자리로 찾는다). */
+  unitAt(x: number, y: number, r: number, own?: number, ground = false): Unit | null {
     let best: Unit | null = null, bd = r;
     for (const u of this.st.units.values()) {
       if (u.bits & 2 || (own !== undefined && u.own !== own)) continue;
-      const d = Math.hypot(u.x - x, u.y - y);
+      const d = Math.hypot(u.x - x, this.drawnY(u, ground) - y);
       if (d <= bd) { best = u; bd = d; }
     }
     return best;
@@ -87,10 +89,14 @@ export class Controller {
   refs(): number[][] { return [...this.sel].map(([s, g]) => [s, g]); }
   hasSelection() { return this.sel.size > 0 || this.selB !== null || this.selShips.size > 0; }
 
+  /** 화면에 그려진 높이 (날고 있으면 떠 있는 만큼 위). */
+  drawnY(u: Unit, ground = false) { return !ground && u.bits & 4 ? u.y - FLY_CELLS : u.y; }
+
   selectBox(x0: number, y0: number, x1: number, y1: number, add: boolean) {
     if (!add) { this.sel.clear(); this.selShips.clear(); this.selB = null; }
     for (const u of this.st.units.values()) {
-      if (u.own === this.me && !(u.bits & 2) && u.x >= x0 && u.x <= x1 && u.y >= y0 && u.y <= y1) this.sel.set(u.slot, u.gen);
+      const uy = this.drawnY(u);
+      if (u.own === this.me && !(u.bits & 2) && u.x >= x0 && u.x <= x1 && uy >= y0 && uy <= y1) this.sel.set(u.slot, u.gen);
     }
     for (const b of this.st.boats.values()) {
       if (b.own === this.me && pickable(b) && b.x >= x0 && b.x <= x1 && b.y >= y0 && b.y <= y1) this.selShips.add(b.id);
@@ -143,8 +149,9 @@ export class Controller {
     if (!this.sel.size) return;
     const foe = this.unitAt(x, y, Math.max(2.0, r));
     if (foe && foe.own !== this.me) return this.ping(x, y, PING.attack);
-    const an = attack ? null : animalAt(this.st, x, y, Math.max(1.8, r));      // 야생 동물: 길들이러
-    if (an) return this.ping(an.x, an.y - 0.4, PING.tame);
+    const an = animalAt(this.st, x, y, Math.max(1.8, r));      // 야생 동물: 길들이러 (깨어 있거나 잠든 드래곤은 친다)
+    if (an && (an.state === 5 || an.state === 6)) return this.ping(an.x, an.y - 1, PING.attack);
+    if (an && !attack) return this.ping(an.x, an.y - 0.4, PING.tame);
     const b = this.buildingAt(x, y);
     if (b && b.own !== this.me) return this.ping(x, y, PING.attack);
     if (b && b.prog < 1) return this.ping(x, y, PING.build);

@@ -3,6 +3,8 @@
 자원: 식량(농장, 비옥한 들판) / 목재(벌목장, 숲) / 석재(채석장, 바위 지대).
 야생 동물: 넓은 초원에 야생말이 흩어져 산다. 병사를 고르고 말을 오른쪽 클릭하면 가서 길들여 기병이 된다
   (보병 → 창기병, 궁수 → 기마궁수. sim/wildlife.py, WILDLIFE 표).
+  넓은 설원의 가장 높은 곳에는 드래곤 둥지가 있다. 드래곤은 둥지를 지키며 서리 숨결을 뿜는다.
+  체력을 깎아 제압하면 잠시 쓰러지고, 그동안 병사 하나가 길들이면 용기사가 된다 (날아다님, 나라마다 2기까지).
 병사는 식량을 먹는다 (겨울에 더). 식량이 바닥나면 굶어서 조금씩 약해진다.
 건물과 병사를 모두 잃으면 패배.
 """
@@ -12,25 +14,37 @@ FOOD, WOOD, STONE = range(3)
 RES_NAMES = ('식량', '목재', '석재')
 
 # --- 유닛
-INFANTRY, ARCHER, LANCER, HORSE_ARCHER = range(4)
-UNIT_NAMES = ('보병', '궁수', '창기병', '기마궁수')
+INFANTRY, ARCHER, LANCER, HORSE_ARCHER, DRAGON_RIDER, WILD_DRAGON = range(6)
+UNIT_NAMES = ('보병', '궁수', '창기병', '기마궁수', '용기사', '드래곤')
+NEUTRAL = 250             # 야생 (어느 나라도 아님): 야생 드래곤의 나라 번호. 병사들이 저절로 덤비지 않는다
 TRAINABLE = (INFANTRY, ARCHER)            # 거점에서 훈련하는 병종. 기병은 야생말을 길들여야만 생긴다
 #   체력, 공격, 사거리, 공격 간격(초), 속도(칸/초, 평지), 시야, 비용(식량, 목재, 석재), 훈련 시간,
 #   terrain: 지형을 타는 정도 (걷는 속도 = 속도 × (지형 속도 배율)^terrain. 1 = 일반 병사와 같은 비율로 느려진다)
 #   charge: 달려와 처음 치는 한 방의 배율, upkeep: 먹는 식량 배율
 #   기병 = 탄 병사의 이동 속도 1.5배, 공격력 1.5배 (밸런스는 나중에), 체력은 그대로
+#   fly: 움직이거나 싸울 때 난다 (지형·물 무시, 근접 공격을 받지 않는다: 활·망루·전함만 맞힌다).
+#        할 일 없이 멈춰 있으면 땅에 내려앉고, 그동안은 누구에게나 맞는다,
+#   splash: 범위 피해 반지름 (서리 숨결: 둘레에도 피해, 맞은 병사는 잠시 느려진다)
+#   용기사 = 어느 병사가 탔든 같다 (공격은 용의 숨결뿐)
 UNIT_STATS = {
     INFANTRY:     dict(hp=40.0, dmg=6.0, range=2.2, cd=1.0, speed=4.5, sight=14.0, cost=(40, 0, 0), time=7.0,
-                       terrain=1.0, charge=1.0, upkeep=1.0, ranged=False),
+                       terrain=1.0, charge=1.0, upkeep=1.0, ranged=False, fly=False, splash=0.0),
     ARCHER:       dict(hp=26.0, dmg=4.0, range=13.0, cd=1.5, speed=4.5, sight=16.0, cost=(30, 25, 0), time=9.0,
-                       terrain=1.0, charge=1.0, upkeep=1.0, ranged=True),
+                       terrain=1.0, charge=1.0, upkeep=1.0, ranged=True, fly=False, splash=0.0),
     LANCER:       dict(hp=40.0, dmg=9.0, range=2.4, cd=1.0, speed=6.75, sight=15.0, cost=(0, 0, 0), time=0.0,
-                       terrain=1.0, charge=1.8, upkeep=1.5, ranged=False),     # 보병 + 말
+                       terrain=1.0, charge=1.8, upkeep=1.5, ranged=False, fly=False, splash=0.0),     # 보병 + 말
     HORSE_ARCHER: dict(hp=26.0, dmg=6.0, range=13.0, cd=1.5, speed=6.75, sight=17.0, cost=(0, 0, 0), time=0.0,
-                       terrain=1.0, charge=1.0, upkeep=1.5, ranged=True),      # 궁수 + 말
+                       terrain=1.0, charge=1.0, upkeep=1.5, ranged=True, fly=False, splash=0.0),      # 궁수 + 말
+    DRAGON_RIDER: dict(hp=380.0, dmg=30.0, range=8.0, cd=2.5, speed=7.0, sight=18.0, cost=(0, 0, 0), time=0.0,
+                       terrain=1.0, charge=1.0, upkeep=4.0, ranged=True, fly=True, splash=2.6),       # 병사 + 드래곤
+    WILD_DRAGON:  dict(hp=900.0, dmg=22.0, range=8.0, cd=3.5, speed=3.5, sight=16.0, cost=(0, 0, 0), time=0.0,
+                       terrain=1.0, charge=1.0, upkeep=0.0, ranged=True, fly=False, splash=2.6),      # 둥지를 지키는 야생 드래곤
 }
 # 상성: (치는 쪽, 맞는 쪽) → 피해 배율. 보병은 기병에 강하고 (막아선다), 창기병은 궁수에 강하다 (달려들어 흩는다)
-UNIT_VS = {(INFANTRY, LANCER): 1.3, (INFANTRY, HORSE_ARCHER): 1.3, (LANCER, ARCHER): 1.5, (LANCER, HORSE_ARCHER): 1.2}
+UNIT_VS = {(INFANTRY, LANCER): 1.3, (INFANTRY, HORSE_ARCHER): 1.3, (LANCER, ARCHER): 1.5, (LANCER, HORSE_ARCHER): 1.2,
+           (ARCHER, DRAGON_RIDER): 1.4, (HORSE_ARCHER, DRAGON_RIDER): 1.4}     # 활은 날아다니는 용기사에 강하다
+HEAL_RIDER = 1.5           # 용기사가 어디서든 1초에 회복하는 체력
+HEAL_ON_SNOW = 4.0         # 용기사가 눈 위에서 1초에 회복하는 체력 (설원에 진지를 둘 이유)
 UPKEEP = 0.035             # 병사 하나가 1초에 먹는 식량 (겨울에는 1.5배까지)
 STARVE = 0.4               # 식량이 바닥나면 병사가 1초에 잃는 체력
 HEAL_NEAR_HALL = 0.6       # 거점 가까이서 1초에 회복하는 체력
@@ -70,10 +84,17 @@ SITE_BUILDING = {FOOD: FARM, WOOD: LUMBER, STONE: QUARRY}     # 자원지 종류
 #   habitat: 사는 땅 (재질 묶음, 평평한 곳만), group: 한 무리 마릿수, per_area: 사는 땅 이만큼(칸)마다 한 마리 (최대 cap),
 #   regrow: 줄어든 뒤 새 무리가 생기는 간격 (겨울엔 거의 안 생긴다), tame: 길들이는 시간,
 #   mounts: 어떤 병사가 길들이면 무엇이 되는지 (병사와 동물이 합쳐진 병종)
-HORSE = 0
+#   사나운 동물 (hostile): 둥지(lair)에 하나씩 살며 지킨다. unit: 싸울 때의 병종, wake: 이만큼 다가오면 깬다,
+#   guard: 둥지에서 이만큼 안의 병사를 친다, subdue: 체력이 이 비율 아래면 쓰러진다 (subdue_time초 동안,
+#   그동안만 길들일 수 있고 맞지 않는다), regrow: 길들여진 뒤 둥지에 새로 나는 시간, limit: 나라마다 탈 수 있는 수
+HORSE, DRAGON = range(2)
+_ANY = (INFANTRY, ARCHER, LANCER, HORSE_ARCHER)
 WILDLIFE = {
     HORSE: dict(name='말', habitat='grass', group=(2, 4), per_area=1500, cap=36, regrow=45.0, tame=11.0,
                 mounts={INFANTRY: LANCER, ARCHER: HORSE_ARCHER}),
+    DRAGON: dict(name='드래곤', habitat='lair', hostile=True, unit=WILD_DRAGON, cap=3, regrow=360.0, tame=15.0,
+                 wake=8.0, guard=14.0, subdue=0.3, subdue_time=30.0, limit=2,
+                 mounts={k: DRAGON_RIDER for k in _ANY}),
 }
 MOUNTED = {v for a in WILDLIFE.values() for v in a['mounts'].values()}     # 동물을 탄 병종
 

@@ -126,7 +126,10 @@ def create_app(cfg: ServerConfig | None = None) -> FastAPI:
                 return JSONResponse({'error': err}, status_code=422)
             player_spot = (y, x)
         starts = choose_starts(gmap, n, rng, player_spot, sites)
-        return {'starts': [list(map(int, s)) for s in starts], 'colors': pick_colors(rng, n, color)}
+        from sim.wildlife import lairs_for
+        lairs = lairs_for(gmap, R.WILDLIFE[R.DRAGON]['cap'])               # 드래곤 둥지 (미리보기에 표시)
+        return {'starts': [list(map(int, s)) for s in starts], 'colors': pick_colors(rng, n, color),
+                'lairs': [list(map(int, p)) for p in lairs]}
 
     def _layout_map(key):
         """(게임 지도, 자원지): 미리보기 배치용 (게임과 같은 자원지 → 같은 시작할 수 있는 섬). 하나만 둔다."""
@@ -306,6 +309,9 @@ def _check_spot(gmap, sites, y, x) -> str | None:
         return '너무 작거나 식량 자원지가 없는 섬입니다. 더 큰 땅을 골라 주세요'
     if not gmap.land[y - 5:y + 6, x - 5:x + 6].all():
         return '조금 더 넓은 땅을 골라 주세요 (물가에서 떨어진 곳)'
+    from sim.wildlife import LAIR_CLEAR, lairs_for
+    if any((y - a) ** 2 + (x - b) ** 2 <= LAIR_CLEAR ** 2 for a, b in lairs_for(gmap)):
+        return '드래곤 둥지에서 조금 더 떨어진 곳을 골라 주세요'
     return None
 
 

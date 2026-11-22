@@ -18,6 +18,7 @@ import { TerrainRules } from './terrainRules.ts';
 import { fadeCovered } from './occlude.ts';
 import { TouchInput } from './touch.ts';
 import { TouchUi } from './touchUi.ts';
+import { DevConsole } from './devConsole.ts';
 import { setTouchMode, touchMode } from '../ui/device.ts';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -61,6 +62,7 @@ export class GameView {
   private net: Connection | null = null;
   private hud: Hud | null = null;
   private bar: ActionBar | null = null;
+  private dev: DevConsole | null = null;          // 개발용 숨은 콘솔 (서버 --dev)
   private tui: TouchUi | null = null;
   private raf = 0;
   private disposed = false;
@@ -90,6 +92,7 @@ export class GameView {
     this.scene?.dispose();
     this.hud?.dispose();
     this.bar?.dispose();
+    this.dev?.dispose();
     this.tui?.dispose();
     this.loading.dispose();
     this.gl?.getExtension('WEBGL_lose_context')?.loseContext();     // GPU 메모리를 바로 돌려준다
@@ -309,6 +312,12 @@ export class GameView {
     this.listen(document, 'mouseleave', () => { mouse = null; });
     this.listen(window, 'keyup', (e: KeyboardEvent) => keys.delete(e.key));
     this.listen(window, 'keydown', (e: KeyboardEvent) => {
+      if (e.code === 'Backquote' && st?.info.dev) {     // 개발용 숨은 콘솔 (서버 --dev일 때만)
+        e.preventDefault();
+        this.dev ??= new DevConsole(net, (t) => st?.say(t));
+        this.dev.toggle();
+        return;
+      }
       keys.add(e.key);
       const k = e.key.toLowerCase();
       const digit = /^Digit[1-9]$/.test(e.code) ? Number(e.code.slice(5)) : 0;   // Shift를 눌러도 숫자 (e.key는 '!' 등)

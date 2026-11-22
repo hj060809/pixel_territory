@@ -10,14 +10,22 @@ import { F_OCEAN } from './terrainRules.ts';
 import type { BuildRec } from './protocol.ts';
 import { animalSpots, drawAnimals } from './wildlife.ts';
 import type { SpriteBank } from './sprites.ts';
-import { type Light, lightFrom } from './stack.ts';
+import { type Light, lightFrom, modelPoint } from './stack.ts';
+import { BREATH_REACH, DRAGON_MOUTH, DRAGON_SIZE } from './models.ts';
 import { Torches, drawFlame, nightAmount } from './torches.ts';
 import { type GameState, lerp } from './state.ts';
 
 const DIRS = 16;
 const TAU = Math.PI * 2;
+/** 날고 있는 병종을 땅에서 띄워 그리는 높이 (모델 점). 지도 칸으로는 FLY_LIFT / 2.4. */
+export const FLY_LIFT = 18;
+/** 드래곤 입의 자리 (모델 점): 몸 가운데에서 앞으로, 바닥에서 위로 (숨결 그림). */
+const MOUTH_FWD = 30, MOUTH_UP = 22;
+const ICE = ['rgb(236,248,255)', 'rgb(190,228,246)', 'rgb(150,196,232)'];
 /** 그림 한 점의 화면 크기 (확대에 따라). 건물 모델 너비가 2r × 2.4 점이라 땅 넓이와 맞는다. */
 export const spriteK = (z: number) => Math.max(1, Math.round(z / 2.4));
+/** 큰 물체(드래곤, 둥지)의 점 크기: 멀리서도 땅 넓이에 맞게 1보다 작아질 수 있다 (너무 작아지지는 않게). */
+export const bigK = (z: number) => (z >= 2.4 ? spriteK(z) : Math.max(z / 2.4, 0.3));
 /** 각도 → 방향 번호 (16방향). */
 export const dirOf = (a: number) => ((Math.round(a / (TAU / DIRS)) % DIRS) + DIRS) % DIRS;
 /** a를 b 쪽으로 돌린다 (짧은 쪽으로, 비율 f). */
@@ -43,6 +51,53 @@ export class Overlay {
   private hourKey = NaN;
   private lastNow = 0;
   private ang = new Map<number, number>();        // 병사가 보는 방향 (라디안)
+  private breathAt = new Map<number, number>();   // 숨결을 뿜은 화면 시각 (용기사)
+  private breaths: { x: number; y: number; at: number }[] = [];   // 야생 드래곤이 숨결을 뿜은 자리
+  private frost: { x0: number; y0: number; x1: number; y1: number; at: number; air: boolean; src: string }[] = [];   // 그리는 중인 숨결
+  private mouths = new Map<string, number[]>();   // 이번 장면에서 숨결 자세로 그린 드래곤: [입 x, y, 숨결이 닿는 앞쪽 땅 x, y] (u칸 / a번호)
+  private seenShots = new WeakSet<object>();       // 이미 본 공격 (처음 본 것만 효과를 시작한다: 화면이 느려도 놓치지 않게)
+
+  /** 서리 숨결 (0.9초): 입에서 굵은 얼음 줄기가 뻗어 나가 넓게 퍼지고, 맞은 자리에 서리 안개와 얼음 고리.
+   *  얼음 알갱이는 점 크기(K)의 2배까지, 앞으로 갈수록 크게 흩어진다. */
+  private drawFrost(sx: (x: number) => number, sy: (y: number) => number, K: number, z: number, now: number) {
+    const g = this.g, LIFE = 900;
+    this.frost = this.frost.filter((f) => now - f.at < LIFE);
+    const P = Math.max(K, 2);
+    const dot = (x: number, y: number, s: number) => g.fillRect(Math.round(x / P) * P, Math.round(y / P) * P, s, s);
+    for (const f of this.frost) {
+      const age = (now - f.at) / LIFE;                                  // 0~1
+      const grow = Math.min(age / 0.28, 1), fade = age < 0.55 ? 1 : 1 - (age - 0.55) / 0.45;
+      const fa = Math.atan2(f.y1 - f.y0, f.x1 - f.x0);
+      const m = this.mouths.get(f.src);                                 // 그린 드래곤의 입과 그 앞쪽 땅 (움직이면 따라간다)
+      const bx = m ? m[2] : sx(f.x1), by = m ? m[3] : sy(f.y1);
+      const lift = ((f.air ? FLY_LIFT : 0) + MOUTH_UP) * K;
+      const ox = m ? m[0] : sx(f.x0) + Math.cos(fa) * MOUTH_FWD * K, oy = m ? m[1] : sy(f.y0) + Math.sin(fa) * MOUTH_FWD * K * 0.7 - lift;
+      const len = Math.hypot(bx - ox, by - oy), ang = Math.atan2(by - oy, bx - ox), ca = Math.cos(ang), sa = Math.sin(ang);
+      const seed = Math.floor(f.x0 * 13 + f.y0 * 7);
+      for (let i = 0; i < 190; i++) {                                   // 얼음 줄기
+        const h = ((i * 37 + seed) % 97) / 97, r = h * len * grow;
+        const wob = Math.sin(now * 0.018 + i * 1.7) * P;                 // 일렁임
+        const sp = r * 0.26 * ((((i * 53 + seed) % 89) / 44.5) - 1) + wob;
+        const px = ox + ca * r - sa * sp, py = oy + sa * r + ca * sp;
+        g.globalAlpha = fade * (0.95 - h * 0.35);
+        g.fillStyle = h < 0.25 ? 'rgb(250,254,255)' : ICE[i % 3];
+        dot(px, py, h > 0.45 ? 2 * P : P);
+      }
+      if (age > 0.18) {                                                 // 맞은 자리: 서리 안개와 얼음 고리
+        const spread = Math.min((age - 0.18) / 0.3, 1), rr = 2.4 * z * spread;
+        for (let i = 0; i < 46; i++) {
+          const an = (i / 46) * TAU + seed, d = (((i * 29 + seed) % 23) / 23) * rr;
+          g.globalAlpha = fade * 0.55;
+          g.fillStyle = ICE[(i + 1) % 3];
+          dot(bx + Math.cos(an) * d, by + Math.sin(an) * d * 0.7, 2 * P);
+        }
+        g.globalAlpha = fade * 0.9;
+        g.fillStyle = 'rgb(236,248,255)';
+        for (let i = 0; i < 28; i++) { const an = (i / 28) * TAU; dot(bx + Math.cos(an) * rr, by + Math.sin(an) * rr * 0.7, P); }
+      }
+    }
+    g.globalAlpha = 1;
+  }
   private boatAng = new Map<number, number>();
 
   /** 지금 빛 (시각이 1/12시간 움직일 때마다 새로). */
@@ -176,6 +231,9 @@ export class Overlay {
     g.imageSmoothingEnabled = false;
     this.ctl.prune();
     const L = this.lightNow(), K = spriteK(z), stack = this.bank.stack;
+    this.mouths.clear();
+    const fresh = st.shots.filter((s) => !this.seenShots.has(s));      // 이번에 처음 본 공격
+    for (const s of fresh) this.seenShots.add(s);
     // 밤의 횃불: 지형에 빛을 넘기고, 유닛·건물 칠하기에도 쓴다
     const night = nightAmount(this.scene.cycle.sunAlt());
     const torches = this.torches.update(st, night, now / 1000);
@@ -190,6 +248,15 @@ export class Overlay {
       if (!vis(x, y)) continue;
       const img = this.bank.site(s.kind, ks);
       g.drawImage(img, Math.round(x - img.width / 2), Math.round(y - img.height / 2));
+    }
+    // 드래곤 둥지 (땅의 장식: 건물·병사 아래)
+    for (const [ly, lx] of st.info.lairs ?? []) {
+      const x = sx(lx + 0.5), y = sy(ly + 0.5);
+      if (!vis(x, y, 200)) continue;
+      const kb = bigK(z);
+      g.imageSmoothingEnabled = kb < 1;                                // 줄여 그릴 때는 부드럽게 (점이 빠져 깨지지 않게)
+      stack.draw(g, 'lair', 0, L, x, y, kb, { dirs: 1, torch: tl(lx, ly) });
+      g.imageSmoothingEnabled = false;
     }
     // 건물
     const selB = this.ctl.selB;
@@ -255,24 +322,47 @@ export class Overlay {
       if (ferry && b.cargo) this.text(`${b.cargo}`, rc.x + rc.w + 2, rc.y + rc.h / 2, 12, 'white', true);
     }
     // 야생 동물 (멀리서는 작게)
-    const tameBars = z >= 1.2 ? drawAnimals(g, stack, L, animalSpots(st, a, sx, sy), K, t, W, H, dt, tl) : [];
+    this.breaths = this.breaths.filter((b) => now - b.at < 900);      // 숨결을 뿜은 자리 (그 뒤 0.9초 동안 숨결 자세)
+    for (const s of fresh) if (s.kind === 3) this.breaths.push({ x: s.x0, y: s.y0, at: now });
+    const breathing = (x: number, y: number) => this.breaths.some((b) => Math.hypot(b.x - x, b.y - y) < 2.5);
+    const tameBars = z >= 1.2 ? drawAnimals(g, stack, L, animalSpots(st, a, sx, sy), K, bigK(z), t, W, H, dt, tl, breathing, R, this.mouths) : [];
     // 병사: 가까이서는 하나하나, 멀리서는 무리 배지
     const units = [...st.units.values()].filter((u) => !(u.bits & 2));
     if (z >= UNIT_ZOOM) {
       for (const s of st.shots) {                                 // 치는 병사는 맞는 쪽을 본다
-        if (t - s.t0 > 0.12) continue;
-        const u = this.ctl.unitAt(s.x0, s.y0, 0.7);
-        if (u) this.ang.set(u.slot, Math.atan2(s.y1 - s.y0, s.x1 - s.x0));
+        if (!fresh.includes(s)) continue;
+        const u = this.ctl.unitAt(s.x0, s.y0, 0.7, undefined, true);
+        if (u) { this.ang.set(u.slot, Math.atan2(s.y1 - s.y0, s.x1 - s.x0)); if (s.kind === 3) this.breathAt.set(u.slot, now); }
       }
       const list = units.map((u) => ({ u, x: sx(lerp(u.px, u.x, a)), y: sy(lerp(u.py, u.y, a)) }))
-        .filter((p) => p.x > -40 && p.x < W + 40 && p.y > -40 && p.y < H + 40).sort((p, q) => p.y - q.y);
-      for (const { u, x, y } of list) {
-        const frame = u.bits & 1 ? Math.trunc(t * 4.5 * 1.2 + u.slot * 0.37) % 2 : 0;   // 걸을 때 다리
+        .filter((p) => p.x > -80 && p.x < W + 80 && p.y > -120 && p.y < H + 80).sort((p, q) => p.y - q.y);
+      const flying = (u: { bits: number }) => (u.bits & 4) !== 0;     // 날고 있다 (용기사)
+      const shadowA = Math.max(0.12, L.shadow ? L.shadow.a * 0.9 : 0.12);
+      for (const { u, x, y } of list) {                         // 날고 있는 병사의 땅 그림자 (모두 땅 위에 먼저)
+        if (!flying(u)) continue;
+        const sh = stack.silhouette(`u${u.kind}`, { frame: 1, dir: dirOf(this.ang.get(u.slot) ?? 0) });
+        g.globalAlpha = shadowA;
+        g.drawImage(sh.cv, Math.round(x - sh.ax * K + 3 * K), Math.round(y - sh.ay * K * 0.45 + 2 * K), sh.cv.width * K, Math.round(sh.cv.height * K * 0.45));
+        g.globalAlpha = 1;
+      }
+      const air = list.filter((p) => flying(p.u));
+      for (const { u, x, y: y0 } of [...list.filter((p) => !flying(p.u)), ...air]) {   // 걷는 병사, 그 위로 나는 병사
+        const fly = flying(u), y = fly ? y0 - FLY_LIFT * K : y0;
+        const breath = now - (this.breathAt.get(u.slot) ?? -1e9) < 900, dragon = !!R.unit_fly?.[u.kind];
+        const frame = fly ? (breath ? 6 : 1 + (Math.trunc(t * 3 + u.slot * 0.3) % 2))                // 날갯짓, 날며 숨결
+          : dragon ? (breath ? 5 : u.bits & 1 ? (Math.trunc(t * 3.2 + u.slot * 0.3) % 2 ? 7 : 8) : 0)   // 땅의 용기사: 숨결, 걷기, 서기
+          : u.bits & 1 ? Math.trunc(t * 4.5 * 1.2 + u.slot * 0.37) % 2 : 0;   // 걸을 때 다리
         const mx = u.x - u.px, my = u.y - u.py;                    // 가는 쪽으로 몸을 돌린다
         let ang = this.ang.get(u.slot) ?? (u.slot % 2 ? Math.PI * 0.5 : Math.PI * 0.25);
         if (Math.hypot(mx, my) > 0.01) ang = turn(ang, Math.atan2(my, mx), dt * 10);
         this.ang.set(u.slot, ang);
-        const rc = stack.draw(g, `u${u.kind}`, u.own, L, x, y, K, { frame, dir: dirOf(ang), torch: tl(lerp(u.px, u.x, a), lerp(u.py, u.y, a)) });
+        const rc = stack.draw(g, `u${u.kind}`, u.own, L, x, y, K, { frame, dir: dirOf(ang), torch: tl(lerp(u.px, u.x, a), lerp(u.py, u.y, a)), shadow: !fly });
+        if (dragon && DRAGON_MOUTH[frame]) {                            // 숨결이 나올 입 자리
+          const [mx, my, mz] = DRAGON_MOUTH[frame], d = dirOf(ang);
+          const [dx, dy] = modelPoint(DRAGON_SIZE[0], DRAGON_SIZE[1], mx, my, mz, d, 16, K);
+          const [ex, ey] = modelPoint(DRAGON_SIZE[0], DRAGON_SIZE[1], mx + BREATH_REACH, my, 0, d, 16, K);   // 입 앞쪽의 땅
+          this.mouths.set(`u${u.slot}`, [x + dx, y + dy, x + ex, y0 + ey]);
+        }
         if (this.ctl.sel.has(u.slot)) { g.strokeStyle = 'rgb(235,250,235)'; g.lineWidth = 1; g.beginPath(); g.moveTo(rc.x, rc.y + rc.h + 1.5); g.lineTo(rc.x + rc.w, rc.y + rc.h + 1.5); g.stroke(); }
         if (u.hp < 0.99) this.bar(rc.x + rc.w / 2, rc.y - 3, Math.max(rc.w - 2, 8), u.hp);
       }
@@ -302,21 +392,33 @@ export class Overlay {
     for (const s of st.shots) {
       const age = (t - s.t0) / 0.3;
       const ax = sx(s.x0), ay = sy(s.y0), bx = sx(s.x1), by = sy(s.y1);
-      if (s.kind >= 2) {
+      if (s.kind === 2) {                                         // 포탄
         const f = Math.min(age * 1.3, 1.0);
         if (f < 1) {
           g.fillStyle = 'rgb(30,28,34)'; g.beginPath();
           g.arc(ax + (bx - ax) * f, ay + (by - ay) * f - 6 * z * f * (1 - f), Math.max(1, Math.trunc(z * 0.45)), 0, 7); g.fill();
         } else { g.strokeStyle = WAKE; g.lineWidth = 1; g.beginPath(); g.arc(bx, by, Math.max(2, Math.trunc(z)), 0, 7); g.stroke(); }
-      } else if (s.kind >= 1) {
+      } else if (s.kind === 3) {                                 // 서리 숨결: 아래 frost에서 (더 오래, 굵게)
+        if (fresh.includes(s)) {
+          const shooter = this.ctl.unitAt(s.x0, s.y0, 0.8, undefined, true);
+          let src = shooter ? `u${shooter.slot}` : '';                  // 뿜은 것: 용기사 칸, 아니면 가장 가까운 드래곤
+          if (!shooter) {
+            let bd = 4;
+            for (const an of st.animals.values()) { const d = Math.hypot(an.x - s.x0, an.y - s.y0); if (d < bd) { bd = d; src = `a${an.id}`; } }
+          }
+          this.frost.push({ x0: s.x0, y0: s.y0, x1: s.x1, y1: s.y1, at: now, air: !!(shooter && shooter.bits & 4), src });
+        }
+      } else if (s.kind === 1) {                                 // 화살·망루
         const f = Math.min(Math.max(age, 0) * 1.6, 1.0), h = Math.max(f - 0.15, 0.0);
         g.strokeStyle = 'rgb(236,226,196)'; g.lineWidth = 1; g.beginPath();
         g.moveTo(ax + (bx - ax) * h, ay + (by - ay) * h); g.lineTo(ax + (bx - ax) * f, ay + (by - ay) * f); g.stroke();
-      } else if (age < 0.5) {
+      } else if (age < 0.5) {                                    // 칼부림
         g.fillStyle = 'rgb(255,250,230)'; g.beginPath(); g.arc(bx, by - 2 * z, Math.max(1, Math.trunc(z * 0.5)), 0, 7); g.fill();
       }
     }
-    for (const p of tameBars) this.bar(p.x, p.y, p.w, p.prog, 'rgb(240,200,90)');   // 길들이기 진행 (병사에 가리지 않게 나중에)
+    this.drawFrost(sx, sy, K, z, now);
+    for (const p of tameBars) this.bar(p.x, p.y, p.w, p.prog, p.col || undefined);   // 길들이기 진행, 드래곤 체력 (병사에 가리지 않게 나중에)
+    for (const p of tameBars) if (p.label) this.text(p.label, p.x, p.y - 8, 11, 'rgb(205,232,255)', true, 'center');
     // 거점 위 말풍선: 대기열에 있는 병사 아이콘 (맨 앞은 훈련 진행 막대)
     for (const [b, cx, top] of bubbles) this.bubble(b, cx, top, z);
     // 명령 표시

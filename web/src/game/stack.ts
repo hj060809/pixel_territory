@@ -146,6 +146,14 @@ function getProj(name: string, frame: number, dir: number, dirs: number, cut: nu
   return p;
 }
 
+/** 모델 한 점 (mx, my, mz)이 그려지는 화면 자리: 바닥 가운데에서 얼마나 떨어졌나 (점 크기 k, 방향 dir/dirs).
+ *  project()와 같은 회전·누르기. */
+export function modelPoint(W: number, D: number, mx: number, my: number, mz: number, dir: number, dirs: number, k: number): [number, number] {
+  const a = (dir / dirs) * Math.PI * 2, cs = Math.cos(a), sn = Math.sin(a);
+  const x = mx + 0.5 - W / 2, y = my + 0.5 - D / 2;
+  return [(cs * x - sn * y) * k, ((sn * x + cs * y) * SQUASH - mz) * k];
+}
+
 // ------------------------------------------------------------- 칠하기
 function shade(p: Proj, ramps: Record<number, number[][]>, L: Light, torch: number, shadowOn: boolean): ImageData {
   const img = new ImageData(p.w, p.h), d = img.data, T = L.table;
@@ -252,6 +260,26 @@ export class StackRenderer {
     g.drawImage(cv, x, y, cv.width * k, cv.height * k);
     return { x: x + p.bx * k, y: y + p.by * k, w: p.bw * k, h: p.bh * k };
   }
+
+  /** 날고 있는 물체의 땅 그림자: 모양만 어둡게 (1배). 그릴 때 위아래로 눌러 쓴다. */
+  silhouette(name: string, o: StackOpts = {}): { cv: HTMLCanvasElement; ax: number; ay: number } {
+    const key = `${name}:${o.frame ?? 0}:${o.dir ?? 0}:${o.dirs ?? 16}`;
+    let c = this.sil.get(key);
+    if (!c) {
+      const { cv, ax, ay } = this.sprite(name, 0, NOON, { ...o, shadow: false });
+      const t = document.createElement('canvas');
+      t.width = cv.width; t.height = cv.height;
+      const g = t.getContext('2d')!;
+      g.drawImage(cv, 0, 0);
+      g.globalCompositeOperation = 'source-in';
+      g.fillStyle = 'rgb(14,12,30)';
+      g.fillRect(0, 0, t.width, t.height);
+      c = { cv: t, ax, ay };
+      this.sil.set(key, c);
+    }
+    return c;
+  }
+  private sil = new Map<string, { cv: HTMLCanvasElement; ax: number; ay: number }>();
 
   /** k배로 늘린 그림 (아이콘 등, 그림자 없이 정오 빛). */
   icon(name: string, nid: number, k: number, o: StackOpts = {}): HTMLCanvasElement {

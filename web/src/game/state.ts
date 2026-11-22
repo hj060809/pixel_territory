@@ -14,9 +14,11 @@ export interface StartInfo {
   map: string; H: number; W: number; round: number; tick_hz: number; me: number;
   nations: { id: number; name: string; color: number[]; light: number[] }[];
   sites: { id: number; kind: number; x: number; y: number; rich: number }[];
+  lairs?: number[][];                  // 드래곤 둥지 [y, x]
   year_length: number; day_length: number;
   rules: any;
-  sid?: string; resumed?: boolean;     // 다시 접속할 때 쓰는 판 번호, 다시 접속해서 받은 start인가
+  sid?: string; resumed?: boolean;
+  dev?: boolean;                       // 서버가 --dev로 켜졌다 (개발용 콘솔)     // 다시 접속할 때 쓰는 판 번호, 다시 접속해서 받은 start인가
 }
 
 const SNAP = 4;                 // 이보다 멀리 한 번에 움직이면 보간하지 않는다 (칸)

@@ -7,9 +7,11 @@
     u32 걸음 번호
     f32 게임 시각(초), f32 하루 시각(0~24), f32 1년 위치(0~1)
     u8  상태 비트 (1 일시정지, 2 끝남, 4 승리), u8 속도×10, u16 서버 계산 시간(0.01 ms 단위)
+    (공격 종류: 0 칼 1 화살·망루 2 포탄 3 서리 숨결)
     -- 병사 (바뀐 것만) --
     u16 n, 그다음 n개: u16 칸, u16 세대, u16 x×64, u16 y×64, u8 나라, u8 종류, u8 체력(0~255, 최대 체력 비율),
-                      u8 상태(IDLE MOVE AMOVE ATTACK BUILD), u8 비트(1 걷는 중, 2 배에 탐)       = 14바이트
+                      u8 상태(IDLE MOVE AMOVE ATTACK BUILD TAME), u8 비트(1 걷는 중, 2 배에 탐, 4 날고 있음)   = 14바이트
+                      (야생 나라 rules.NEUTRAL 이상의 병사는 보내지 않는다: 동물 칸으로 간다)
     u16 m, 그다음 m개: u16 칸 (사라진 병사)
     -- 건물 (바뀐 것만) --
     u16 n, 그다음 n개: u16 칸, u16 세대, u16 x×2, u16 y×2, u8 종류, u8 나라, u8 체력(0~255), u8 지은 정도(0~255),
@@ -22,8 +24,9 @@
     -- 공격 (이번 걸음에 새로 난 것) --
     u16 n, 그다음 n개: u16 x0×64, u16 y0×64, u16 x1×64, u16 y1×64, u8 종류(0 칼 1 화살·망루 2 포탄) = 9바이트
     -- 야생 동물 (바뀐 것만) --
-    u16 n, 그다음 n개: u32 번호, u8 종류(rules.WILDLIFE), u16 x×64, u16 y×64, u8 상태(0 풀 뜯기 1 거닒 2 달아남 3 기다림 4 길드는 중),
-                      u8 길든 정도(0~255), i8 방향                                              = 12바이트
+    u16 n, 그다음 n개: u32 번호, u8 종류(rules.WILDLIFE), u16 x×64, u16 y×64,
+                      u8 상태(0 풀 뜯기 1 거닒 2 달아남 3 기다림 4 길드는 중 5 잠 6 싸움 7 쓰러짐),
+                      u8 길든 정도(0~255), i8 방향, u8 체력(0~255), u8 쓰러져 있는 남은 초         = 14바이트
     u16 m, 그다음 m개: u32 번호 (사라진 동물: 길들었거나 물에 빠짐)
     -- 나라 (몇 걸음마다) --
     u8 있음(0/1), 있으면 u8 n, 그다음 n개: f32 자원×3, f32 증감×3, u16 병사 수, u16 건물 수, u8 살아 있음, u8 굶주림 = 30바이트
@@ -60,7 +63,7 @@ class StateEncoder:
                         ('dir', 'i1'), ('state', 'u1'), ('cargo', 'u1'), ('bits', 'u1')])
     SHOT_DT = np.dtype([('x0', '<u2'), ('y0', '<u2'), ('x1', '<u2'), ('y1', '<u2'), ('kind', 'u1')])
     ANIMAL_DT = np.dtype([('id', '<u4'), ('kind', 'u1'), ('x', '<u2'), ('y', '<u2'), ('state', 'u1'), ('prog', 'u1'),
-                          ('dir', 'i1')])
+                          ('dir', 'i1'), ('hp', 'u1'), ('sub', 'u1')])
     NATION = struct.Struct('<6f2HBB')
 
     def __init__(self, world):
@@ -91,8 +94,8 @@ class StateEncoder:
         a['own'], a['kind'] = u.own[:n], u.kind[:n]
         a['hp'] = np.clip(np.rint(u.hp[:n] / _U_HP[u.kind[:n]] * 255), 0, 255)
         a['state'] = u.state[:n]
-        a['bits'] = u.moving[:n].astype(np.uint8) | (u.aboard[:n].astype(np.uint8) << 1)
-        return a, u.alive[:n].copy()
+        a['bits'] = u.moving[:n].astype(np.uint8) | (u.aboard[:n].astype(np.uint8) << 1) | (u.air[:n].astype(np.uint8) << 2)
+        return a, u.alive[:n] & (u.own[:n] < R.NEUTRAL)       # 야생 동물(드래곤)은 동물 칸으로 간다
 
     def _builds(self):
         b = self.w.builds
@@ -163,7 +166,8 @@ class StateEncoder:
         # 야생 동물: 바뀐 것과 사라진 것
         cur = {}
         for an in w.wild.animals.values():
-            cur[an.id] = (an.id, an.kind, int(_q(an.x)), int(_q(an.y)), an.mode, int(min(an.prog, 1.0) * 255), an.dir)
+            cur[an.id] = (an.id, an.kind, int(_q(an.x)), int(_q(an.y)), an.mode, int(min(an.prog, 1.0) * 255), an.dir,
+                          int(np.clip(round(an.hp * 255), 0, 255)), int(np.clip(np.ceil(an.sub), 0, 255)))
         ch = [r for k, r in cur.items() if self.prev_animals.get(k) != r]
         gone = np.array([k for k in self.prev_animals if k not in cur], '<u4')
         a = np.array(ch, self.ANIMAL_DT) if ch else np.zeros(0, self.ANIMAL_DT)

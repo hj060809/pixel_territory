@@ -3,7 +3,7 @@
 // 나라 색 재질은 그 나라 색에서 같은 방식으로 단계를 만든다.
 
 export const Mat = {
-  EMPTY: 0, WOOD: 1, WOOD_D: 2, THATCH: 3, STONE: 4, PLASTER: 5, TILE: 6, SKIN: 7, METAL: 8, LEATHER: 9, HORSE: 10, HORSE_D: 11, CROP: 12, LEAF: 13, SAIL: 14, DARK: 15, CLOTH: 16, ROOF: 17, GOLD: 18,
+  EMPTY: 0, WOOD: 1, WOOD_D: 2, THATCH: 3, STONE: 4, PLASTER: 5, TILE: 6, SKIN: 7, METAL: 8, LEATHER: 9, HORSE: 10, HORSE_D: 11, CROP: 12, LEAF: 13, SAIL: 14, DARK: 15, CLOTH: 16, ROOF: 17, GOLD: 18, DRAGON: 19, MEMBRANE: 20, GLOW: 21, WING: 22, BASALT: 23, STRAW: 24,
 } as const;
 export type Mat = number;
 
@@ -28,6 +28,12 @@ export const RAMPS: Record<number, number[][]> = {
   [Mat.SAIL]: ramp('#4a4550', '#7d7468', '#aea28a', '#d4c8a8', '#efe6cc'),
   [Mat.DARK]: ramp('#120e16', '#1a141c', '#221a22', '#2c2228', '#362a2e'),
   [Mat.GOLD]: ramp('#3a2f24', '#6b5530', '#a3843c', '#cfae52', '#eed585'),
+  [Mat.DRAGON]: ramp('#161b2e', '#26304e', '#3a4c78', '#5a74a6', '#86a2cc'),     // 서리 드래곤 비늘
+  [Mat.MEMBRANE]: ramp('#3a4460', '#5c6e94', '#8aa0c4', '#b4c8e2', '#dae6f2'),   // 배와 날개막
+  [Mat.GLOW]: ramp('#9adcf0', '#b4ecfa', '#cff6ff', '#e6fbff', '#ffffff'),       // 눈, 얼음 기둥 (어두워도 밝게)
+  [Mat.WING]: ramp('#24365e', '#3a5f96', '#6a9ccc', '#a4d0ee', '#dcf2fc'),       // 얼음빛 날개막, 가시
+  [Mat.BASALT]: ramp('#0c0b12', '#1a1822', '#2a2833', '#3c3946', '#56525e'),     // 검은 현무암 (둥지)
+  [Mat.STRAW]: ramp('#3a2e24', '#6b5436', '#9a7c4a', '#c4a468', '#e2c98e'),      // 밀짚 (둥지)
 };
 
 const TONE = [42, 37, 53];                  // 지형 그늘과 같은 보랏빛

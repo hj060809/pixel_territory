@@ -172,7 +172,7 @@ class Bot:
         hc = comp[int(home[0]), int(home[1])]
         best, bd = None, 45.0
         for a in w.wild.animals.values():
-            if comp[int(a.y), int(a.x)] != hc or w.wild.taming(a.id):
+            if a.unit >= 0 or comp[int(a.y), int(a.x)] != hc or w.wild.taming(a.id):     # 사나운 동물은 노리지 않는다
                 continue
             d = np.hypot(a.y - home[0], a.x - home[1])
             if d < bd:

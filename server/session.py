@@ -88,8 +88,9 @@ class GameSession:
             'tick_hz': self.cfg.tick_hz, 'me': 0,
             'nations': [{'id': n.id, 'name': n.name, 'color': list(n.color), 'light': list(n.light)} for n in w.nations],
             'sites': [{'id': s.id, 'kind': s.kind, 'x': s.x, 'y': s.y, 'rich': round(s.rich, 2)} for s in w.sites],
+            'lairs': [[lr.y, lr.x] for lr in w.wild.lairs],
             'year_length': self.cfg.year_length, 'day_length': self.cfg.day_length,
-            'rules': rules_info(), 'sid': self.sid, 'resumed': self._resumed,
+            'rules': rules_info(), 'sid': self.sid, 'resumed': self._resumed, 'dev': bool(self.cfg.dev),
         }
 
     # ------------------------------------------------------------- 실행
@@ -214,5 +215,11 @@ class GameSession:
             self.speed = float(m['value']) if float(m['value']) in (1.0, 2.0, 4.0) else 1.0
         elif t == 'restart':
             self._new_world()
+        elif t == 'dev' and self.cfg.dev:                # 개발용 (서버를 --dev로 켰을 때만)
+            if m.get('cmd') == 'res':
+                add = [float(min(max(v, -1e6), 1e6)) for v in m.get('add', [0, 0, 0])[:3]]
+                nat = self.world.nations[0]
+                nat.res = [max(0.0, r + a) for r, a in zip(nat.res, add)]
+                self.world.say('개발: 자원 ' + ', '.join(f'{n} {a:+.0f}' for n, a in zip(('식량', '목재', '석재'), add) if a))
         else:
             raise ValueError(f'모르는 명령 {t}')

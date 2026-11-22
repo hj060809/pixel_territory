@@ -28,6 +28,12 @@ from sim.spawn import choose_starts, pick_colors
 TICK = 0.05
 
 
+def m_snow(gmap):
+    """지금 눈 덮인 땅 (계절마다 바뀐다)."""
+    from sim.terrain import _SNOWY_LUT
+    return _SNOWY_LUT[gmap.mat] & gmap.land
+
+
 @dataclass
 class Nation:
     id: int
@@ -87,6 +93,8 @@ class World:
         self.k_vs = np.ones((len(ks), len(ks)), np.float32)              # 상성 (치는 쪽, 맞는 쪽)
         for (a, b), v in R.UNIT_VS.items():
             self.k_vs[a, b] = v
+        self.k_fly = np.array([s['fly'] for s in ks])
+        self.k_splash = np.array([s['splash'] for s in ks], np.float32)
         self.k_upkeep = np.array([s['upkeep'] for s in ks], np.float32)
         self.k_hp = np.array([s['hp'] for s in ks], np.float32)
         n = min(n_bots + 1, len(R.COLORS))
@@ -197,6 +205,25 @@ class World:
         if len(ids) == 0:
             return False
         self.wild.release(ids)
+        u = self.units
+        can = self.k_fly[u.kind[ids]]
+        if can.any():                                # 날 수 있는 병사 (용기사): 물을 건너야 하면 날고, 같은 땅이면 걷는다
+            fl = ids[can]
+            air = self._must_fly(fl, y, x)
+            up, walk = fl[air], fl[~air]
+            u.air[up] = True
+            u.state[up] = AMOVE if attack else MOVE
+            u.tx[up], u.ty[up] = x, y
+            u.slot[up] = u.tgt[up] = u.tgb[up] = u.bld[up] = -1
+            if len(walk):
+                s = self._route(walk, y, x)
+                if s >= 0:
+                    u.state[walk] = AMOVE if attack else MOVE
+                    u.slot[walk] = s
+                    u.tgt[walk] = u.tgb[walk] = u.bld[walk] = -1
+            ids = ids[~can]
+            if len(ids) == 0:
+                return True
         ids, far, dst = self._split(ids, y, x)
         ok = False
         for group, src in far:                       # 바다 건너: 나룻배를 타고 간다
@@ -219,6 +246,23 @@ class World:
         self.wild.release(ids)
         u, b = self.units, self.builds
         ty, tx = (u.y[unit], u.x[unit]) if unit >= 0 else (b.y[building], b.x[building])
+        can = self.k_fly[u.kind[ids]]
+        if unit >= 0 and u.air[unit]:                # 날고 있는 적: 근접 병사는 칠 수 없다
+            ids = ids[self.k_ranged[u.kind[ids]] | can]
+            can = self.k_fly[u.kind[ids]]
+        if can.any():                                # 용기사: 물 건너면 날아서 쫓고, 같은 땅이면 걸어서
+            fl = ids[can]
+            air = self._must_fly(fl, ty, tx)
+            up, walk = fl[air], fl[~air]
+            u.air[up] = True
+            u.slot[up] = -1
+            if len(walk):
+                u.slot[walk] = self._route(walk, ty, tx)
+            u.state[fl] = ATTACK
+            u.tgt[fl], u.tgb[fl], u.bld[fl] = unit, building, -1
+            ids = ids[~can]
+        if len(ids) == 0:
+            return
         ids, far, dst = self._split(ids, ty, tx)
         for group, src in far:
             self.fleet.ferry(group, ty, tx, ('attack', unit, building), src, dst)
@@ -230,6 +274,20 @@ class World:
         u.tgt[ids] = unit
         u.tgb[ids] = building
         u.bld[ids] = -1
+
+    def _must_fly(self, ids, y, x):
+        """날아야 하나: 용기사는 움직이거나 싸울 때 늘 난다."""
+        return np.ones(len(ids), bool)
+
+    def _lift(self) -> None:
+        """용기사는 움직이거나 싸우는 동안 날고, 할 일 없이 멈춰 있으면 땅에 내려앉는다 (물 위면 떠 있다).
+        땅에 있는 동안은 근접 병사에게도 맞는다. 맞으면 맞서 싸우느라 다시 날아오른다."""
+        u, m = self.units, self.map
+        n = u.n
+        fly = u.alive[:n] & self.k_fly[u.kind[:n]]
+        busy = (u.state[:n] != IDLE) | (u.tgt[:n] >= 0) | (u.tgb[:n] >= 0) | u.moving[:n]
+        wet = ~m.walk[u.y[:n].astype(int).clip(0, m.H - 1), u.x[:n].astype(int).clip(0, m.W - 1)]
+        u.air[:n] = fly & (busy | wet)
 
     def order_stop(self, ids) -> None:
         ids = self._mine(ids)
@@ -284,6 +342,9 @@ class World:
         if len(ids) == 0:
             return
         self.wild.release(ids)
+        ids = ids[~self.k_fly[self.units.kind[ids]]]          # 용기사는 짓지 않는다
+        if len(ids) == 0:
+            return
         ids, far, dst = self._split(ids, self.builds.y[b], self.builds.x[b])
         for group, src in far:
             self.fleet.ferry(group, self.builds.y[b], self.builds.x[b], ('build', b), src, dst)
@@ -385,17 +446,18 @@ class World:
         self._economy(dt)
         self._training(dt)
         self.n_shots = step(dt, u.n, u.x, u.y, u.hp, u.own, u.kind, u.state, u.slot, u.tgt, u.tgb, u.bld, u.cd,
-                            u.search, u.anim, u.moving, u.alive, u.aboard,
+                            u.search, u.anim, u.moving, u.alive, u.aboard, u.tx, u.ty, u.slow, u.air,
                             b.n, b.x, b.y, b.kind, b.own, b.hp, b.r, b.prog, b.cd, b.alive,
                             self.k_speed, self.k_range, self.k_dmg, self.k_cd, self.k_sight, self.k_ranged,
-                            self.k_terrain, self.k_charge, self.k_vs,
+                            self.k_terrain, self.k_charge, self.k_vs, self.k_splash,
                             m.walk, m.speed_mul, m.cover, self.fields.fields, self.fields.ready, R.TOWER, R.TOWER_RANGE, R.TOWER_DMG,
-                            R.TOWER_CD, self.shots, self._builders)
+                            R.TOWER_CD, R.NEUTRAL, self.shots, self._builders)
         if self.n_shots:                                    # 화면에 잠깐 그릴 공격 (화살, 칼부림)
             for row in self.shots[:self.n_shots].tolist():
                 self.recent.append((self.time, *row))
         while self.recent and self.time - self.recent[0][0] > 0.3:
             self.recent.popleft()
+        self._lift()                                        # 용기사: 움직이거나 싸울 때만 난다
         self.wild.update(dt)                                # 야생 동물, 길들이기 (병사가 움직인 다음에)
         # 짓기
         for i in np.flatnonzero(self._builders[:b.n]):
@@ -464,7 +526,9 @@ class World:
         # 굶주림과 회복
         alive = np.flatnonzero(u.alive[:u.n])
         if len(alive):
-            starving = np.array([n.starving for n in self.nations])[u.own[alive]]
+            starve = np.zeros(256, bool)                       # 나라 번호 → 굶주림 (야생 동물은 굶지 않는다)
+            starve[:len(self.nations)] = [n.starving for n in self.nations]
+            starving = starve[u.own[alive]]
             u.hp[alive[starving]] -= R.STARVE * dt
             halls = self.building_ids(kind=R.HALL, done=True)
             if len(halls):
@@ -473,6 +537,11 @@ class World:
                 near = ((d < 12) & (u.own[alive][:, None] == ho[None])).any(1)
                 hmax = self.k_hp[u.kind[alive]]
                 u.hp[alive[near]] = np.minimum(u.hp[alive[near]] + R.HEAL_NEAR_HALL * dt, hmax[near])
+            fl = alive[self.k_fly[u.kind[alive]]]                 # 용기사: 눈 위에서 회복 (설원의 진지)
+            if len(fl):
+                on = m_snow(self.map)[u.y[fl].astype(int), u.x[fl].astype(int)]
+                rate = np.where(on, R.HEAL_ON_SNOW, R.HEAL_RIDER)       # 어디서든 회복, 눈 위에서는 더 빨리
+                u.hp[fl] = np.minimum(u.hp[fl] + rate * dt, self.k_hp[u.kind[fl]])
             u.alive[alive[u.hp[alive] <= 0]] = False
 
     def _training(self, dt) -> None:
@@ -494,7 +563,11 @@ class World:
     def _drown(self) -> None:
         u, m = self.units, self.map
         a = np.flatnonzero(u.alive[:u.n] & ~u.aboard[:u.n])
+        a = a[~u.air[a]]                                       # 날고 있으면 빠지지 않는다
         wet = a[~m.walk[u.y[a].astype(int), u.x[a].astype(int)]]
+        up = wet[self.k_fly[u.kind[wet]]]                      # 용기사는 발밑 얼음이 녹으면 날아오른다
+        u.air[up] = True
+        wet = wet[~self.k_fly[u.kind[wet]]]
         if len(wet):
             u.alive[wet] = False
             if (u.own[wet] == 0).any():
@@ -502,7 +575,7 @@ class World:
 
     def _census(self) -> None:
         u, b = self.units, self.builds
-        nu = np.bincount(u.own[:u.n][u.alive[:u.n]], minlength=len(self.nations))
+        nu = np.bincount(u.own[:u.n][u.alive[:u.n]], minlength=R.NEUTRAL + 1)
         done = b.alive[:b.n] & (b.prog[:b.n] >= 1)                     # 짓다 만 건물은 나라를 지켜 주지 못한다
         nb = np.bincount(b.own[:b.n][done], minlength=len(self.nations))
         for nat in self.nations:

@@ -22,18 +22,19 @@ def run(report, cache_dir='.cache'):
     w = World(gm, 2, seed=3, map_seed=42)
     wild = w.wild
     n = wild.count(R.HORSE)
+    horses = [a for a in wild.animals.values() if a.kind == R.HORSE]
     report('야생말이 생긴다', n > 0 and n == wild.cap[R.HORSE], f'{n}마리 (최대 {wild.cap[R.HORSE]})')
-    pts = np.array([(a.x, a.y) for a in wild.animals.values()])
+    pts = np.array([(a.x, a.y) for a in horses])
     spread = float(np.ptp(pts[:, 0]) + np.ptp(pts[:, 1])) if len(pts) else 0.0
     report('넓게 흩어진다', spread > 80, f'가로+세로 폭 {spread:.0f}칸')
     report('기병은 훈련할 수 없다', not w.train(0, int(w.building_ids(0, R.HALL)[0]), R.LANCER, quiet=True))
 
     enc = StateEncoder(w)
     first = decode(enc.encode({'hour': 12, 'year': 0, 'flags': 0, 'speed': 1}, False, 0))
-    report('상태 메시지에 동물', len(first['animals']) == n, f'{len(first["animals"])}')
+    report('상태 메시지에 동물', sum(int(r['kind']) == R.HORSE for r in first['animals']) == n, f'{len(first["animals"])}')
 
     # 말 둘 곁에 보병, 궁수를 하나씩 두고 길들인다
-    a1, a2 = list(wild.animals.values())[:2]
+    a1, a2 = horses[:2]
     inf = w.units.add(0, R.INFANTRY, a1.x + 4, a1.y, R.UNIT_STATS[R.INFANTRY]['hp'])
     arc = w.units.add(0, R.ARCHER, a2.x + 4, a2.y, R.UNIT_STATS[R.ARCHER]['hp'])
     for i, a in ((inf, a1), (arc, a2)):
@@ -55,7 +56,7 @@ def run(report, cache_dir='.cache'):
     report('사라진 동물 목록', {a1.id, a2.id} <= gone, f'{sorted(gone)[:6]}')
 
     # 끊기: 길들이다 이동 명령
-    a3 = next(a for a in wild.animals.values() if not wild.taming(a.id))
+    a3 = next(a for a in wild.animals.values() if a.kind == R.HORSE and not wild.taming(a.id))
     i3 = w.units.add(0, R.INFANTRY, a3.x, a3.y, R.UNIT_STATS[R.INFANTRY]['hp'])
     wild.order_tame(0, [i3], a3.id, quiet=True)
     for _ in range(40):

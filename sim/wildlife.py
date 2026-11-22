@@ -10,6 +10,17 @@
 - 다 길들이면 병사와 동물이 합쳐져 표의 mounts 병종이 된다 (보병 → 창기병, 궁수 → 기마궁수). 체력 비율은 그대로.
   기병이 죽으면 말도 함께 죽는다 (돌아오지 않는다).
 
+사나운 동물 (표의 hostile, 지금은 드래곤):
+- 큰 설원 덩어리마다 가장 높은 곳에 둥지 (lairs_for, 지도에 최대 cap개, 지도만으로 정해져 맵 생성 화면에도 보인다).
+  둥지마다 하나가 산다. 실제로는 야생 나라(rules.NEUTRAL)의 병사 하나 (표의 unit 병종)로 싸운다.
+- 평소엔 잔다 (병사들이 저절로 덤비지 않는다). 둥지 가까이(wake) 오거나 맞으면 깨어 둥지 둘레(guard)의 병사를 친다
+  (서리 숨결, 범위 피해). 깨어 있는 동안은 모두가 서로 싸운다 (나라 번호 WILD). 둘레에 아무도 없으면 둥지로 돌아가 잔다.
+- 체력이 subdue 비율 아래로 떨어지면 쓰러진다 (subdue_time초, 그동안 맞지 않고 몸부림쳐 둘레 병사에게 작은 피해.
+  길들이는 병사는 다치지 않는다).
+  그동안 병사 하나가 길들이면 (tame초) 표의 mounts 병종 (용기사)이 된다. 나라마다 limit기까지.
+  시간 안에 못 하면 체력 절반으로 일어나 다시 싸운다. 그래서 죽일 수는 없고 길들일 수만 있다.
+- 길들여지면 regrow초 뒤 그 둥지에 새로 난다.
+
 화면: 동물은 상태 메시지의 동물 칸에 실린다 (server/protocol.py, 바뀐 것만).
 """
 from __future__ import annotations
@@ -20,7 +31,12 @@ from scipy import ndimage
 from sim import rules as R
 from sim.entities import IDLE, MOVE, TAME
 
-GRAZE, WALK, FLEE, HELD, TAMING = range(5)    # 동물 상태 (화면에 그대로 간다)
+GRAZE, WALK, FLEE, HELD, TAMING, SLEEP, FIGHT, SUBDUED = range(8)    # 동물 상태 (화면에 그대로 간다)
+WILD = R.NEUTRAL + 1  # 깨어 싸우는 야생 동물의 나라 번호 (병사·망루가 저절로 덤빈다)
+STRUGGLE = (3.0, 4.0, 4.5)     # 쓰러진 사나운 동물의 몸부림: 간격(초), 피해, 반지름
+DRAGON_REACH = 3.4    # 큰 동물은 이만큼에서 길들인다
+LAIR_CLEAR = 32       # 둥지에서 이만큼 안에서는 나라가 시작하지 않는다 (칸)
+LAIR_FIELD = 10000    # 둥지가 생기는 설원 덩어리의 최소 넓이 (512×512 지도 기준 칸)
 
 FEAR = 4.5            # 길들이러 오지 않는 병사가 이만큼 가까이 오면 달아난다 (칸)
 SHOT_FEAR = 9.0       # 싸움(칼부림, 화살)이 이만큼 가까이서 나면 달아난다
@@ -44,8 +60,51 @@ def _grass(gmap):
 HABITATS = {'grass': _grass}    # 사는 땅 이름 → 지도에서 그 땅 고르기 (사막 동물이면 'desert' 하나 더)
 
 
+def lairs_for(gmap, cap: int = 3) -> list[tuple[int, int]]:
+    """사나운 동물(드래곤)의 둥지: 봄·가을(맵 생성 화면 미리보기와 같은 계절)에도 눈이 덮여 있는 큰 설원 덩어리마다 하나.
+    덩어리는 하나로 이어진 눈 덮인 땅이 LAIR_FIELD칸 (512×512 지도 기준, 지도 넓이에 비례) 넘어야 한다.
+    자리는 그 덩어리 안쪽(둘레 25칸의 85% 넘게 눈)에서 가장 높은 곳. 큰 덩어리부터 최대 cap개, 서로 60칸 넘게.
+    넓은 설원이 없는 지도에는 없다. 지도만으로 정해진다 (맵 생성 화면에도 같은 자리)."""
+    cache = gmap.__dict__.setdefault('_lairs_cache', {})
+    if cap in cache:
+        return list(cache[cap])
+    from sim.terrain import _SNOWY_LUT
+    mat, _ = gmap.seasons.state(None)
+    snow = _SNOWY_LUT[mat] & gmap.land & gmap.walk_static
+    need = LAIR_FIELD * gmap.H * gmap.W / (512 * 512)
+    out: list[tuple[int, int]] = []
+    lab, n = ndimage.label(snow)
+    if n:
+        sizes = np.bincount(lab.ravel())
+        sizes[0] = 0
+        dens = ndimage.uniform_filter(snow.astype(np.float32), 25)
+        alt = gmap.layers['alt']
+        for c in np.argsort(-sizes):
+            if sizes[c] < need or len(out) >= cap:
+                break
+            ys, xs = np.nonzero((lab == c) & (dens > 0.85))
+            ok = (ys >= 12) & (ys < gmap.H - 12) & (xs >= 12) & (xs < gmap.W - 12)
+            ys, xs = ys[ok], xs[ok]
+            if not len(ys):
+                continue
+            for k in np.argsort(-(alt[ys, xs] + dens[ys, xs] * 0.05)):
+                y, x = int(ys[k]), int(xs[k])
+                if all((y - a) ** 2 + (x - b) ** 2 >= 60 ** 2 for a, b in out):
+                    out.append((y, x))
+                    break
+    cache[cap] = out
+    return list(out)
+
+
+class Lair:
+    __slots__ = ('kind', 'y', 'x', 'aid', 'timer')
+
+    def __init__(self, kind, y, x):
+        self.kind, self.y, self.x, self.aid, self.timer = kind, y, x, 0, 0.0
+
+
 class Animal:
-    __slots__ = ('id', 'kind', 'x', 'y', 'hx', 'hy', 'tx', 'ty', 'mode', 't', 'dir', 'prog')
+    __slots__ = ('id', 'kind', 'x', 'y', 'hx', 'hy', 'tx', 'ty', 'mode', 't', 'dir', 'prog', 'unit', 'hp', 'sub', 'lasthp')
 
     def __init__(self, aid, kind, x, y, rng):
         self.id, self.kind = aid, kind
@@ -54,6 +113,10 @@ class Animal:
         self.mode, self.t = GRAZE, float(rng.uniform(0, 4))
         self.dir = 1 if rng.random() < 0.5 else -1
         self.prog = 0.0
+        self.unit = -1            # 사나운 동물: 싸우는 병사 번호
+        self.hp = 1.0             # 체력 비율 (화면에)
+        self.sub = 0.0            # 쓰러져 있는 남은 시간
+        self.lasthp = 0.0
 
 
 class Tamer:
@@ -72,7 +135,12 @@ class Wildlife:
         self._next = 1
         self._fear_t = 0.0
         self.home, self.cap, self.timer = {}, {}, {}
+        self.lairs: list[Lair] = []
+        self._struggle = 0.0
         for k, a in R.WILDLIFE.items():
+            if a.get('hostile'):                         # 둥지마다 하나
+                self.lairs += [Lair(k, y, x) for y, x in lairs_for(world.map, a['cap'])]
+                continue
             m = HABITATS[a['habitat']](world.map)
             ys, xs = np.nonzero(m)
             self.home[k] = (ys, xs)
@@ -81,6 +149,33 @@ class Wildlife:
             while self.count(k) < self.cap[k]:           # 처음엔 가득
                 if not self._spawn_group(k):
                     break
+        for lr in self.lairs:
+            self._spawn_lair(lr)
+
+    def _spawn_lair(self, lr: Lair) -> None:
+        """둥지에 사나운 동물 하나 (잠든 채로)."""
+        info = R.WILDLIFE[lr.kind]
+        st = R.UNIT_STATS[info['unit']]
+        i = self.w.units.add(R.NEUTRAL, info['unit'], lr.x + 0.5, lr.y + 0.5, st['hp'])
+        if i < 0:
+            return
+        self.w.units.state[i] = TAME                     # 움직이지도 덤비지도 않는다 (이 파일이 움직인다)
+        an = Animal(self._next, lr.kind, lr.x + 0.5, lr.y + 0.5, self.rng)
+        an.mode, an.unit, an.lasthp = SLEEP, i, st['hp']
+        an.hx, an.hy = lr.x + 0.5, lr.y + 0.5
+        self.animals[an.id] = an
+        lr.aid = an.id
+        self._next += 1
+
+    def hostile(self, a: Animal) -> bool:
+        return bool(R.WILDLIFE[a.kind].get('hostile'))
+
+    def riders(self, nid: int, kind: int) -> int:
+        """이 나라가 이 동물을 탄 병사 수 (길들이러 가는 중 포함)."""
+        u, mounted = self.w.units, set(R.WILDLIFE[kind]['mounts'].values())
+        n = sum(1 for i in np.flatnonzero(u.alive[:u.n] & (u.own[:u.n] == nid)) if int(u.kind[i]) in mounted)
+        return n + sum(1 for i, t in self.tamers.items() if u.own[i] == nid and t.aid in self.animals
+                       and self.animals[t.aid].kind == kind)
 
     def count(self, kind) -> int:
         return sum(1 for a in self.animals.values() if a.kind == kind)
@@ -132,6 +227,15 @@ class Wildlife:
         if a0 is None:
             return 0
         info = R.WILDLIFE[a0.kind]
+        hostile = self.hostile(a0)
+        if hostile and a0.mode not in (SUBDUED, HELD, TAMING):
+            if not quiet:
+                w.say(f'{R.josa(info["name"], "은", "는")} 체력을 깎아 쓰러뜨려야 길들일 수 있습니다')
+            return 0
+        if hostile and self.riders(nid, a0.kind) >= info['limit']:
+            if not quiet:
+                w.say(f'{R.UNIT_NAMES[next(iter(info["mounts"].values()))]}는 나라마다 {info["limit"]}기까지입니다')
+            return 0
         comp = w.map.comp
         ids = np.asarray(ids, np.int64)
         ids = ids[u.alive[ids] & ~u.aboard[ids] & (u.own[ids] == nid)] if len(ids) else ids
@@ -146,8 +250,9 @@ class Wildlife:
             return 0
         self.release(ok)                                     # 다른 동물을 길들이러 가던 병사도 새로 맡긴다
         busy = {t.aid for t in self.tamers.values()}
-        herd = [a for a in self.animals.values() if a.kind == a0.kind and a.id not in busy
-                and np.hypot(a.x - a0.x, a.y - a0.y) < 10 and comp[int(a.y), int(a.x)] == dst]
+        herd = [a0] if hostile and a0.id not in busy else [] if hostile else \
+            [a for a in self.animals.values() if a.kind == a0.kind and a.id not in busy
+             and np.hypot(a.x - a0.x, a.y - a0.y) < 10 and comp[int(a.y), int(a.x)] == dst]
         herd.sort(key=lambda a: (a.id != aid, np.hypot(a.x - a0.x, a.y - a0.y)))
         if not herd:
             if not quiet:
@@ -169,9 +274,12 @@ class Wildlife:
             u.tgt[i] = u.tgb[i] = u.bld[i] = -1
             self.tamers[i] = Tamer(a.id, int(u.gen[i]), int(u.slot[i]), float(u.hp[i]))
             a.mode, a.t = HELD, 0.0
+            if hostile:
+                break                                    # 사나운 동물은 한 명만
         if nid == 0 and not quiet:
-            w.say(f'{info["name"]} {len(pairs)}마리를 길들이러 갑니다 ({R.WILDLIFE[a0.kind]["tame"]:.0f}초)')
-        return len(pairs)
+            w.say(f'{R.josa(info["name"], "을", "를")} 길들이러 갑니다 ({info["tame"]:.0f}초, 쓰러져 있는 동안 끝내야 합니다)'
+                  if hostile else f'{info["name"]} {len(pairs)}마리를 길들이러 갑니다 ({info["tame"]:.0f}초)')
+        return 1 if hostile else len(pairs)
 
     def release(self, ids, scare=False) -> None:
         """이 병사들의 길들이기를 그만둔다 (다른 명령, 맞음, 죽음)."""
@@ -185,6 +293,10 @@ class Wildlife:
             a = self.animals.get(t.aid)
             if a is not None:
                 a.prog = 0.0
+                if self.hostile(a):
+                    if a.mode in (HELD, TAMING):
+                        a.mode = SUBDUED
+                    continue
                 a.mode, a.t = GRAZE, 1.0
                 if scare:
                     self._flee(a, float(u.x[i]), float(u.y[i]))
@@ -197,6 +309,8 @@ class Wildlife:
         w = self.w
         winter = float(w.season_w[3])
         for k, info in R.WILDLIFE.items():                  # 새 무리 (겨울엔 거의 안 생긴다)
+            if info.get('hostile'):
+                continue
             if self.count(k) >= self.cap[k]:
                 self.timer[k] = info['regrow']
                 continue
@@ -204,13 +318,15 @@ class Wildlife:
             if self.timer[k] <= 0:
                 self.timer[k] = info['regrow']
                 self._spawn_group(k)
+        self._lairs(dt)
         self._tame(dt)
         self._fear_t -= dt
         if self._fear_t <= 0:
             self._fear_t = 0.25
             self._scare()
         for a in self.animals.values():
-            self._move(a, dt)
+            if a.unit < 0:
+                self._move(a, dt)
 
     def _tame(self, dt) -> None:
         w, u, m = self.w, self.w.units, self.w.map
@@ -237,10 +353,11 @@ class Wildlife:
             if st != TAME:                                   # 길이 막혔거나 다른 일을 맡았다
                 self.release([i])
                 continue
-            if d > REACH:
+            reach = DRAGON_REACH if a.unit >= 0 else REACH
+            if d > reach:
                 k = int(u.kind[i])
                 sp = R.UNIT_STATS[k]['speed'] * float(m.speed_mul[int(u.y[i]), int(u.x[i])]) ** R.UNIT_STATS[k]['terrain']
-                step = min(sp * dt, d - REACH * 0.8)
+                step = min(sp * dt, d - reach * 0.8)
                 nx, ny = u.x[i] + (a.x - u.x[i]) / d * step, u.y[i] + (a.y - u.y[i]) / d * step
                 if m.walk[int(ny), int(nx)]:
                     u.x[i], u.y[i] = nx, ny
@@ -264,9 +381,16 @@ class Wildlife:
         old = int(u.kind[i])
         new = R.WILDLIFE[a.kind]['mounts'][old]
         ratio = float(u.hp[i]) / R.UNIT_STATS[old]['hp']
+        if a.unit >= 0:                                  # 사나운 동물: 싸우던 몸은 사라지고 둥지는 비었다가 다시 난다
+            u.alive[a.unit] = False
+            ratio = 1.0
+            for lr in self.lairs:
+                if lr.aid == a.id:
+                    lr.aid, lr.timer = 0, R.WILDLIFE[a.kind]['regrow']
         u.kind[i] = new
         u.hp[i] = ratio * R.UNIT_STATS[new]['hp']
         u.x[i], u.y[i] = a.x, a.y
+        u.tx[i], u.ty[i] = a.x, a.y
         u.state[i], u.slot[i] = IDLE, -1
         u.cd[i] = 0.0
         del self.tamers[i]
@@ -282,7 +406,7 @@ class Wildlife:
 
     def _scare(self) -> None:
         """길들이는 중이 아닌 동물: 가까운 병사나 싸움에서 달아난다."""
-        free = [a for a in self.animals.values() if a.mode not in (HELD, TAMING)]
+        free = [a for a in self.animals.values() if a.mode not in (HELD, TAMING) and a.unit < 0]
         if not free:
             return
         w, u = self.w, self.w.units
@@ -344,8 +468,114 @@ class Wildlife:
     def drown(self) -> None:
         """얼음이 녹아 물 위에 남은 동물은 사라진다."""
         walk = self.w.map.walk
-        for aid in [a.id for a in self.animals.values() if not walk[int(a.y), int(a.x)]]:
+        for aid in [a.id for a in self.animals.values() if a.unit < 0 and not walk[int(a.y), int(a.x)]]:
             for i, t in list(self.tamers.items()):
                 if t.aid == aid:
                     self.release([i])
             del self.animals[aid]
+
+    # ------------------------------------------------------------- 사나운 동물 (둥지)
+    def _lairs(self, dt: float) -> None:
+        w, u = self.w, self.w.units
+        for lr in self.lairs:
+            info = R.WILDLIFE[lr.kind]
+            a = self.animals.get(lr.aid) if lr.aid else None
+            if a is None:                                # 빈 둥지: 때가 되면 (둘레에 병사가 없을 때) 새로 난다
+                lr.timer -= dt
+                if lr.timer <= 0:
+                    ids = w.unit_ids()
+                    if not len(ids) or np.min(np.hypot(u.x[ids] - lr.x, u.y[ids] - lr.y)) > info['wake'] + 4:
+                        self._spawn_lair(lr)
+                    else:
+                        lr.timer = 5.0
+                continue
+            i = a.unit
+            if not u.alive[i]:                           # (혹시) 쓰러졌다
+                del self.animals[a.id]
+                lr.aid, lr.timer = 0, info['regrow']
+                continue
+            maxhp = R.UNIT_STATS[info['unit']]['hp']
+            a.x, a.y = float(u.x[i]), float(u.y[i])
+            a.hp = float(u.hp[i]) / maxhp
+            if a.mode in (SUBDUED, HELD, TAMING):        # 쓰러져 있다: 몸부림, 시간이 다 되면 일어난다
+                a.sub -= dt
+                self._writhe(a, dt)
+                if a.sub <= 0:
+                    for k, t in list(self.tamers.items()):
+                        if t.aid == a.id:
+                            self.release([k])
+                    u.aboard[i] = False
+                    u.hp[i] = maxhp * 0.5
+                    a.mode, a.prog = FIGHT, 0.0
+                    u.own[i], u.state[i] = WILD, TAME
+                    if self._near(lr, info['guard'], 0):
+                        w.say(f'{R.josa(info["name"], "이", "가")} 다시 일어났습니다!')
+                a.lasthp = float(u.hp[i])
+                continue
+            if u.hp[i] <= maxhp * info['subdue']:        # 쓰러진다
+                a.mode, a.sub = SUBDUED, info['subdue_time']
+                u.aboard[i] = True
+                u.state[i], u.tgt[i], u.slot[i] = TAME, -1, -1
+                if self._near(lr, info['guard'] + 6, 0):
+                    w.say(f'{R.josa(info["name"], "이", "가")} 쓰러졌습니다! {info["subdue_time"]:.0f}초 안에 병사를 보내 길들이세요')
+                continue
+            hit = u.hp[i] < a.lasthp - 1e-3
+            if a.mode == SLEEP:
+                if hit or self._intruder(lr, info['wake'], a) >= 0:
+                    a.mode = FIGHT
+                    u.own[i] = WILD
+                else:
+                    u.hp[i] = min(maxhp, u.hp[i] + maxhp * 0.01 * dt)     # 자면서 낫는다
+                    u.state[i] = TAME
+            if a.mode == FIGHT:
+                tgt = self._intruder(lr, info['guard'], a)
+                if tgt >= 0:
+                    u.state[i], u.tgt[i], u.tgb[i], u.slot[i] = 3, tgt, -1, -1       # ATTACK
+                    a.dir = 1 if u.x[tgt] >= u.x[i] else -1
+                else:                                    # 둘레에 아무도 없다: 둥지로 걸어 돌아가 잔다
+                    u.state[i], u.tgt[i] = TAME, -1
+                    d = float(np.hypot(lr.x + 0.5 - u.x[i], lr.y + 0.5 - u.y[i]))
+                    if d < 1.2:
+                        a.mode = SLEEP
+                        u.own[i] = R.NEUTRAL
+                    else:
+                        sp = R.UNIT_STATS[info['unit']]['speed'] * dt
+                        nx, ny = u.x[i] + (lr.x + 0.5 - u.x[i]) / d * sp, u.y[i] + (lr.y + 0.5 - u.y[i]) / d * sp
+                        u.x[i], u.y[i] = nx, ny
+                        u.moving[i] = True
+                        a.dir = 1 if lr.x + 0.5 >= u.x[i] else -1
+            a.lasthp = float(u.hp[i])
+
+    def _intruder(self, lr: Lair, r: float, a: Animal) -> int:
+        """둥지에서 r 안의 (야생이 아닌) 병사 중 이 동물에 가장 가까운 것. 없으면 -1."""
+        w, u = self.w, self.w.units
+        ids = w.unit_ids()
+        ids = ids[u.own[ids] < R.NEUTRAL]
+        if not len(ids):
+            return -1
+        near = ids[np.hypot(u.x[ids] - lr.x - 0.5, u.y[ids] - lr.y - 0.5) <= r]
+        if not len(near):
+            return -1
+        return int(near[np.argmin(np.hypot(u.x[near] - a.x, u.y[near] - a.y))])
+
+    def _near(self, lr: Lair, r: float, nid: int) -> bool:
+        u = self.w.units
+        ids = self.w.unit_ids(nid)
+        return bool(len(ids)) and bool((np.hypot(u.x[ids] - lr.x, u.y[ids] - lr.y) <= r).any())
+
+    def _writhe(self, a: Animal, dt: float) -> None:
+        """쓰러진 사나운 동물의 몸부림: 몇 초마다 둘레 병사에게 작은 피해. 길들이는(길들이러 가는) 병사는 다치지 않는다."""
+        self._struggle -= dt
+        if self._struggle > 0:
+            return
+        gap, dmg, r = STRUGGLE
+        self._struggle = gap
+        u = self.w.units
+        ids = self.w.unit_ids()
+        ids = ids[(u.own[ids] < R.NEUTRAL) & (np.hypot(u.x[ids] - a.x, u.y[ids] - a.y) <= r)]
+        for i in ids:
+            if int(i) in self.tamers:
+                continue
+            u.hp[i] -= dmg
+            if u.hp[i] <= 0:
+                u.alive[i] = False

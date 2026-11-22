@@ -31,7 +31,7 @@ export interface PlayRequest {
 }
 
 interface Listing { presets: { key: string; name: string }[]; sizes: number[] }
-interface Layout { key: string; starts: number[][]; colors: number[] }
+interface Layout { key: string; starts: number[][]; colors: number[]; lairs: number[][] }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -240,15 +240,15 @@ export class Setup {
 
   private layoutWant() { return JSON.stringify([this.builtKey, this.s.bots, this.s.color]); }
 
-  /** '무작위'면 모든 나라의 거점 자리를 미리 뽑아 둔다 (서버가 게임과 같은 규칙으로). */
+  /** 모든 나라의 거점 자리('무작위'일 때 그대로 쓴다)와 드래곤 둥지를 미리 받아 둔다 (서버가 게임과 같은 규칙으로). */
   private async ensureLayout() {
-    if (!this.mapReady || this.s.spotMode !== 'random') return;
+    if (!this.mapReady) return;                           // 고르기 모드에서도 받는다 (드래곤 둥지 표시)
     const want = this.layoutWant();
     if ((this.layout && this.layout.key === want) || this.layoutFetching === want) return;
     this.layoutFetching = want;
     try {
       const r = await (await fetch(`/api/maps/${this.builtKey}/layout?bots=${this.s.bots}&color=${this.s.color}`)).json();
-      if (this.layoutFetching === want) this.layout = { key: want, starts: r.starts, colors: r.colors };
+      if (this.layoutFetching === want) this.layout = { key: want, starts: r.starts, colors: r.colors, lairs: r.lairs ?? [] };
     } finally {
       if (this.layoutFetching === want) this.layoutFetching = '';
     }
@@ -301,6 +301,19 @@ export class Setup {
     const name = this.presets.find(([k]) => k === this.s.preset)?.[1] ?? '기본';
     const n = this.adv && this.adv.preset === this.s.preset ? this.adv.count() : 0;
     this.prevCfg.textContent = `${name}${n ? ` (세부 ${n}개 바꿈)` : ''} · ${this.s.size} · 시드 ${this.s.seed}`;
+  }
+
+  private lairImg: HTMLCanvasElement | null = null;
+  /** 미리보기의 드래곤 표시: 둥지에서 잠든 드래곤 (게임 화면과 같은 그림, 정오 빛). */
+  private lairIcon(): HTMLCanvasElement {
+    if (this.lairImg) return this.lairImg;
+    const nest = this.bank.stack.icon('lair', 0, 1, { dirs: 1 }), drg = this.bank.stack.icon('dragon', 0, 1, { frame: 3, dir: 1 });
+    const c = document.createElement('canvas');
+    c.width = nest.width; c.height = nest.height;
+    const g = c.getContext('2d')!;
+    g.drawImage(nest, 0, 0);
+    g.drawImage(drg, Math.round((nest.width - drg.width) / 2), Math.round((nest.height - drg.height) / 2 - nest.height * 0.08));
+    return (this.lairImg = c);
   }
 
   private drawPreview() {
@@ -360,8 +373,22 @@ export class Setup {
         if (label) text(label, sx, sy - 20, 13, INK, 'bottom');
       }
     };
+    void this.ensureLayout();
+    if (this.layout && this.layout.key === this.layoutWant()) {      // 드래곤 둥지 (설원의 가장 높은 곳)
+      const img = this.lairIcon();
+      for (const [y, x] of this.layout.lairs) {
+        const sx = ((x + 0.5) / n) * size, sy = ((y + 0.5) / n) * size;
+        const w = 40, f = w / img.width, h = img.height * f, r = w * 0.75;
+        const glow = g.createRadialGradient(sx, sy, 0, sx, sy, r);        // 눈 위에서도 보이게 은은한 그늘 (가장자리는 투명)
+        glow.addColorStop(0, 'rgba(10,12,22,0.55)'); glow.addColorStop(1, 'rgba(10,12,22,0)');
+        g.fillStyle = glow; g.beginPath(); g.arc(sx, sy, r, 0, Math.PI * 2); g.fill();
+        g.imageSmoothingEnabled = true;
+        g.drawImage(img, sx - w / 2, sy - h / 2, w, h);
+        g.imageSmoothingEnabled = false;
+        text('드래곤', sx, sy - h / 2 - 1, 12, 'rgb(200,228,255)', 'bottom');
+      }
+    }
     if (this.s.spotMode === 'random') {
-      void this.ensureLayout();
       if (this.layout && this.layout.key === this.layoutWant()) {
         this.layout.starts.forEach(([y, x], i) => hall(y, x, this.layout!.colors[i], i === 0, this.s.name.trim() || '나'));
       }

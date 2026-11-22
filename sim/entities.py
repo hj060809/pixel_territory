@@ -36,6 +36,10 @@ class Units:
         self.moving = np.zeros(cap, np.bool_)
         self.alive = np.zeros(cap, np.bool_)
         self.aboard = np.zeros(cap, np.bool_)      # 배에 타고 있다 (걷지도 싸우지도 않고, 표적도 되지 않는다)
+        self.tx = np.zeros(cap, np.float32)        # 날아다니는 병종이 가는 곳
+        self.ty = np.zeros(cap, np.float32)
+        self.slow = np.zeros(cap, np.float32)      # 서리 숨결에 맞아 느려진 남은 시간
+        self.air = np.zeros(cap, np.bool_)         # 날고 있다 (용기사): 지형 무시, 근접 공격을 받지 않는다
         self.gen = np.zeros(cap, np.uint16)        # 칸을 새로 쓸 때마다 +1 (화면이 '같은 병사'인지 알게)
         self.n = 0                       # 쓴 적 있는 칸 수 (alive가 아닌 칸은 다시 쓴다)
 
@@ -55,6 +59,8 @@ class Units:
         self.anim[i] = np.random.random() * 4
         self.alive[i] = True
         self.aboard[i] = False
+        self.tx[i], self.ty[i], self.slow[i] = x, y, 0.0
+        self.air[i] = False
         self.gen[i] = (int(self.gen[i]) + 1) & 0xFFFF
         return i
 

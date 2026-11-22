@@ -38,6 +38,11 @@ def choose_starts(gmap, n: int, rng, player_spot=None, sites=None) -> list[tuple
     else:
         isl = start_islands(gmap, sites)
     on = m.land & np.isin(m.comp, isl)
+    from sim.wildlife import LAIR_CLEAR, lairs_for
+    for ly, lx in lairs_for(gmap):                      # 드래곤 둥지 가까이에서는 시작하지 않는다 (깨어 덤빈다)
+        y0, y1, x0, x1 = max(ly - LAIR_CLEAR, 0), ly + LAIR_CLEAR + 1, max(lx - LAIR_CLEAR, 0), lx + LAIR_CLEAR + 1
+        yy, xx = np.ogrid[y0:min(y1, m.H), x0:min(x1, m.W)]
+        on[y0:y1, x0:x1] &= (yy - ly) ** 2 + (xx - lx) ** 2 > LAIR_CLEAR ** 2
     ys, xs = np.nonzero(on & (m.value > 0.45) & (m.base_cost <= 1.6))
     if len(ys) < 50:
         ys, xs = np.nonzero(on)

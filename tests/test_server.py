@@ -6,6 +6,7 @@ from engine.mapgen.defaults import default_config
 from engine.render.seasons import SeasonCycle
 from engine.scene import TerrainScene
 from server.protocol import POS, StateEncoder, decode
+from sim import rules as R
 from sim.commands import PlayerCommands
 from sim.terrain import GameMap
 from sim.world import World
@@ -43,7 +44,7 @@ def run(report, seconds=240, size=384):
         total += len(blob)
         _client_apply(units, builds, decode(blob))
     u, b = w.units, w.builds
-    alive_u = set(np.flatnonzero(u.alive[:u.n]).tolist())
+    alive_u = set(np.flatnonzero(u.alive[:u.n] & (u.own[:u.n] < R.NEUTRAL)).tolist())   # 야생 드래곤은 동물 칸으로 간다
     alive_b = set(np.flatnonzero(b.alive[:b.n]).tolist())
     same_sets = set(units) == alive_u and set(builds) == alive_b
     pos_ok = all(abs(units[i]['x'] / POS - u.x[i]) <= 0.5 / POS + 1e-6 and int(units[i]['gen']) == int(u.gen[i])
