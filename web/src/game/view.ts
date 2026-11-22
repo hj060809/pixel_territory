@@ -334,6 +334,7 @@ export class GameView {
     let last = performance.now();
     const frame = (now: number) => {
       if (this.disposed) return;
+      this.raf = requestAnimationFrame(frame);           // 먼저 다음 프레임을 잡는다: 그리다 오류가 나도 게임이 멈추지 않게
       const dt = Math.min((now - last) / 1000, 0.1);
       last = now;
       cam.ease(dt);
@@ -379,7 +380,6 @@ export class GameView {
         loading.fadeOut();
         this.hooks.ready?.();
       }
-      this.raf = requestAnimationFrame(frame);
     };
     this.raf = requestAnimationFrame(frame);
     (window as any).__game = { get st() { return st; }, get ctl() { return ctl; }, cam, scene, net, key };

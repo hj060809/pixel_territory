@@ -101,7 +101,7 @@ export class Hud {
     let place = '';
     if (typeof mode === 'number') {
       const res = this.ctl.siteRes(mode);
-      place = res >= 0 ? `${R.build_names[mode]}: 빈 ${R.site_names[res]} 자원지를 클릭하세요`
+      place = res >= 0 ? `${R.build_names[mode]}: 빈 ${R.res_names[res]} 자원지를 클릭하세요`
         : `${R.build_names[mode]}${mode === R.kinds.HARBOR ? ' (바다에 맞닿은 해안)' : ''} 자리를 클릭하세요`;
       if (touch) place = place.replace('자원지를 클릭하세요', '자원지로 옮기세요').replace('자리를 클릭하세요', '자리로 옮기세요');
       if (touch) place = place.replace('로 옮기세요', '로 옮기고 ✓');           // 터치: 한 줄로 짧게 (✓ 버튼을 가리지 않게)
