@@ -247,4 +247,4 @@ export class Controller {
 /** 고를 수 있는 배: 전함, 병사를 태운 나룻배 (빈 나룻배는 항구로 돌아가는 중). */
 const pickable = (b: Boat) => b.kind === 1 || (b.kind === 0 && b.cargo > 0);
 
-interface StartSite { id: number; kind: number; x: number; y: number; rich: number }
+interface StartSite { id: number; kind: number; x: number; y: number; rich: number; snow?: boolean }

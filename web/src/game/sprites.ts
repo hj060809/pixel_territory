@@ -82,8 +82,10 @@ export class SpriteBank {
     return this.stack.icon(name, 0, k, { frame, dir: flip ? 7 : 1 });
   }
 
-  site(kind: number, k: number): Img {
-    return this.get(`t${kind},${k}`, () => scaled(make((SPRITES.sites as any)[kind], [0, 0, 0], 200), k));
+  /** 자원지 표시. snow: 눈 덮인 숲 (하얀 나무). */
+  site(kind: number, k: number, snow = false): Img {
+    const key = snow ? `${kind}s` : `${kind}`;
+    return this.get(`t${key},${k}`, () => scaled(make((SPRITES.sites as any)[key], [0, 0, 0], 200), k));
   }
 
   static buildingWidth(kind: number): number { return model(`b${kind}`).W; }

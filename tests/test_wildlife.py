@@ -63,3 +63,24 @@ def run(report, cache_dir='.cache'):
         w._tick(0.05)
     w.order_move(np.array([i3]), a3.y + 20, a3.x)
     report('다른 명령이면 끊긴다', i3 not in wild.tamers and a3.prog == 0 and w.units.kind[i3] == R.INFANTRY)
+
+    # 겨루기: 다른 나라가 길들이는 중이어도 길들일 수 있고, 먼저 끝낸 나라가 가져간다. 같은 나라는 겹쳐 길들이지 않는다
+    w.bots = {}
+    a4 = next(a for a in wild.animals.values() if a.kind == R.HORSE and not wild.taming(a.id))
+    hp = R.UNIT_STATS[R.INFANTRY]['hp']
+    far = w.units.add(1, R.INFANTRY, a4.x, a4.y, hp)              # 다른 나라: 멀리서 (아직 못 닿았다)
+    near = w.units.add(0, R.INFANTRY, a4.x, a4.y, hp)             # 나: 바로 곁
+    dup = w.units.add(0, R.INFANTRY, a4.x, a4.y, hp)
+    for i, dx in ((far, 25), (near, 1), (dup, 1)):
+        w.units.x[i], w.units.y[i] = a4.x + dx, a4.y
+    ok1 = wild.order_tame(1, [far], a4.id, quiet=True)
+    ok0 = wild.order_tame(0, [near], a4.id, quiet=True)
+    wild.order_tame(0, [dup], a4.id, quiet=True)                # 같은 나라: 같은 말엔 붙지 않는다 (곁의 다른 말이면 그쪽)
+    again = dup in wild.tamers and wild.tamers[dup].aid == a4.id
+    for _ in range(int((R.WILDLIFE[R.HORSE]['tame'] + 2) / 0.05)):
+        for i in (far, near):
+            w.units.hp[i] = hp
+        w._tick(0.05)
+    report('다른 나라가 길들이는 동물도 길들인다 (먼저 끝낸 나라가, 같은 나라는 겹치지 않게)',
+           ok1 and ok0 and not again and w.units.kind[near] == R.LANCER and far not in wild.tamers and w.units.kind[far] == R.INFANTRY,
+           f'다른 나라 {ok1}, 나 {ok0}, 겹침 {again}, 내 병사 {w.units.kind[near]}, 다른 나라 병사 {w.units.kind[far]}')

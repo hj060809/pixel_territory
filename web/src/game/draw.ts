@@ -322,7 +322,7 @@ export class Overlay {
       if (taken.has(s.id)) continue;
       const x = sx(s.x), y = sy(s.y);
       if (!vis(x, y)) continue;
-      const img = this.bank.site(s.kind, ks);
+      const img = this.bank.site(s.kind, ks, !!s.snow);
       g.drawImage(img, Math.round(x - img.width / 2), Math.round(y - img.height / 2));
     }
     // 드래곤 둥지 (땅의 장식: 건물·병사 아래)

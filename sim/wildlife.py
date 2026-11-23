@@ -129,10 +129,11 @@ class Animal:
 
 
 class Tamer:
-    __slots__ = ('aid', 'gen', 'slot', 'hp', 'stuck')
+    """길들이는 병사. 진행(prog)은 병사마다 따로: 여러 나라가 한 동물을 함께 길들이면 먼저 끝낸 나라가 가져간다."""
+    __slots__ = ('aid', 'gen', 'slot', 'hp', 'stuck', 'prog')
 
     def __init__(self, aid, gen, slot, hp):
-        self.aid, self.gen, self.slot, self.hp, self.stuck = aid, gen, slot, hp, 0.0
+        self.aid, self.gen, self.slot, self.hp, self.stuck, self.prog = aid, gen, slot, hp, 0.0, 0.0
 
 
 class Wildlife:
@@ -259,7 +260,7 @@ class Wildlife:
                       else f'{R.josa(info["name"], "은", "는")} {names}만 길들일 수 있습니다')
             return 0
         self.release(ok)                                     # 다른 동물을 길들이러 가던 병사도 새로 맡긴다
-        busy = {t.aid for t in self.tamers.values()}
+        busy = {t.aid for k, t in self.tamers.items() if u.own[k] == nid}   # 내 나라가 길들이는 중인 동물만 (다른 나라와는 겨룬다)
         herd = [a0] if hostile and a0.id not in busy else [] if hostile else \
             [a for a in self.animals.values() if a.kind == a0.kind and a.id not in busy
              and np.hypot(a.x - a0.x, a.y - a0.y) < 10 and comp[int(a.y), int(a.x)] == dst]
@@ -292,7 +293,8 @@ class Wildlife:
             u.slot[i] = -1 if near or s < 0 else s
             u.tgt[i] = u.tgb[i] = u.bld[i] = -1
             self.tamers[i] = Tamer(a.id, int(u.gen[i]), int(u.slot[i]), float(u.hp[i]))
-            a.mode, a.t = HELD, 0.0
+            if a.mode != TAMING:
+                a.mode, a.t = HELD, 0.0
             if hostile:
                 break                                    # 사나운 동물은 한 명만
         if nid == 0 and not quiet:
@@ -312,6 +314,8 @@ class Wildlife:
                 u.state[i] = IDLE
             a = self.animals.get(t.aid)
             if a is not None:
+                if self.taming(a.id):                        # 다른 병사(다른 나라)가 아직 길들이는 중
+                    continue
                 a.prog = 0.0
                 if self.hostile(a):
                     if a.mode in (HELD, TAMING):
@@ -321,8 +325,10 @@ class Wildlife:
                 if scare:
                     self._flee(a, float(u.x[i]), float(u.y[i]))
 
-    def taming(self, aid) -> bool:
-        return any(t.aid == aid for t in self.tamers.values())
+    def taming(self, aid, nid=None) -> bool:
+        """aid 동물을 길들이는 병사가 있나 (nid를 주면 그 나라 병사만)."""
+        u = self.w.units
+        return any(t.aid == aid and (nid is None or u.own[k] == nid) for k, t in self.tamers.items())
 
     # ------------------------------------------------------------- 진행
     def update(self, dt: float) -> None:
@@ -351,6 +357,8 @@ class Wildlife:
     def _tame(self, dt) -> None:
         w, u, m = self.w, self.w.units, self.w.map
         for i, t in list(self.tamers.items()):
+            if i not in self.tamers:                         # 다른 나라가 먼저 길들여 풀렸다
+                continue
             a = self.animals.get(t.aid)
             if a is None or not u.alive[i] or u.gen[i] != t.gen or u.aboard[i]:
                 self.release([i])
@@ -391,14 +399,24 @@ class Wildlife:
                 continue
             a.mode = TAMING
             a.dir = 1 if u.x[i] > a.x else -1                # 병사 쪽을 본다
-            a.prog += dt / R.WILDLIFE[a.kind]['tame']
-            if a.prog >= 1.0:
+            t.prog += dt / R.WILDLIFE[a.kind]['tame']
+            a.prog = max(t.prog, max((o.prog for o in self.tamers.values() if o.aid == a.id), default=0.0))
+            if t.prog >= 1.0:
                 self._mount(i, a)
 
     def _mount(self, i, a) -> None:
         """병사와 동물이 합쳐진다 (함께 싸우는 동물이면 동물이 그 나라의 병사가 되고 병사는 그대로)."""
         w, u = self.w, self.w.units
         info = R.WILDLIFE[a.kind]
+        if 'companion' in info and w.nations[int(u.own[i])].res[R.FOOD] < info.get('food', 0):
+            pass                                             # (먹이가 모자라면 아래에서 이 병사만 그만둔다)
+        else:
+            for k in [k for k, t in self.tamers.items() if t.aid == a.id and k != i]:   # 먼저 끝냈다: 다른 병사(다른 나라)는 그만
+                t = self.tamers.pop(k)
+                if u.alive[k] and u.state[k] == TAME and u.gen[k] == t.gen:
+                    u.state[k] = IDLE
+                if u.own[k] == 0:
+                    w.say(f'다른 나라가 먼저 {R.josa(info["name"], "을", "를")} 길들였습니다')
         if 'companion' in info:
             nid = int(u.own[i])
             if w.nations[nid].res[R.FOOD] < info.get('food', 0):

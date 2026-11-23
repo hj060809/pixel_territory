@@ -87,7 +87,7 @@ class GameSession:
             'map': getattr(self.scene, 'map_key', ''), 'H': self.scene.H, 'W': self.scene.W, 'round': self.round,
             'tick_hz': self.cfg.tick_hz, 'me': 0,
             'nations': [{'id': n.id, 'name': n.name, 'color': list(n.color), 'light': list(n.light)} for n in w.nations],
-            'sites': [{'id': s.id, 'kind': s.kind, 'x': s.x, 'y': s.y, 'rich': round(s.rich, 2)} for s in w.sites],
+            'sites': [{'id': s.id, 'kind': s.kind, 'x': s.x, 'y': s.y, 'rich': round(s.rich, 2), 'snow': s.snow} for s in w.sites],
             'lairs': [[lr.y, lr.x] for lr in w.wild.lairs],
             'year_length': self.cfg.year_length, 'day_length': self.cfg.day_length,
             'rules': rules_info(), 'sid': self.sid, 'resumed': self._resumed, 'dev': bool(self.cfg.dev),

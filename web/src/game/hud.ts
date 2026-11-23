@@ -200,7 +200,7 @@ export class Hud {
       const kind = R.site_building[s.kind];
       const cost = R.build[kind].cost.map((v: number, k: number) => (v ? `${R.res_names[k]} ${v}` : '')).filter(Boolean).join(', ');
       const act = `병사를 고르고 ${touchMode() ? '탭' : '오른쪽 클릭'}하면 ${R.build_names[kind]} (${cost})`;
-      return `${R.site_names[s.kind]} 자원지 · 풍부함 ${s.rich.toFixed(1)} · ${act}`;
+      return `${s.snow ? '눈 덮인 숲' : R.site_names[s.kind]} 자원지 · 풍부함 ${s.rich.toFixed(1)}${s.snow ? ' (보통 숲보다 덜 난다)' : ''} · ${act}`;
     }
     const i = yi * m.W + xi, f = m.flags[i];
     const ice = !!this.scene.ice?.[i] && !!(f & F_WATER) && !(f & F_FORD);

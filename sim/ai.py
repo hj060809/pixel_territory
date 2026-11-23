@@ -41,7 +41,7 @@ import numpy as np
 
 from sim import rules as R
 from sim.entities import AMOVE, BUILD, IDLE, TAME
-from sim.wildlife import FIGHT, SLEEP, SUBDUED, _desert, _grass
+from sim.wildlife import FIGHT, HELD, SLEEP, SUBDUED, TAMING, _desert, _grass
 from engine.render import materials as S
 
 
@@ -570,7 +570,7 @@ class Bot:
             return idle
         hc = comp[int(home[0]), int(home[1])]
         harbor = bool(w.fleet.harbors_on(self.id, hc))
-        lairs = [a for a in wild.animals.values() if a.unit >= 0 and not wild.taming(a.id)
+        lairs = [a for a in wild.animals.values() if a.unit >= 0 and not wild.taming(a.id, self.id)
                  and (comp[int(a.hy), int(a.hx)] == hc or harbor)]
         if not lairs:
             return idle
@@ -636,7 +636,7 @@ class Bot:
             lazy = hunters[u.state[hunters] == IDLE]
             if len(lazy):
                 w.order_attack(lazy, unit=a.unit)
-        elif a.mode == SUBDUED and not wild.taming(a.id):   # 쓰러졌다: 한 명이 길들인다
+        elif a.mode in (SUBDUED, HELD, TAMING) and not wild.taming(a.id, self.id):   # 쓰러졌다: 한 명이 길들인다 (다른 나라가 길들이는 중이어도)
             self.hunt_until = max(self.hunt_until, w.time + 30)
             if wild.order_tame(self.id, hunters, a.id, quiet=True):
                 self.hunt_need = HUNT_PARTY                  # 해냈다: 다음엔 처음 크기로
@@ -680,7 +680,7 @@ class Bot:
         aid, ids, until = self.trip
         ids = ids[u.alive[ids] & (u.own[ids] == self.id)]
         a = wild.animals.get(aid)
-        if a is None or not len(ids) or w.time > until or wild.taming(aid):
+        if a is None or not len(ids) or w.time > until or wild.taming(aid, self.id):
             self.trip, self.trip_at = None, w.time + 50
             return idle
         landed = ids[~u.aboard[ids] & (comp[u.y[ids].astype(int), u.x[ids].astype(int)] == comp[int(a.y), int(a.x)])]
@@ -700,7 +700,7 @@ class Bot:
         harbor = bool(w.fleet.harbors_on(self.id, hc))
         cands = []
         for a in wild.animals.values():
-            if a.unit >= 0 or wild.taming(a.id):
+            if a.unit >= 0 or wild.taming(a.id, self.id):
                 continue
             far = comp[int(a.y), int(a.x)] != hc
             if far and (not harbor or w.time < self.trip_at):
@@ -748,7 +748,7 @@ class Bot:
         u, comp, wild = w.units, w.map.comp, w.wild
         hc = comp[int(home[0]), int(home[1])]
         cands = [a for a in wild.animals.values() if a.kind == R.TORTOISE_W and comp[int(a.y), int(a.x)] == hc
-                 and not wild.taming(a.id)]
+                 and not wild.taming(a.id, self.id)]
         ok = idle[comp[u.y[idle].astype(int), u.x[idle].astype(int)] == hc]
         if not cands or not len(ok):
             return idle

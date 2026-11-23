@@ -13,7 +13,7 @@ export interface Shot extends ShotRec { t0: number }
 export interface StartInfo {
   map: string; H: number; W: number; round: number; tick_hz: number; me: number;
   nations: { id: number; name: string; color: number[]; light: number[] }[];
-  sites: { id: number; kind: number; x: number; y: number; rich: number }[];
+  sites: { id: number; kind: number; x: number; y: number; rich: number; snow?: boolean }[];
   lairs?: number[][];                  // 드래곤 둥지 [y, x]
   year_length: number; day_length: number;
   rules: any;

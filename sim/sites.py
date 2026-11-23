@@ -1,7 +1,7 @@
 """자원지: 지형에서 저절로 생긴다. 지도에 따로 그리지 않아도 숲은 숲으로, 들판은 들판으로 보인다.
 
 - 식량: 비옥하고 평평한 풀밭 (강가일수록 풍부)
-- 목재: 숲 (활엽수림, 열대우림, 침엽수림)
+- 목재: 숲 (활엽수림, 열대우림, 침엽수림). 넓은 설원에도 평평하고 너무 높지 않은 곳엔 눈 덮인 숲 (생산량 SNOW_WOOD배)
 - 석재: 걸어 들어갈 수 있는 바위·자갈 비탈·석회암 지대
 같은 종류가 넓게 모인 곳의 가운데를 고르고, 서로 일정 거리 이상 떨어지게 한다.
 """
@@ -29,6 +29,7 @@ class Site:
     rich: float        # 풍부함 (0.6 ~ 1.4 정도)
     cold: float        # 계절 폭 (추운 곳일수록 겨울에 덜 난다)
     building: int = -1  # 이 자리에 지은 건물 번호
+    snow: bool = False  # 눈 덮인 숲 (설원의 목재 자원지: 하얀 나무, 덜 난다)
 
 
 def sites_for(gmap, map_seed: int) -> list[Site]:
@@ -44,6 +45,9 @@ def sites_for(gmap, map_seed: int) -> list[Site]:
 MIN_FLOOR = {FOOD: 5, WOOD: 5, STONE: 3}
 # 시작할 수 있는 섬마다 목재 자원지 최소 개수: 이 넓이(칸) 이상이면 2개, 아니면 1개 (어디서 시작해도 목재가 조금은 있게)
 WOOD_ISLAND_BIG = 8000
+# 설원의 숲: 설원(봄·가을에도 눈) 넓이 이만큼(칸)마다 하나, 생산량은 보통 숲의 이만큼
+SNOW_WOOD_PER = 7000
+SNOW_WOOD = 0.6
 
 # 기준에 맞는 곳이 모자랄 때 '가장 비슷한 곳'을 고르는 재질 점수 (1 = 기준에 맞음)
 _LIKE = {
@@ -144,9 +148,43 @@ def find_sites(gmap, rng, spacing: float = 30.0) -> list[Site]:
             sites.append(Site(len(sites), kind, x, y, r, float(gmap.cold[y, x])))
         if chosen:
             taken = np.vstack([taken, np.array(chosen)])
+    _snow_wood(gmap, sites, walk, spacing)
     _wood_per_island(gmap, sites, mat, walk, spacing)
     _sulfur(gmap, sites, mat, walk)
     return sites
+
+
+def _snow_wood(gmap, sites, walk, spacing):
+    """눈 덮인 숲: 설원 안쪽(둘레 13칸의 45% 넘게 눈)에서 평평하고(기울기가 땅의 아래 절반), 너무 높지 않은 곳
+    (그 설원 높이의 15~65% 사이: 산꼭대기와 빙하 위는 빼고, 숲이 생기는 풀밭처럼 낮고 고른 자리).
+    설원 넓이 SNOW_WOOD_PER칸마다 하나, 다른 자원지와 간격을 둔다. 생산량(풍부함)은 보통 숲의 SNOW_WOOD배."""
+    from sim.terrain import _SNOWY_LUT
+    mat, _ = gmap.seasons.state(None)
+    snow = _SNOWY_LUT[mat] & walk
+    want = int(snow.sum() // SNOW_WOOD_PER)
+    if want <= 0:
+        return
+    alt = gmap.layers['alt'][:gmap.H, :gmap.W].astype(np.float32)
+    gy, gx = np.gradient(ndimage.uniform_filter(alt, 5))
+    slope = np.hypot(gy, gx)
+    flat = slope <= np.percentile(slope[walk], 50)
+    lo, hi = np.percentile(alt[snow], [15, 65])
+    dens = ndimage.uniform_filter(snow.astype(np.float32), 13)
+    ok = snow & flat & (alt >= lo) & (alt <= hi) & (dens > 0.45)
+    ok[:8], ok[-8:], ok[:, :8], ok[:, -8:] = False, False, False, False   # 지도 가장자리는 빼고
+    ys, xs = np.nonzero(ok)
+    if not len(ys):
+        return
+    fb = np.random.default_rng([WOOD, 7, gmap.land_count])          # 따로 쓰는 난수 (다른 자리는 그대로)
+    score = dens[ys, xs] * (1.0 - slope[ys, xs] / (slope[ys, xs].max() + 1e-6)) * fb.uniform(0.8, 1.2, len(ys))
+    order = np.argsort(-score)[:8000]
+    pool = np.zeros((len(sites) + want, 2))
+    pool[:len(sites)] = [(s.y, s.x) for s in sites]
+    chosen, _ = _spread(order, ys, xs, pool, len(sites), spacing, want)
+    for y, x in chosen:
+        y, x = int(y), int(x)
+        rich = float(np.clip(dens[y, x] * 1.4, 0.6, 1.4)) * SNOW_WOOD
+        sites.append(Site(len(sites), WOOD, x, y, rich, float(gmap.cold[y, x]), snow=True))
 
 
 def _sulfur(gmap, sites, mat, walk):
