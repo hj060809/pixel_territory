@@ -135,9 +135,8 @@ canvas#menu-art { position: fixed; inset: 0; width: 100vw; height: 100vh; displa
 .modal-foot { position: absolute; right: 30px; bottom: 20px; }
 
 /* 왼쪽 항목: 아래 버튼 줄(.setup-foot) 위에서 끝나고, 넘치면 이 안에서만 스크롤 (오른쪽 약도는 그대로).
-   스크롤 막대는 왼쪽 가장자리에 (rtl로 막대만 왼쪽에 두고, 안의 항목은 다시 ltr·왼쪽 정렬) */
-.setup-left > * { direction: ltr; margin-right: auto; }
-.setup-left { direction: rtl; position: absolute; left: 22px; top: 26px; bottom: 96px; overflow-y: auto; overflow-x: hidden; padding: 0 14px 30px 10px;
+   스크롤 막대는 오른쪽, 항목과는 '지도 만들기' 버튼 너비(170px)만큼 띄운다 (약도 자리는 layoutPreview가 그만큼 비워 둔다) */
+.setup-left { position: absolute; left: 40px; top: 26px; bottom: 96px; overflow-y: auto; overflow-x: hidden; padding: 0 170px 30px 0;
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 30px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 30px), transparent);
   scrollbar-width: thin; scrollbar-color: rgb(150, 126, 74) rgba(0, 0, 0, 0.25); overscroll-behavior: contain; }
 .setup-left::-webkit-scrollbar { width: 8px; }

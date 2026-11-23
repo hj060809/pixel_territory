@@ -10,7 +10,7 @@ import { randomName } from './names.ts';
 import { SpriteBank } from '../game/sprites.ts';
 import { AdvancedDialog, AdvancedState } from './advanced.ts';
 import type { LobbyInfo } from './lobbyArt.ts';
-import { DIM, GOLD, INK, button, div, field, uiScale } from './widgets.ts';
+import { DIM, GOLD, INK, button, div, field, uiScale, previewReserve } from './widgets.ts';
 
 export const SEASONS = ['봄', '여름', '가을', '겨울'];
 
@@ -100,7 +100,10 @@ export class Setup {
   }
 
   /** 화면에 붙인다 (데스크톱처럼 설정 화면은 한 번 만들어 두고, 로비에 다녀와도 만든 지도와 배치가 남는다). */
+  private watch = new ResizeObserver(() => this.layoutPreview());   // 왼쪽 칸 너비가 바뀌면 미리보기 자리를 다시
+
   attach(parent: HTMLElement = document.body) {
+    this.watch.observe(this.left);
     parent.appendChild(this.el);
     this.layoutPreview();
     cancelAnimationFrame(this.raf);
@@ -333,10 +336,10 @@ export class Setup {
   }
 
   // ------------------------------------------------------------- 미리보기 (오른쪽)
-  /** 화면 크기에 맞춰 미리보기 자리 (데스크톱: 한 변 = max(260, min(W-760, H-150)), 오른쪽 위). */
+  /** 화면 크기에 맞춰 미리보기 자리 (한 변 = max(260, min(W - 왼쪽 칸이 차지하는 폭, H-150)), 오른쪽 위). */
   layoutPreview() {
     const ui = uiScale(), W = window.innerWidth / ui, H = window.innerHeight / ui;     // 메뉴 픽셀
-    const size = Math.max(Math.min(W - 760, H - 150), 260);
+    const size = Math.max(Math.min(W - previewReserve(this.left, ui), H - 150), 260);
     this.previewSize = size;
     Object.assign(this.prevBox.style, { width: `${size}px`, height: `${size}px`, left: `${W - size - 40}px`, top: '84px' });
     Object.assign(this.prevCfg.style, { left: `${W - size - 40}px`, top: `${84 + size + 12}px` });

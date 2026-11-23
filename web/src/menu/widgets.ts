@@ -105,3 +105,10 @@ export function shadeLeft(g: CanvasRenderingContext2D, width: number, H: number,
   g.fillStyle = grad;
   g.fillRect(0, 0, width, H);
 }
+
+/** 설정 화면의 오른쪽 미리보기가 비워 둘 왼쪽 폭 (메뉴 픽셀): 왼쪽 칸(.setup-left, 스크롤 막대까지)의 오른쪽 끝 + 24, 오른쪽 여백 40.
+ *  아직 화면에 없으면 예전 값 (760). */
+export function previewReserve(left: HTMLElement, ui: number): number {
+  if (!left.isConnected) return 760;
+  return Math.max(left.getBoundingClientRect().right / ui + 24 + 40, 600);
+}

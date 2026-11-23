@@ -9,7 +9,7 @@ import { Connection, type Handlers } from '../game/net.ts';
 import { SpriteBank } from '../game/sprites.ts';
 import type { LobbyInfo } from './lobbyArt.ts';
 import { SEASONS } from './setup.ts';
-import { DIM, GOLD, INK, button, div, uiScale } from './widgets.ts';
+import { DIM, GOLD, INK, button, div, uiScale, previewReserve } from './widgets.ts';
 
 interface Member { name: string; color: number; ready: boolean; spot: number[] | null }
 interface RoomState {
@@ -74,7 +74,10 @@ export class RoomView {
     this.render();
   }
 
+  private watch = new ResizeObserver(() => this.layoutPreview());   // 왼쪽 칸 너비가 바뀌면 미리보기 자리를 다시
+
   attach(parent: HTMLElement = document.body) {
+    this.watch.observe(this.left);
     parent.appendChild(this.el);
     this.layoutPreview();
     cancelAnimationFrame(this.raf);
@@ -215,7 +218,7 @@ export class RoomView {
   // ------------------------------------------------------------- 오른쪽 (약도)
   layoutPreview() {
     const ui = uiScale(), W = window.innerWidth / ui, H = window.innerHeight / ui;
-    const size = Math.max(Math.min(W - 760, H - 150), 260);
+    const size = Math.max(Math.min(W - previewReserve(this.left, ui), H - 150), 260);
     this.previewSize = size;
     Object.assign(this.prevBox.style, { width: `${size}px`, height: `${size}px`, left: `${W - size - 40}px`, top: '84px' });
     const px = (window.devicePixelRatio || 1) * ui;
