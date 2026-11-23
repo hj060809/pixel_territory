@@ -1,16 +1,12 @@
 // 로비 (데스크톱 game/menu.py의 Lobby): 도트 제목, 부제, 버튼(싱글 플레이, 멀티 플레이, 게임 방법), 아래 한 줄, 게임 방법 창.
+// 오른쪽 아래: 동그란 커피 버튼 → '커피 한 잔 사주세요!' 창 (Buy Me a Coffee로 가는 링크).
 // 배경(LobbyArt)과 왼쪽 그늘은 메뉴 캔버스에 따로 그린다 (pages/game.ts).
 
 import { button, div, pixelTitle } from './widgets.ts';
 import { touchMode } from '../ui/device.ts';
+import { fillHelp, fillTouchHelp } from '../game/help.ts';
 import { installApp } from '../ui/install.ts';
-
-/** 터치 기기에서 '조작' 항목 대신 */
-const TOUCH_CONTROLS: string[] = [
-  '탭: 고르기 · 고른 뒤 땅 탭: 이동 · 적 탭: 공격 · 빈 자원지 탭: 짓기',
-  '한 손가락 끌기: 화면 이동,  두 손가락: 확대,  길게 누르고 끌기: 여러 명 고르기',
-  '아래 버튼: 건물(그림을 옮기고 ✓)과 훈련,  왼쪽 1~3: 부대 (길게 눌러 지정),  ☰: 메뉴',
-];
+import { busyBox, coffeeLink, cupIcon } from '../ui/coffee.ts';
 
 export const HOW_TO: [string, string[]][] = [
   ['목표', ['다른 나라의 거점과 병사를 모두 없애면 승리.', '내 거점과 병사를 모두 잃으면 패배.']],
@@ -38,14 +34,13 @@ export const HOW_TO: [string, string[]][] = [
   ['자연과 계절', ['가을엔 수확이 많고, 추운 곳은 겨울에 농사가 멈춘다.',
     '숲과 산에선 느려지고, 숲 속에선 화살을 덜 맞는다.',
     '겨울엔 언 바다를 걸어서 건널 수 있지만, 녹으면 빠진다.']],
-  ['조작', ['왼쪽 클릭 · 드래그: 선택,  오른쪽 클릭: 이동 · 공격 · 짓기',
-    'A: 공격 이동,  S: 정지,  Ctrl+숫자: 부대 지정,  Shift+숫자: 부대 부르기,  Space: 화면 이동',
-    '휠: 확대,  P: 일시정지,  마침표: 속도,  F1: 도움말,  F10: 로비로']],
 ];
 
 export class Lobby {
   readonly el = div('menu lobby');
   private help: HTMLDivElement | null = null;
+  private coffee: HTMLDivElement | null = null;
+  private busyOpen = false;
 
   constructor(onStart: () => void, onMulti: () => void) {
     this.el.appendChild(pixelTitle('Pixel Territory', 4));
@@ -57,6 +52,37 @@ export class Lobby {
     // 모바일만 (CSS: body.touch), 앱으로 열었으면 숨김: 홈 화면에 설치하면 주소창 없이 전체 화면
     button(col, '앱으로 설치', () => void installApp(), { size: 20, w: 260, h: 50 }).classList.add('install-btn');
     div('footer', this.el, '자원지를 차지하고, 병사와 건물로 지키세요.');
+    const cb = document.createElement('button');            // 오른쪽 아래: 개발자에게 커피
+    cb.className = 'coffee-btn';
+    cb.title = '개발자에게 커피 한 잔';
+    cb.innerHTML = cupIcon(26);
+    cb.addEventListener('click', () => this.showCoffee());
+    this.el.appendChild(cb);
+  }
+
+  showCoffee() {
+    if (this.coffee) return;
+    const back = (this.coffee = div('modal-back', this.el));
+    const box = div('modal coffee', back);
+    div('coffee-icon', box).innerHTML = cupIcon(56);
+    div('modal-title', box, '커피 한 잔 사주세요!');
+    div('coffee-text', box, '재미있게 즐기셨다면 커피 한 잔으로 개발자를 응원해 주세요.\n더 좋은 게임을 만드는 데 큰 힘이 됩니다.');
+    box.appendChild(coffeeLink('커피 사주러 가기', 'coffee-link', 22));
+    button(box, '닫기', () => this.closeCoffee(), { w: 120, h: 38 }).classList.add('coffee-close');
+    back.addEventListener('mousedown', (e) => { if (e.target === back) this.closeCoffee(); });
+  }
+
+  closeCoffee() { this.coffee?.remove(); this.coffee = null; }
+
+  /** 서버 접속자가 꽉 찼으면 로비 위에 안내 ([다시 시도]: 자리가 났으면 닫힌다). */
+  async checkBusy() {
+    const busy = async () => { try { return !!(await (await fetch('/api/status')).json()).busy; } catch { return false; } };
+    if (this.busyOpen || !(await busy())) return;
+    this.busyOpen = true;
+    const close = busyBox(this.el, '서버에 접속한 사람이 많아 지금은 게임을 열 수 없습니다. 잠시 뒤에 다시 시도해 주세요', [
+      ['다시 시도', () => { void busy().then((b) => { if (!b) { close(); this.busyOpen = false; } }); return false; }],
+      ['닫기', () => { this.busyOpen = false; }],
+    ]);
   }
 
   showHelp() {
@@ -67,11 +93,13 @@ export class Lobby {
     const body = div('howto-body', box);                     // 설명만 스크롤 (제목과 닫기 버튼은 그대로)
     const cols = div('howto-cols', body);                    // 두 단으로 고르게 (CSS columns)
     HOW_TO.forEach(([head, base]) => {
-      const lines = head === '조작' && touchMode() ? TOUCH_CONTROLS : base;
       const sec = div('howto-sec', cols);
       div('howto-head', sec, head);
-      for (const line of lines) div('howto-line', sec, line);
+      for (const line of base) div('howto-line', sec, line);
     });
+    div('howto-divider', body);                              // 줄글 아래: 그림 조작법 (기기에 맞춰, 게임 안 설명 창과 같은 그림)
+    div('howto-head howto-controls', body, '조작');
+    if (touchMode()) fillTouchHelp(body, true, true); else fillHelp(body, true, true);
     const foot = div('modal-foot', box);
     button(foot, '닫기', () => this.closeHelp(), { w: 120, h: 40 });
     back.addEventListener('mousedown', (e) => { if (e.target === back) this.closeHelp(); });
@@ -80,5 +108,5 @@ export class Lobby {
   closeHelp() { this.help?.remove(); this.help = null; }
 
   /** Esc: 게임 방법 창을 닫는다. */
-  key(e: KeyboardEvent) { if (e.key === 'Escape') this.closeHelp(); }
+  key(e: KeyboardEvent) { if (e.key === 'Escape') { this.closeHelp(); this.closeCoffee(); } }
 }

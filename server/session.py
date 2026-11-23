@@ -96,6 +96,8 @@ class GameSession:
         self._stop = threading.Event()
         self._thread = None
         self.round = 0
+        self.born = time.monotonic()             # 판을 연 때 (통계: 판이 돈 시간)
+        self.step_ms = 0.0                       # 걸음 하나에 걸린 시간 (평균, 통계: 한 걸음 예산은 1000/tick_hz ms)
         self.rng = np.random.default_rng()
         self._seats_sig = None                   # 사람 나라의 접속 상태 (바뀌면 모두에게 seats)
         self._seats_v = 0
@@ -301,6 +303,7 @@ class GameSession:
                 out = bytes(out)
             s.send(out)
             self._send_messages(s)
+        self.step_ms += ((time.perf_counter() - t0) * 1000 - self.step_ms) * 0.05
 
     def _maybe_set_season(self):
         """눈·얼음 갱신: 계산은 보조 스레드에서 (걸음을 막지 않게), 다 되면 여기서 바꿔 끼운다."""

@@ -14,6 +14,8 @@ HTTP
     GET  /api/lobby.png                    로비 배경 지형 조각
     GET  /api/rooms                        열린 방 목록 (대기 중인 방만, server/rooms.py)
     GET  /api/resume?sid=&token=           이어 할 수 있는 판인가 (브라우저를 다시 열었을 때): {ok, map}
+    GET  /api/status                       {busy}: 접속자가 상한(max_clients)에 닿았나 (로비가 안내를 띄운다)
+    GET  /dashboard, /api/dashboard        서버 통계 (방문, 판, 서버 사용량: 숫자만, server/stats.py)
 WebSocket /ws
     처음 메시지 (하나):
       {t:'join', map:키, options:{bots, color, name, difficulty, season, spot?, starts?, colors?}}   싱글 (사람 1 + AI)
@@ -23,7 +25,8 @@ WebSocket /ws
       {t:'resume', sid, token?} (연결이 끊겼던 판에 다시 접속: 그 자리로. 싱글은 token 없이도)
     대기실 (브라우저 → 서버): room_ready {on} · room_color {color} · room_spot {y, x} · room_leave {}
                               방장만: room_setup {바꿀 것} · room_kick {member} · room_start {}
-    대기실 (서버 → 브라우저): room {방 상태 (server/rooms.py Room.view)}, room_error {error}, room_kicked {}, room_closed {}
+    대기실 (서버 → 브라우저): room {방 상태 (server/rooms.py Room.view)}, room_error {error, busy?}, room_kicked {}, room_closed {}
+    상한 (접속자·판·방이 꽉 찼다): error / room_error에 busy: true (브라우저가 '접속자가 많아요' 안내를 띄운다)
     판 (시작한 뒤): 서버 → 브라우저: JSON(start, msg, over, ack, diplo, seats, error)과 이진 상태 메시지(protocol.py),
                      브라우저 → 서버: 명령 JSON (server/session.py)
     판이 끝난 뒤: room_back {} → 같은 방의 대기실로 (처음 돌아온 사람이 방장, 나머지는 돌아오는 대로 들어온다)
@@ -36,9 +39,10 @@ import os
 import threading
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import numpy as np
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -48,14 +52,21 @@ from server.config import ServerConfig
 from server.maps import MapStore
 from server.rooms import Member, RoomManager
 from server.session import GameSession
+from server.stats import Stats
 from sim import rules as R
 from sim.spawn import choose_starts, pick_colors
+
+BUSY_CLIENTS = '지금은 접속자가 많습니다. 잠시 뒤에 다시 해 주세요'
+BUSY_GAMES = '지금 열린 판이 너무 많습니다. 잠시 뒤에 다시 해 주세요'
+BUSY_ROOMS = '지금 열린 방이 너무 많습니다. 잠시 뒤에 다시 해 주세요'
 
 
 def create_app(cfg: ServerConfig | None = None) -> FastAPI:
     cfg = cfg or ServerConfig()
-    state = {'maps': None, 'sessions': {}, 'layout_maps': {}, 'lobby': None}     # sessions: sid → GameSession
+    state = {'maps': None, 'sessions': {}, 'layout_maps': {}, 'lobby': None,     # sessions: sid → GameSession
+             'clients': 0}                                                       # 게임·대기실에 들어와 있는 연결 수
     rooms = RoomManager()                                                         # 멀티 플레이 방
+    stats = Stats(cfg.data_dir / 'stats.json')                                    # /dashboard
     lobby_lock = threading.Lock()
 
     def lobby():
@@ -82,7 +93,15 @@ def create_app(cfg: ServerConfig | None = None) -> FastAPI:
     async def lifespan(app):
         state['maps'] = MapStore(cfg)
         asyncio.get_running_loop().run_in_executor(None, _warmup, state['maps'], lobby)   # 첫 판이 멈칫하지 않게
+
+        async def keep_stats():                                                   # 통계는 1분마다 파일로
+            while True:
+                await asyncio.sleep(60)
+                stats.save()
+        saver = asyncio.create_task(keep_stats())
         yield
+        saver.cancel()
+        stats.save()
         for s in list(state['sessions'].values()):
             s.stop()
         state['maps'].close()
@@ -92,8 +111,33 @@ def create_app(cfg: ServerConfig | None = None) -> FastAPI:
 
     # ------------------------------------------------------------- 로비
     @app.get('/api/lobby')
-    async def lobby_info():
+    async def lobby_info(request: Request):
+        # 방문: 페이지를 열 때마다 로비가 한 번 부른다. 프록시(nginx) 뒤면 X-Forwarded-For의 맨 앞이 방문자
+        ip = (request.headers.get('x-forwarded-for') or '').split(',')[0].strip() or (request.client.host if request.client else '')
+        stats.visit(ip)
         return (await asyncio.to_thread(lobby))[0]
+
+    @app.get('/dashboard')
+    def dashboard_page():
+        return FileResponse(Path(__file__).with_name('dashboard.html'), media_type='text/html',
+                            headers={'Cache-Control': 'no-cache'})
+
+    @app.get('/api/dashboard')
+    def dashboard_data():
+        """서버 통계: 숫자만 (판 번호·이름·방 코드는 넣지 않는다)."""
+        games = []
+        for s in list(state['sessions'].values()):
+            try:
+                w = s.world
+                games.append({'multi': len(s.seats) > 1, 'humans': len(s.seats), 'online': sum(not x.away for x in s.seats),
+                              'nations': len(w.nations), 'alive': sum(n.alive for n in w.nations),
+                              'minutes': round((time.monotonic() - s.born) / 60, 1), 'step_ms': round(s.step_ms, 1),
+                              'over': bool(s.match.over)})
+            except AttributeError:
+                continue
+        return {'clients': state['clients'], 'rooms_waiting': sum(r.state == 'wait' for r in rooms.rooms.values()),
+                'games': games, 'limits': {'clients': cfg.max_clients, 'games': cfg.max_sessions, 'rooms': cfg.max_rooms},
+                'step_budget_ms': round(1000 / cfg.tick_hz, 1), 'days': stats.recent(14), 'usage': stats.usage()}
 
     @app.get('/api/lobby.png')
     async def lobby_png():
@@ -126,6 +170,10 @@ def create_app(cfg: ServerConfig | None = None) -> FastAPI:
     @app.get('/api/rooms')
     def list_rooms():
         return rooms.listing()
+
+    @app.get('/api/status')
+    def status():
+        return {'busy': state['clients'] >= cfg.max_clients}
 
     @app.get('/api/resume')
     def can_resume(sid: str = '', token: str = ''):
@@ -193,6 +241,7 @@ def create_app(cfg: ServerConfig | None = None) -> FastAPI:
         loop = asyncio.get_running_loop()
         out: asyncio.Queue = asyncio.Queue()
         session, seat, room, member = None, 0, None, None
+        counted = False
 
         def send(item):                                     # 세션 스레드에서도 불린다
             loop.call_soon_threadsafe(out.put_nowait, item)
@@ -215,6 +264,12 @@ def create_app(cfg: ServerConfig | None = None) -> FastAPI:
             except ValueError:
                 first = {}
             t = first.get('t') if isinstance(first, dict) else None
+            if t != 'resume' and state['clients'] >= cfg.max_clients:      # 접속자가 꽉 찼다 (하던 판에 다시 접속은 받는다)
+                await ws.send_text(json.dumps({'t': 'error', 'error': BUSY_CLIENTS, 'fatal': True, 'busy': True}, ensure_ascii=False))
+                return
+            state['clients'] += 1
+            counted = True
+            stats.clients(state['clients'])
             if t == 'resume':                                               # 끊겼던 판에 다시 접속 (그 자리로)
                 session = state['sessions'].get(str(first.get('sid')))
                 seat = session.seat_of(first.get('token')) if session is not None else -1
@@ -266,6 +321,8 @@ def create_app(cfg: ServerConfig | None = None) -> FastAPI:
             pass
         finally:
             wtask.cancel()
+            if counted:
+                state['clients'] -= 1
             if room is not None and session is None and member is not None and member.game is not None:
                 session, seat = member.game, member.seat
             if session is not None:
@@ -285,8 +342,7 @@ def create_app(cfg: ServerConfig | None = None) -> FastAPI:
 
     async def _start_single(join, send, ws):
         if len(state['sessions']) >= cfg.max_sessions:
-            await ws.send_text(json.dumps({'t': 'error', 'error': '지금 열린 판이 너무 많습니다. 잠시 뒤에 다시 해 주세요',
-                                           'fatal': True}, ensure_ascii=False))
+            await ws.send_text(json.dumps({'t': 'error', 'error': BUSY_GAMES, 'fatal': True, 'busy': True}, ensure_ascii=False))
             return None
         key = join['map']
         if not await _wait_map(key, ws):
@@ -294,6 +350,7 @@ def create_app(cfg: ServerConfig | None = None) -> FastAPI:
         scene = await asyncio.to_thread(maps().scene, key)
         session = await asyncio.to_thread(GameSession, scene, join.get('options', {}), send, cfg)
         state['sessions'][session.sid] = session
+        stats.game(multi=False)
         session.start()
         return session
 
@@ -315,9 +372,10 @@ def create_app(cfg: ServerConfig | None = None) -> FastAPI:
         member = Member(str(p.get('name') or '이름 없음'), int(p.get('color', 0)), send, ws)
         if first['t'] == 'room_create':
             r = rooms.create(first.get('name'), first.get('password'), first.get('cap', 4), first.get('bots', 0),
-                             first.get('start_mode', 'random'), first.get('setup') or {}, cfg.max_rooms)
+                             first.get('start_mode', 'random'), first.get('setup') or {}, cfg.max_rooms, BUSY_ROOMS)
             if isinstance(r, str):
-                await ws.send_text(json.dumps({'t': 'room_error', 'error': r, 'fatal': True}, ensure_ascii=False))
+                await ws.send_text(json.dumps({'t': 'room_error', 'error': r, 'fatal': True, 'busy': r == BUSY_ROOMS},
+                                              ensure_ascii=False))
                 return None, None
         else:
             r = rooms.find(first.get('id'), first.get('code'))
@@ -380,14 +438,14 @@ def create_app(cfg: ServerConfig | None = None) -> FastAPI:
         else:
             err = '방장만 할 수 있습니다' if t in ('room_setup', 'room_kick', 'room_start') else f'모르는 명령 {t}'
         if err:
-            member.send({'t': 'room_error', 'error': err})
+            member.send({'t': 'room_error', 'error': err, 'busy': err in (BUSY_GAMES, BUSY_ROOMS)})
         if r.members:
             await _broadcast(r)
 
     async def _start_room(r) -> str | None:
         """방장이 시작: 지도를 확인하고 판(GameSession)을 만든다. 사람 자리 = 참가자 순서."""
         if len(state['sessions']) >= cfg.max_sessions:
-            return '지금 열린 판이 너무 많습니다. 잠시 뒤에 다시 해 주세요'
+            return BUSY_GAMES
         key = r.setup.get('map', '')
         if maps().status(key).get('state') != 'ready':
             return '지도가 아직 준비되지 않았습니다'
@@ -410,6 +468,7 @@ def create_app(cfg: ServerConfig | None = None) -> FastAPI:
         state['sessions'][session.sid] = session
         session.room = r
         r.session = session
+        stats.game(multi=True)
         for m in r.members:
             m.game = session
         r.state = 'play'

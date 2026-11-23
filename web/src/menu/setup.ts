@@ -394,7 +394,13 @@ export class Setup {
         g.fill();
       }
       text(this.buildStatus || '지도 만드는 중...', c, c + 30, 17, INK);
-      text(`${Math.round((performance.now() - this.buildStart) / 1000)}초`, c, c + 56, 14, DIM);
+      const sec = (performance.now() - this.buildStart) / 1000;
+      text(`${Math.round(sec)}초`, c, c + 56, 14, DIM);
+      if (sec > 15) {                                     // 오래 걸린다: 서버가 붐빈다고 알린다
+        text('지금 접속자가 많아', c, c + 88, 14, GOLD);
+        text('요청이 제때 처리되지 못하고 있습니다', c, c + 108, 14, GOLD);
+        text('조금만 더 기다려 주세요', c, c + 132, 13, DIM);
+      }
       return;
     }
     if (!showImg) {

@@ -85,7 +85,7 @@ class App {
     if (touchMode()) showFullscreenNote();       // 모바일: 처음 한 번 '게임 시작을 누르면 전체 화면' 안내
   }
 
-  private async show(screen: Screen, msg?: string) {
+  private async show(screen: Screen, msg?: string, busy = false) {
     this.screen = screen;
     this.game?.dispose();
     this.game = null;
@@ -98,13 +98,13 @@ class App {
     if (screen === 'game') return;            // 메뉴 배경은 게임이 첫 장면을 그릴 때까지 남겨 둔다 (hideArt)
     this.artCanvas.style.display = '';
     this.startArt();
-    if (screen === 'lobby') { document.body.appendChild(this.lobby.el); return; }
+    if (screen === 'lobby') { document.body.appendChild(this.lobby.el); void this.lobby.checkBusy(); return; }
     await this.artLoad;
     if (screen === 'multi') {
       this.multi ??= new MultiMenu(this.settings, this.lobbyInfo, () => void this.show('lobby'),
         () => void this.show('roomsetup'), (req) => this.enterRoom(req));
       this.multi.attach();
-      this.multi.say(msg ?? '');
+      if (busy && msg) this.multi.busy(msg); else this.multi.say(msg ?? '');
       return;
     }
     if (screen === 'room') return;                 // enterRoom이 붙인다
@@ -125,7 +125,7 @@ class App {
     void this.show('room');
     const first = 'setup' in req ? { t: 'room_create', ...req } : { t: 'room_join', ...req };
     this.room = new RoomView(first, this.lobbyInfo, {
-      leave: (msg) => void this.show('multi', msg),
+      leave: (msg, busy) => void this.show('multi', msg, busy),
       start: (conn, key) => this.playRoom(conn, key),
     });
     this.room.attach();
@@ -152,7 +152,7 @@ class App {
   private backToRoom(conn: Connection) {
     void this.show('room');                          // 게임 화면을 치운다 (연결은 넘겨받았으니 닫히지 않는다)
     this.room = new RoomView(conn, this.lobbyInfo, {
-      leave: (msg) => void this.show('multi', msg),
+      leave: (msg, busy) => void this.show('multi', msg, busy),
       start: (c, key) => this.playRoom(c, key),
     });
     this.room.attach();

@@ -5,6 +5,7 @@ import type { LobbyInfo } from './lobbyArt.ts';
 import { nameField, type Settings } from './setup.ts';
 import { randomName } from './names.ts';
 import { button, div, field } from './widgets.ts';
+import { busyBox } from '../ui/coffee.ts';
 
 interface RoomRow { id: string; name: string; host: string; humans: number; cap: number; bots: number; locked: boolean; map: string; start_mode: string }
 
@@ -41,6 +42,9 @@ export class MultiMenu {
   detach() { clearInterval(this.timer); this.el.remove(); }
 
   say(t: string) { this.msgEl.textContent = t; }
+
+  /** 서버가 꽉 찼다 (방을 만들거나 들어가지 못했다): 반투명 배경 위 안내. */
+  busy(t: string) { this.say(''); busyBox(this.el, t, [['닫기', () => {}]]); }
 
   key(e: KeyboardEvent) {
     if (e.key === 'Escape' && !(document.activeElement instanceof HTMLInputElement)) this.onBack();

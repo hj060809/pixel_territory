@@ -9,6 +9,7 @@ import { Connection, type Handlers } from '../game/net.ts';
 import { SpriteBank } from '../game/sprites.ts';
 import type { LobbyInfo } from './lobbyArt.ts';
 import { SEASONS } from './setup.ts';
+import { busyBox } from '../ui/coffee.ts';
 import { DIM, GOLD, INK, button, div, uiScale, previewReserve } from './widgets.ts';
 
 interface Member { name: string; color: number; ready: boolean; spot: number[] | null }
@@ -19,7 +20,7 @@ interface RoomState {
 }
 
 export interface RoomHooks {
-  leave(msg?: string): void;                         // 대기실을 나간다 (나감, 내보내짐, 들어가지 못함, 끊김)
+  leave(msg?: string, busy?: boolean): void;         // 대기실을 나간다 (나감, 내보내짐, 들어가지 못함, 끊김). busy: 서버가 꽉 찼다
   start(conn: Connection, mapKey: string): void;     // 판이 시작됐다: 연결을 게임 화면에
 }
 
@@ -61,7 +62,7 @@ export class RoomView {
       },
       state: () => {}, msg: () => {}, over: () => {}, diplo: () => {},
       status: (t) => this.say(t),
-      error: (text, fatal) => { if (fatal) this.leave(text); else this.say(text); },
+      error: (text, fatal, busy) => { if (fatal) this.leave(text, busy); else this.say(text); },
       closed: () => this.leave('서버와 연결이 끊겼습니다'),
       other: (m) => this.onMessage(m),
     };
@@ -96,10 +97,10 @@ export class RoomView {
 
   private say(t: string) { this.msgEl.textContent = t; }
 
-  private leave(msg?: string) {
+  private leave(msg?: string, busy = false) {
     if (this.gone || this.handed) return;
     this.gone = true;
-    this.hooks.leave(msg);
+    this.hooks.leave(msg, busy);
   }
 
   private leaveRoom() { this.conn.send({ t: 'room_leave' }); this.leave(); }
@@ -117,7 +118,9 @@ export class RoomView {
       this.say(this.room.state === 'starting' ? '판을 준비하는 중...' : '');
       this.render();
     } else if (m.t === 'room_error') {
-      if (m.fatal) this.leave(m.error); else this.say(m.error);
+      if (m.fatal) this.leave(m.error, Boolean(m.busy));
+      else if (m.busy) busyBox(this.el, m.error, [['닫기', () => {}]]);   // 시작하려는데 판이 꽉 찼다: 대기실에 남는다
+      else this.say(m.error);
     } else if (m.t === 'room_kicked') this.leave('방에서 내보내졌습니다');
     else if (m.t === 'room_closed') this.leave();
   }

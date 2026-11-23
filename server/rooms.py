@@ -119,7 +119,8 @@ class RoomManager:
                 return c
 
     # ------------------------------------------------------------- 만들기 · 들어가기 · 나가기
-    def create(self, name, password, cap, bots, start_mode, setup, max_rooms: int = 30) -> Room | str:
+    def create(self, name, password, cap, bots, start_mode, setup, max_rooms: int = 60,
+               busy: str = '지금 열린 방이 너무 많습니다. 잠시 뒤에 다시 해 주세요') -> Room | str:
         cap, bots = int(cap), int(bots)
         if not (2 <= cap <= MAX_NATIONS) or bots < 0 or cap + bots > MAX_NATIONS:
             return f'사람 정원은 2~{MAX_NATIONS}명, 사람과 AI를 합쳐 {MAX_NATIONS}나라까지입니다'
@@ -127,7 +128,7 @@ class RoomManager:
             return '지도를 먼저 정하세요'
         self.sweep()
         if sum(r.state == 'wait' for r in self.rooms.values()) >= max_rooms:
-            return '지금 열린 방이 너무 많습니다. 잠시 뒤에 다시 해 주세요'
+            return busy
         r = Room(secrets.token_urlsafe(6), self._code(), name, password, cap, bots, start_mode, setup)
         self.rooms[r.id] = r
         return r

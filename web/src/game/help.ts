@@ -1,6 +1,7 @@
 // 조작 설명 창 (메뉴 '설명', F1): 마우스는 누르는 버튼을 칠한 마우스 그림, 키보드는 키캡 모양으로.
 // 마우스·키보드가 아닌 것(외교, 길들이기, 패배)은 아래에 짧게.
 // 터치 화면 (☰ 메뉴 '조작 설명'): 손가락 동작은 그림으로, 화면 버튼은 실제 버튼 모양으로 (touchHelpBox).
+// 로비의 '게임 방법' 창도 같은 그림을 쓴다 (fillHelp / fillTouchHelp, lobby: 싱글 전용 키는 '(싱글)'로 표시, '그 밖에'는 줄글에 있어 뺀다).
 
 import { el, panel } from './gameMenu.ts';
 
@@ -49,7 +50,15 @@ function others(parent: HTMLElement, solo: boolean, press: string) {
 export function helpBox(solo: boolean) {
   const { box, close } = panel('help-panel');
   el('div', 't-menu-title', box, '조작 설명');
-  const cols = el('div', 'help-cols', box);
+  fillHelp(box, solo);
+  const foot = el('div', 't-menu-row help-foot', box);
+  el('button', 't-btn wide', foot, '닫기').addEventListener('click', close);
+}
+
+/** PC 조작 그림 (왼쪽 마우스·그 밖에, 오른쪽 키보드)을 parent에. lobby: 로비 '게임 방법' 창 (판 밖). */
+export function fillHelp(parent: HTMLElement, solo: boolean, lobby = false) {
+  const only = lobby ? ' (싱글)' : '';
+  const cols = el('div', 'help-cols', parent);
   const left = el('div', 'help-col mouse', cols), right = el('div', 'help-col', cols);
 
   el('div', 'help-head', left, '마우스');
@@ -59,7 +68,7 @@ export function helpBox(solo: boolean) {
   row(left, mouse('wheel'), '굴리기: 확대 · 축소');
   row(left, `${mouse('wheel')}<span class="help-drag">끌기</span>`, '휠을 누른 채 끌기: 화면 옮기기');
 
-  others(left, solo, '누르면');
+  if (!lobby) others(left, solo, '누르면');
 
   el('div', 'help-head', right, '키보드');
   row(right, kbd('A'), '공격 이동 (가다가 만나는 적과 싸운다)');
@@ -72,13 +81,10 @@ export function helpBox(solo: boolean) {
   row(right, `${kbd('←')}${kbd('↑')}${kbd('↓')}${kbd('→')}`, '화면 옮기기 (마우스를 화면 끝에 대도 된다)');
   row(right, kbd('Esc'), '취소 · 고른 것 풀기');
   if (solo) {
-    row(right, `${kbd('P')}${or}${kbd('.')}`, '일시정지 · 속도');
-    row(right, `${kbd('F5')}${or}${kbd('F6')}`, '같은 지도로 새 판 · 새 지도');
+    row(right, `${kbd('P')}${or}${kbd('.')}`, '일시정지 · 속도' + only);
+    row(right, `${kbd('F5')}${or}${kbd('F6')}`, '같은 지도로 새 판 · 새 지도' + only);
   }
-  row(right, `${kbd('F1')}${or}${kbd('F12')}`, '이 설명 · 화면 저장');
-
-  const foot = el('div', 't-menu-row help-foot', box);
-  el('button', 't-btn wide', foot, '닫기').addEventListener('click', close);
+  row(right, `${kbd('F1')}${or}${kbd('F12')}`, lobby ? '게임 중 조작 설명 · 화면 저장' : '이 설명 · 화면 저장');
 }
 
 // ------------------------------------------------------------- 터치
@@ -110,7 +116,14 @@ const tbtn = (t: string, cls = '') => `<span class="tkey ${cls}">${t}</span>`;
 export function touchHelpBox(solo: boolean) {
   const { box, close } = panel('help-panel');
   el('div', 't-menu-title', box, '조작 설명');
-  const cols = el('div', 'help-cols', box);
+  fillTouchHelp(box, solo);
+  const foot = el('div', 't-menu-row help-foot', box);
+  el('button', 't-btn wide', foot, '닫기').addEventListener('click', close);
+}
+
+/** 터치 조작 그림 (왼쪽 손가락·그 밖에, 오른쪽 화면 버튼)을 parent에. lobby: 로비 '게임 방법' 창. */
+export function fillTouchHelp(parent: HTMLElement, solo: boolean, lobby = false) {
+  const cols = el('div', 'help-cols', parent);
   const left = el('div', 'help-col mouse', cols), right = el('div', 'help-col', cols);
 
   el('div', 'help-head', left, '손가락');
@@ -120,7 +133,7 @@ export function touchHelpBox(solo: boolean) {
   row(left, gesture('drag'), '한 손가락으로 끌기: 화면 옮기기');
   row(left, gesture('pinch'), '두 손가락 벌리기 · 오므리기: 확대 · 축소');
   row(left, gesture('hold'), '빈 땅을 길게 누르기: 지형 · 자원지 설명');
-  others(left, solo, '탭하면');
+  if (!lobby) others(left, solo, '탭하면');
 
   el('div', 'help-head', right, '화면 버튼');
   row(right, `${tbtn('1')}${tbtn('2')}${tbtn('3')}`, '부대: 탭하면 부르기, 길게 누르면 지금 고른 병사를 부대로');
@@ -132,8 +145,6 @@ export function touchHelpBox(solo: boolean) {
   row(right, tbtn('✕'), '고른 것 풀기 · 취소');
   row(right, `${tbtn('건물')}<span class="help-plus">→</span>${tbtn('✓ 짓기', 'ok')}`, '아래 건물 버튼 → 그림을 끌어 자리에 놓고 ✓ (고른 병사가, 없으면 가까운 쉬는 병사가)');
   row(right, `${tbtn('보병')}${tbtn('궁수')}${tbtn('전함')}`, '만들기 (거점·항구를 골라 두면 그곳에서)');
-  if (solo) row(right, `${tbtn('⏸')}${tbtn('×1')}`, '일시정지 · 속도');
-
-  const foot = el('div', 't-menu-row help-foot', box);
-  el('button', 't-btn wide', foot, '닫기').addEventListener('click', close);
+  if (solo) row(right, `${tbtn('⏸')}${tbtn('×1')}`, '일시정지 · 속도' + (lobby ? ' (싱글)' : ''));
+  row(right, tbtn('☰'), lobby ? '메뉴: 조작 설명 · 항복 · 나가기' : '메뉴');
 }

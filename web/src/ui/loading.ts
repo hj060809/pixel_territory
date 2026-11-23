@@ -69,5 +69,11 @@ export class Loading {
     setTimeout(() => { this.hide(); this.el.classList.remove('fade'); }, ms);
   }
 
+  /** 버튼 아래에 덧붙일 것 (예: 서버비 보내주기). null이면 뺀다. */
+  extra(node: HTMLElement | null) {
+    this.el.querySelector('.loading-extra')?.remove();
+    if (node) { node.classList.add('loading-extra'); this.el.appendChild(node); }
+  }
+
   dispose() { cancelAnimationFrame(this.raf); this.el.remove(); }
 }

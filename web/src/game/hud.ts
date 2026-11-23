@@ -7,6 +7,7 @@ import type { Controller } from './controller.ts';
 import type { GameState } from './state.ts';
 import { F_FORD, F_WATER, type TerrainRules } from './terrainRules.ts';
 import { touchMode } from '../ui/device.ts';
+import { coffeeLink } from '../ui/coffee.ts';
 import { A_FIGHT, A_HELD, A_SLEEP, A_TAMING, animalAt, isHostile } from './wildlife.ts';
 
 /** 고른 병사 수: 병종마다 ('보병 3 · 창기병 2', 0인 병종은 뺀다). */
@@ -172,6 +173,14 @@ export class Hud {
           hint.textContent = bmode === 'watch' ? '판이 끝날 때까지 볼 수 있습니다 · Enter: 나가기'
             : solo ? 'F5: 같은 지도로 새 판    F6: 새 지도    Enter: 로비로' : toRoom ? '같은 사람들과 다시 하려면 대기실로' : 'Enter: 로비로';
           this.banner.appendChild(hint);
+        }
+        if (bmode !== 'watch') {                               // 판 끝: 결과 아래 작게 (개발자에게 커피)
+          const c = document.createElement('div');
+          c.className = 'banner-coffee';
+          const t = document.createElement('div');
+          t.textContent = '재밌으셨나요? 개발자에게 따뜻한 커피 한 잔 선물하는 건 어떠세요?';
+          c.append(t, coffeeLink('커피 선물하기', 'coffee-mini', 14));
+          this.banner.appendChild(c);
         }
       }
     }

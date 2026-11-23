@@ -24,6 +24,7 @@ import { DevConsole } from './devConsole.ts';
 import { DiploUi } from './diplomacy.ts';
 import { closeMenu, confirmBox, menuBox, menuOpen, type MenuItem } from './gameMenu.ts';
 import { helpBox } from './help.ts';
+import { serverPlea } from '../ui/coffee.ts';
 import { setTouchMode, touchMode } from '../ui/device.ts';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -244,10 +245,11 @@ export class GameView {
       diplo: (m) => { if (st) { st.diplo = m; this.diplo?.render(); } },
       seats(m) { if (st) st.seats = m; hudWait = 1; },
       status(text) { loading.set(text); },
-      error(text, fatal) {
+      error: (text, fatal, busy) => {
         if (fatal) {                          // 판을 이어 갈 수 없다: 다시 접속하지 않는다
           gaveUp = true;
           stuck(text);
+          if (busy) this.loading.extra(serverPlea());   // 서버가 꽉 찼다: 서버비 보내주기
         } else if (st) st.say(text);
         else stuck(`오류: ${text}`, false);
       },
