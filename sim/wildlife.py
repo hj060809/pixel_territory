@@ -49,12 +49,13 @@ SPAWN_CLEAR_B, SPAWN_CLEAR_U = 16.0, 12.0     # 새 무리는 건물·병사에�
 
 
 def _grass(gmap):
-    """넓고 평평한 풀밭 (둘레 15칸의 60% 넘게 평평한 풀밭인 칸)."""
+    """넓은 풀밭 (풀밭·관목·추운 초원, 조금 기울어도: 둘레 15칸의 45% 넘게 그런 칸)."""
+    from engine.render import materials as S
     from sim.sites import GRASSY
-    flat = np.isin(gmap.layers['pre'], GRASSY) & (gmap.base_cost <= 1.15) & gmap.walk
-    if flat.sum() < 300:
+    flat = np.isin(gmap.layers['pre'], (*GRASSY, S.SHRUB, S.COLD_STEPPE)) & (gmap.base_cost <= 1.35) & gmap.walk
+    if flat.sum() < 200:
         return np.zeros_like(flat)
-    return flat & (ndimage.uniform_filter(flat.astype(np.float32), 15) > 0.6)
+    return flat & (ndimage.uniform_filter(flat.astype(np.float32), 15) > 0.45)
 
 
 def _desert(gmap):
@@ -213,18 +214,25 @@ class Wildlife:
                 best, bs = (y, x), s
         if best is None:
             return False
-        lo, hi = R.WILDLIFE[kind]['group']
+        info = R.WILDLIFE[kind]
+        lo, hi = info['group']
+        spread = info.get('spread', 3.0)                    # 무리가 흩어져 생기는 반지름 (말은 넓게)
         room = self.cap[kind] - self.count(kind)
-        walk = w.map.walk
+        walk, comp = w.map.walk, w.map.comp
+        c0 = comp[int(best[0]), int(best[1])]
         for _ in range(min(int(rng.integers(lo, hi + 1)), room)):
-            for _ in range(10):
-                y, x = best[0] + rng.uniform(-3, 3), best[1] + rng.uniform(-3, 3)
-                if 0 <= y < walk.shape[0] and 0 <= x < walk.shape[1] and walk[int(y), int(x)]:
-                    break
+            for _ in range(20):                             # 같은 땅의, 건물에서 떨어진 칸 (원 안에 고르게)
+                a, r = rng.uniform(0, 2 * np.pi), spread * np.sqrt(rng.uniform(0, 1))
+                y, x = best[0] + np.sin(a) * r, best[1] + np.cos(a) * r
+                if not (0 <= y < walk.shape[0] and 0 <= x < walk.shape[1] and walk[int(y), int(x)] and comp[int(y), int(x)] == c0):
+                    continue
+                if len(bl) and np.min(np.hypot(b.x[bl] - x, b.y[bl] - y)) < SPAWN_CLEAR_B:
+                    continue
+                break
             else:
                 y, x = best
             an = Animal(self._next, kind, float(x), float(y), rng)
-            an.hy, an.hx = best
+            an.hy, an.hx = (y, x) if spread > 3.0 else best       # 넓은 무리는 저마다 제 자리 둘레를 거닌다 (흩어진 채로)
             self.animals[an.id] = an
             self._next += 1
         return True
@@ -263,7 +271,7 @@ class Wildlife:
         busy = {t.aid for k, t in self.tamers.items() if u.own[k] == nid}   # 내 나라가 길들이는 중인 동물만 (다른 나라와는 겨룬다)
         herd = [a0] if hostile and a0.id not in busy else [] if hostile else \
             [a for a in self.animals.values() if a.kind == a0.kind and a.id not in busy
-             and np.hypot(a.x - a0.x, a.y - a0.y) < 10 and comp[int(a.y), int(a.x)] == dst]
+             and np.hypot(a.x - a0.x, a.y - a0.y) < info.get('herd_r', 10.0) and comp[int(a.y), int(a.x)] == dst]
         herd.sort(key=lambda a: (a.id != aid, np.hypot(a.x - a0.x, a.y - a0.y)))
         if not herd:
             if not quiet:

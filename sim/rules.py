@@ -24,7 +24,7 @@ TRAINABLE = (INFANTRY, ARCHER)            # 거점에서 훈련하는 병종. �
 #   체력, 공격, 사거리, 공격 간격(초), 속도(칸/초, 평지), 시야, 비용(식량, 목재, 석재), 훈련 시간,
 #   terrain: 지형을 타는 정도 (걷는 속도 = 속도 × (지형 속도 배율)^terrain. 1 = 일반 병사와 같은 비율로 느려진다)
 #   charge: 달려와 처음 치는 한 방의 배율, upkeep: 먹는 식량 배율
-#   기병 = 탄 병사의 이동 속도 1.5배, 공격력 1.5배 (밸런스는 나중에), 체력은 그대로
+#   기병 = 탄 병사의 이동 속도 1.8배, 공격력 1.5배 (밸런스는 나중에), 체력은 그대로
 #   fly: 움직이거나 싸울 때 난다 (지형·물 무시, 근접 공격을 받지 않는다: 활·망루·전함만 맞힌다).
 #        할 일 없이 멈춰 있으면 땅에 내려앉고, 그동안은 누구에게나 맞는다,
 #   splash: 범위 피해 반지름 (서리 숨결: 둘레에도 피해, 맞은 병사는 잠시 느려진다)
@@ -34,9 +34,9 @@ UNIT_STATS = {
                        terrain=1.0, charge=1.0, upkeep=1.0, ranged=False, fly=False, splash=0.0),
     ARCHER:       dict(hp=26.0, dmg=4.0, range=13.0, cd=1.5, speed=4.5, sight=16.0, cost=(30, 25, 0), time=9.0,
                        terrain=1.0, charge=1.0, upkeep=1.0, ranged=True, fly=False, splash=0.0),
-    LANCER:       dict(hp=40.0, dmg=9.0, range=2.4, cd=1.0, speed=6.75, sight=15.0, cost=(0, 0, 0), time=0.0,
+    LANCER:       dict(hp=40.0, dmg=9.0, range=2.4, cd=1.0, speed=8.1, sight=15.0, cost=(0, 0, 0), time=0.0,
                        terrain=1.0, charge=1.8, upkeep=1.5, ranged=False, fly=False, splash=0.0),     # 보병 + 말
-    HORSE_ARCHER: dict(hp=26.0, dmg=6.0, range=13.0, cd=1.5, speed=6.75, sight=17.0, cost=(0, 0, 0), time=0.0,
+    HORSE_ARCHER: dict(hp=26.0, dmg=6.0, range=13.0, cd=1.5, speed=8.1, sight=17.0, cost=(0, 0, 0), time=0.0,
                        terrain=1.0, charge=1.0, upkeep=1.5, ranged=True, fly=False, splash=0.0),      # 궁수 + 말
     DRAGON_RIDER: dict(hp=380.0, dmg=30.0, range=8.0, cd=2.5, speed=7.0, sight=18.0, cost=(0, 0, 0), time=0.0,
                        terrain=1.0, charge=1.0, upkeep=4.0, ranged=True, fly=True, splash=2.6),       # 병사 + 드래곤
@@ -112,6 +112,7 @@ SULFUR_YIELD = 0.25        # 유황 채취장이 1초에 모으는 유황 (× �
 #   habitat: 사는 땅 (재질 묶음, 평평한 곳만), group: 한 무리 마릿수, per_area: 사는 땅 이만큼(칸)마다 한 마리 (최대 cap),
 #   regrow: 줄어든 뒤 새 무리가 생기는 간격 (겨울엔 거의 안 생긴다), tame: 길들이는 시간,
 #   mounts: 어떤 병사가 길들이면 무엇이 되는지 (병사와 동물이 합쳐진 병종)
+#   spread: 한 무리가 흩어져 생기는 반지름 (칸, 기본 3), herd_r: 한 번에 함께 길들이는 둘레 (칸, 기본 10)
 #   사나운 동물 (hostile): 둥지(lair)에 하나씩 살며 지킨다. unit: 싸울 때의 병종, wake: 이만큼 다가오면 깬다,
 #   guard: 둥지에서 이만큼 안의 병사를 친다, subdue: 체력이 이 비율 아래면 쓰러진다 (subdue_time초 동안,
 #   그동안만 길들일 수 있고 맞지 않는다), regrow: 길들여진 뒤 둥지에 새로 나는 시간, limit: 나라마다 탈 수 있는 수
@@ -120,7 +121,7 @@ SULFUR_YIELD = 0.25        # 유황 채취장이 1초에 모으는 유황 (× �
 HORSE, DRAGON, TORTOISE_W = range(3)
 _ANY = (INFANTRY, ARCHER, LANCER, HORSE_ARCHER)
 WILDLIFE = {
-    HORSE: dict(name='말', habitat='grass', group=(2, 4), per_area=1500, cap=36, regrow=45.0, tame=11.0,
+    HORSE: dict(name='말', habitat='grass', group=(7, 12), spread=22.0, herd_r=26.0, per_area=700, cap=60, regrow=25.0, tame=11.0,
                 mounts={INFANTRY: LANCER, ARCHER: HORSE_ARCHER}),
     DRAGON: dict(name='드래곤', habitat='lair', hostile=True, unit=WILD_DRAGON, cap=3, regrow=360.0, tame=15.0,
                  wake=8.0, guard=14.0, subdue=0.3, subdue_time=30.0, limit=2,

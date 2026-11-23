@@ -71,8 +71,15 @@ def run(report, cache_dir='.cache'):
     far = w.units.add(1, R.INFANTRY, a4.x, a4.y, hp)              # 다른 나라: 멀리서 (아직 못 닿았다)
     near = w.units.add(0, R.INFANTRY, a4.x, a4.y, hp)             # 나: 바로 곁
     dup = w.units.add(0, R.INFANTRY, a4.x, a4.y, hp)
-    for i, dx in ((far, 25), (near, 1), (dup, 1)):
-        w.units.x[i], w.units.y[i] = a4.x + dx, a4.y
+    comp = gm.comp[int(a4.y), int(a4.x)]
+    def spot(r):                                                # 말과 같은 땅에서 r칸쯤 떨어진 자리
+        for t in np.linspace(0, 2 * np.pi, 32, endpoint=False):
+            x, y = a4.x + np.cos(t) * r, a4.y + np.sin(t) * r
+            if 0 <= int(y) < gm.H and 0 <= int(x) < gm.W and gm.walk[int(y), int(x)] and gm.comp[int(y), int(x)] == comp:
+                return x, y
+        return a4.x, a4.y
+    for i, r in ((far, 14), (near, 1), (dup, 1)):
+        w.units.x[i], w.units.y[i] = spot(r)
     ok1 = wild.order_tame(1, [far], a4.id, quiet=True)
     ok0 = wild.order_tame(0, [near], a4.id, quiet=True)
     wild.order_tame(0, [dup], a4.id, quiet=True)                # 같은 나라: 같은 말엔 붙지 않는다 (곁의 다른 말이면 그쪽)
