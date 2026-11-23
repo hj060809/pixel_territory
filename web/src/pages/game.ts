@@ -48,6 +48,9 @@ class App {
     }, () => {
       if (touchMode()) void enterFullscreen();
       void this.show('multi');
+    }, () => {
+      if (touchMode()) void enterFullscreen();
+      void this.startTutorial();
     });
     window.addEventListener('resize', () => {
       applyUiScale(); this.resizeArt(); this.setup?.layoutPreview(); this.roomSetup?.layoutPreview(); this.room?.layoutPreview();
@@ -144,6 +147,7 @@ class App {
       lobby: () => void this.show('lobby'),
       newMap: () => void this.show('setup'),         // 사람이 여럿인 판에는 없다 (다시 연 싱글 판이면 설정 화면으로)
       ready: () => this.hideArt(),
+      single: () => void this.show('setup'),
       room: (conn: Connection) => this.backToRoom(conn),
     };
   }
@@ -175,6 +179,14 @@ class App {
     return true;
   }
 
+  /** 로비 '튜토리얼': 데모 지도로 튜토리얼 판 (sim/tutorial.py, game/tutorial.ts). */
+  private async startTutorial() {
+    this.listing ??= await (await fetch('/api/maps')).json();
+    const key = this.listing.demo[0].key;
+    this.play({ key, options: { tutorial: true, bots: 1, color: this.settings.color, name: this.settings.name.trim() || '나',
+      difficulty: '보통', season: 0 } });
+  }
+
   private play(req: PlayRequest) {
     void this.show('game');
     const start = (key: string, options: JoinOptions, overMenu: boolean) => {
@@ -184,6 +196,7 @@ class App {
         // 새 지도: 고른 시작 자리와 미리보기 배치는 그 지도에서만 맞으니 버린다
         newMap: (next) => start(next, { ...options, spot: null, starts: null, colors: null }, false),
         ready: () => this.hideArt(),
+        single: () => void this.show('setup'),
       }, overMenu);
     };
     start(req.key, req.options, this.artCanvas.style.display !== 'none');

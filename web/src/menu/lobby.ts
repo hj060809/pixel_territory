@@ -1,4 +1,4 @@
-// 로비 (데스크톱 game/menu.py의 Lobby): 도트 제목, 부제, 버튼(싱글 플레이, 멀티 플레이, 게임 방법), 아래 한 줄, 게임 방법 창.
+// 로비 (데스크톱 game/menu.py의 Lobby): 도트 제목, 부제, 버튼(싱글 플레이, 멀티 플레이, 튜토리얼, 게임 방법), 아래 한 줄, 게임 방법 창.
 // 오른쪽 아래: 동그란 커피 버튼 → '커피 한 잔 사주세요!' 창 (Buy Me a Coffee로 가는 링크).
 // 배경(LobbyArt)과 왼쪽 그늘은 메뉴 캔버스에 따로 그린다 (pages/game.ts).
 
@@ -52,15 +52,20 @@ export class Lobby {
   private coffee: HTMLDivElement | null = null;
   private busyOpen = false;
 
-  constructor(onStart: () => void, onMulti: () => void) {
+  constructor(onStart: () => void, onMulti: () => void, onTutorial: () => void) {
     this.el.appendChild(pixelTitle('Pixel Territory', 4));
     div('subtitle', this.el, '자연 속에서 플레이하는 실시간 전략 RTS');
     const col = div('lobby-buttons', this.el);
     button(col, '싱글 플레이', onStart, { size: 20, w: 260, h: 50 });
     button(col, '멀티 플레이', onMulti, { size: 20, w: 260, h: 50 });
+    button(col, '튜토리얼', onTutorial, { size: 20, w: 260, h: 50 });
     button(col, '게임 방법', () => this.showHelp(), { size: 20, w: 260, h: 50 });
-    // 모바일만 (CSS: body.touch), 앱으로 열었으면 숨김: 홈 화면에 설치하면 주소창 없이 전체 화면
-    button(col, '앱으로 설치', () => void installApp(), { size: 20, w: 260, h: 50 }).classList.add('install-btn');
+    // 모바일만 (CSS: body.touch), 앱으로 열었으면 숨김: 오른쪽 위 [앱 설치하기] (커피·피드백 버튼과 같은 모양, 주소창 없이 전체 화면)
+    const ib = document.createElement('button');
+    ib.className = 'feedback-btn install-btn';
+    ib.textContent = '앱 설치하기';
+    ib.addEventListener('click', () => void installApp());
+    this.el.appendChild(ib);
     div('footer', this.el, '자원지를 차지하고, 병사와 건물로 지키세요.');
     const cb = document.createElement('button');            // 오른쪽 아래: 개발자에게 커피
     cb.className = 'coffee-btn';

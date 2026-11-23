@@ -10,6 +10,7 @@ import type { StartInfo } from './state.ts';
 export interface JoinOptions {
   bots?: number; color?: number; name?: string; difficulty?: string; season?: number;
   spot?: [number, number] | null; starts?: number[][] | null; colors?: number[] | null;
+  tutorial?: boolean;                      // 튜토리얼 판 (sim/tutorial.py)
 }
 
 export interface Handlers {

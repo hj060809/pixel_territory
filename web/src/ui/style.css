@@ -270,8 +270,9 @@ body.touch .act-btn { width: 50px; height: 50px; }
 body.touch .hud-banner { top: 96px; }
 
 /* 모바일: 로비 [앱으로 설치] (앱으로 열었으면 숨김), 설치·전체 화면 안내 상자 */
+/* 로비 오른쪽 위 [앱 설치하기]: 커피·피드백 버튼과 같은 모양 (.feedback-btn), 모바일만, 앱으로 열었으면 숨김 */
 .lobby .install-btn { display: none; }
-body.touch:not(.standalone) .lobby .install-btn { display: block; }
+body.touch:not(.standalone) .lobby .install-btn { display: flex; }
 .install-gate { position: fixed; inset: 0; z-index: 55; display: flex; align-items: center; justify-content: center; padding: 12px;
   background: rgba(8, 10, 14, 0.6); overflow: auto; }
 .install-gate .box { box-sizing: border-box; width: min(560px, 100%); max-height: 100%; overflow: auto; padding: 16px 18px;
@@ -398,3 +399,44 @@ body.touch .coffee-btn svg { width: 46px; height: 46px; }
 .feedback-btn svg { image-rendering: pixelated; flex: none; }
 body.touch .feedback-btn { right: 136px; height: 92px; border-radius: 46px; padding: 0 34px 0 28px; gap: 14px; font-size: 30px; border-width: 3px; }
 body.touch .feedback-btn svg { width: 40px; height: 40px; }
+/* 튜토리얼 안내 (game/tutorial.ts): 왼쪽 위 HUD 아래, 터치는 위 가운데 */
+.tutorial { position: fixed; left: 14px; top: 92px; z-index: 25; width: 360px; box-sizing: border-box; padding: 12px 14px 12px;
+  background: rgba(16, 19, 26, 0.94); border: 1px solid rgb(150, 126, 74); outline: 2px solid #000; color: rgb(238, 232, 214);
+  font: 14px/1.55 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; transition: opacity 0.2s; }
+.tutorial.done { border-color: rgb(255, 214, 120); }
+.tut-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: rgb(170, 168, 160); }
+.tut-dots { display: flex; gap: 4px; }
+.tut-dots i { width: 8px; height: 8px; background: rgb(56, 60, 72); border: 1px solid #000; }
+.tut-dots i.now { background: rgb(255, 214, 120); }
+.tut-dots i.on { background: rgb(76, 201, 184); }
+.tut-title { font-size: 18px; font-weight: bold; color: rgb(255, 214, 120); margin: 4px 0 6px; text-shadow: 1px 1px 0 #000; }
+.tut-body { word-break: keep-all; }
+.tut-body .help-mouse { display: inline-block; vertical-align: middle; margin: -6px 2px -4px; width: 20px; height: 27px; }
+.tut-body svg.help-mouse[viewBox="0 0 40 32"] { width: 30px; height: 24px; }
+.tut-body .kbd, .tut-body .tkey { margin: 0 1px; vertical-align: 1px; }
+.tut-prog { margin-top: 8px; font-size: 13px; color: rgb(255, 214, 120); }
+.tut-prog.ok { color: rgb(120, 230, 170); font-weight: bold; font-size: 15px; }
+.tut-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.tut-btns .dbtn { padding: 5px 10px; }
+.tut-btns .tut-main { background: rgb(36, 102, 104); border-color: rgb(120, 214, 200); font-weight: bold; }
+/* 터치: 화면 가운데에 떴다가 왼쪽 아래 동그란 버튼(.tut-dock)으로 빨려 들어간다 (tutorial.ts open/dock) */
+body.touch .tutorial { left: 50%; top: 50%; right: auto; transform: translate(-50%, -50%); width: min(430px, calc(100vw - 150px));
+  padding: 12px 14px; font-size: 13px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  transition: transform 0.45s cubic-bezier(0.5, 0, 0.6, 1), opacity 0.45s ease-in; }
+body.touch .tutorial.docked { opacity: 0; pointer-events: none; }
+.tut-dock { display: none; position: fixed; left: max(10px, env(safe-area-inset-left)); bottom: 10px; z-index: 26; width: 54px; height: 54px;
+  padding: 0; border-radius: 50%; align-items: center; justify-content: center; cursor: pointer;
+  background: rgb(58, 40, 28); border: 3px solid rgb(255, 214, 120); box-shadow: 0 0 0 3px rgb(10, 10, 14), 0 4px 10px rgba(0, 0, 0, 0.5);
+  transform: scale(0); opacity: 0; pointer-events: none; transition: transform 0.15s, opacity 0.15s; }
+body.touch .tut-dock { display: flex; }
+.tut-dock.show { transform: scale(1); opacity: 1; pointer-events: auto; transition: transform 0.25s cubic-bezier(0.3, 1.6, 0.6, 1) 0.38s, opacity 0.15s 0.38s; }
+.tut-dock .tut-q { font: bold 26px 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; color: rgb(255, 214, 120); text-shadow: 1px 2px 0 #000; }
+.tut-badge { position: absolute; top: -7px; right: -10px; min-width: 18px; padding: 1px 5px; border-radius: 10px; box-sizing: border-box;
+  font: bold 11px/15px 'Malgun Gothic', sans-serif; color: #fff; background: rgb(46, 52, 64); border: 2px solid rgb(10, 10, 14); }
+.tut-badge.ok { background: rgb(36, 140, 110); }
+.tut-btns .tut-fold { margin-left: auto; }
+body.touch .tut-title { font-size: 15px; margin: 2px 0 4px; }
+/* 크기는 로비의 싱글/멀티 버튼과 같게 (260 × 50, 글자 20), 그림 없이 */
+.lobby .feedback-btn.install-btn, body.touch .lobby .feedback-btn.install-btn {
+  top: 24px; right: 28px; bottom: auto; width: 260px; height: 50px; padding: 0; border-radius: 25px; border-width: 2px;
+  justify-content: center; font-size: 20px; }

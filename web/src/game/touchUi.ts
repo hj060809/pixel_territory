@@ -131,7 +131,7 @@ export class TouchUi {
     };
     const solo = !document.body.classList.contains('multi');
     item('조작 설명', () => touchHelpBox(solo));
-    if (solo) {                                            // 사람이 여럿인 판에는 새 판이 없다
+    if (solo && !document.body.classList.contains('in-tutorial')) {   // 사람이 여럿인 판·튜토리얼에는 새 판이 없다
       item('같은 지도로 새 판', () => this.h.restart());
       item('새 지도', () => this.h.newMap());
     }

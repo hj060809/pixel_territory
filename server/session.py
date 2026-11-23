@@ -110,6 +110,11 @@ class GameSession:
 
     # ------------------------------------------------------------- 사람 자리
     @property
+    def tutorial(self) -> bool:
+        """튜토리얼 판 (로비 '튜토리얼'): 나라 둘, 가만히 있는 적 (sim/tutorial.py)."""
+        return bool(self.opts.get('tutorial')) and len(self.seats) == 1
+
+    @property
     def solo(self) -> bool:
         """사람이 1명인 판 (싱글): 속도·일시정지·새 판을 쓸 수 있다."""
         return len(self.seats) == 1
@@ -131,7 +136,8 @@ class GameSession:
     def _new_world(self, first=False):
         o, rng = self.opts, self.rng
         self.round += 1
-        n = min(int(o.get('bots', 4)) + len(self.seats), len(R.COLORS))
+        tut = self.tutorial
+        n = 2 if tut else min(int(o.get('bots', 4)) + len(self.seats), len(R.COLORS))
         humans = [int(h) for h in rng.permutation(n)[:len(self.seats)]]   # 사람이 맡을 나라 (무작위: 0번 고정 아님)
         for seat, h in zip(self.seats, humans):
             seat.nid = h
@@ -154,7 +160,13 @@ class GameSession:
             for i in range(n):
                 if i not in humans:
                     colors[i] = next(it)
-        if starts and len(starts) == n:
+        if tut:                                  # 튜토리얼: 정해 둔 자리 (내 거점, 가까운 적 거점) — sim/tutorial.py
+            from sim import tutorial
+            from sim.sites import sites_for
+            mine, foe = tutorial.starts(self.gmap, sites_for(self.gmap, self.scene.config.seed))
+            starts = [None, None]
+            starts[humans[0]], starts[1 - humans[0]] = mine, foe
+        elif starts and len(starts) == n:
             st = [None] * n
             for k, nid in enumerate(order):
                 st[nid] = tuple(starts[k])
@@ -169,6 +181,10 @@ class GameSession:
         self.world = World(self.gmap, n, seed=seed, map_seed=self.scene.config.seed,
                            starts=starts, colors=colors, names=names, spots=spots)
         self.match = Match(self.world, humans, difficulty=R.DIFFICULTY.get(o.get('difficulty', '보통'), 1.0))
+        if tut:                                  # 튜토리얼의 적은 생각하지 않는다 (먼저 쳐들어오지 않는다)
+            from sim import tutorial
+            self.match.bots, self.match._order = {}, []
+            tutorial.setup(self.world, humans[0], 1 - humans[0])
         self.encoder = StateEncoder(self.world) if first else (self.encoder.reset(self.world) or self.encoder)
         for s in self.seats:
             s.cmd = PlayerCommands(self.world, s.nid)
@@ -183,6 +199,7 @@ class GameSession:
         return {
             'map': getattr(self.scene, 'map_key', ''), 'H': self.scene.H, 'W': self.scene.W, 'round': self.round,
             'tick_hz': self.cfg.tick_hz, 'me': seat.nid, 'humans': len(self.seats), 'room': bool(self.opts.get('room')),
+            'tutorial': self.tutorial,
             'nations': [{'id': n.id, 'name': n.name, 'color': list(n.color), 'light': list(n.light)} for n in w.nations],
             'sites': [{'id': s.id, 'kind': s.kind, 'x': s.x, 'y': s.y, 'rich': round(s.rich, 2), 'snow': s.snow} for s in w.sites],
             'lairs': [[lr.y, lr.x] for lr in w.wild.lairs],

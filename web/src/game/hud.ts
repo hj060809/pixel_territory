@@ -141,7 +141,7 @@ export class Hud {
     // 판 끝: 결과 + 버튼 (싱글은 새 판·새 지도도). 진 뒤 판이 이어지는 동안: 관전 + [나가기]
     const solo = (st.info.humans ?? 1) <= 1;
     const toRoom = st.info.room ? this.actions.room : null;
-    const bmode = st.over && st.ended ? `end:${st.over}:${solo}:${!!toRoom}` : st.over ? 'watch' : '';
+    const bmode = st.info.tutorial ? '' : st.over && st.ended ? `end:${st.over}:${solo}:${!!toRoom}` : st.over ? 'watch' : '';   // 튜토리얼은 안내 창이 대신
     if (bmode !== this.bannerMode) {
       this.bannerMode = bmode;
       this.banner.innerHTML = '';

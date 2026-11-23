@@ -1,5 +1,5 @@
 // 모바일: 웹 앱 설치(홈 화면에 추가 → 주소창 없이 전체 화면)와 전체 화면 안내.
-// - 로비의 [앱으로 설치] 버튼: 안드로이드 Chrome은 바로 설치 창, 그 밖의 환경은 설치 방법 안내 상자.
+// - 로비 오른쪽 위 [앱 설치하기] 버튼: 안드로이드 Chrome은 바로 설치 창, 그 밖의 환경은 설치 방법 안내 상자.
 // - 처음 로비에서 한 번: '싱글·멀티 플레이를 누르면 전체 화면이 됩니다' (주소창을 못 내리는 브라우저는 앱 설치를 권한다).
 
 import { canFullscreen, isStandalone } from './device.ts';
@@ -51,7 +51,7 @@ function dialog(title: string, body: string, buttons: [string, () => void, boole
   return { box, close };
 }
 
-/** 로비 [앱으로 설치]: 안드로이드 Chrome은 바로 설치 창, 아니면 그 환경의 설치 방법. */
+/** 로비 [앱 설치하기]: 안드로이드 Chrome은 바로 설치 창, 아니면 그 환경의 설치 방법. */
 export async function installApp() {
   if (installEvent) {
     installEvent.prompt();
@@ -85,6 +85,6 @@ export function showFullscreenNote() {
   const remember = () => { try { localStorage.setItem(NOTE_SEEN, '1'); } catch { /* 그대로 */ } };
   const text = canFullscreen()
     ? '<b>싱글·멀티 플레이</b>를 누르면 주소창이 내려가고 전체 화면이 됩니다.'
-    : '이 브라우저는 주소창을 내릴 수 없습니다. 주소창 없이 하려면 로비의 <b>앱으로 설치</b>를 눌러 주세요.';
+    : '이 브라우저는 주소창을 내릴 수 없습니다. 주소창 없이 하려면 로비 오른쪽 위의 <b>앱 설치하기</b>를 눌러 주세요.';
   const d = dialog('전체 화면으로 플레이', text, [['확인', () => { remember(); d.close(); }, true]], remember);
 }

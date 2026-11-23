@@ -21,6 +21,7 @@ export interface StartInfo {
   sid?: string; token?: string; resumed?: boolean;   // 다시 접속할 때 쓰는 판 번호·내 자리 표, 다시 접속해서 받은 start인가
   humans?: number;                     // 사람 수 (2 이상: 멀티)
   room?: boolean;                      // 방에서 시작한 판 (끝나면 대기실로 돌아갈 수 있다)
+  tutorial?: boolean;                  // 튜토리얼 판 (game/tutorial.ts가 단계 안내를 띄운다)
   dev?: boolean;                       // 서버가 --dev로 켜졌다 (개발용 콘솔)
 }
 

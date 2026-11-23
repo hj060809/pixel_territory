@@ -8,7 +8,7 @@ import { el, panel } from './gameMenu.ts';
 type MousePart = 'left' | 'right' | 'wheel';
 
 /** 마우스 그림 (누르는 곳을 금색으로). */
-function mouse(part: MousePart): string {
+export function mouse(part: MousePart): string {
   const on = 'rgb(255,214,120)', line = 'rgb(220,214,196)';
   const fill = (p: MousePart) => (p === part ? on : 'none');
   return `<svg class="help-mouse" width="27" height="36" viewBox="0 0 24 32" aria-hidden="true">
@@ -20,7 +20,7 @@ function mouse(part: MousePart): string {
   </svg>`;
 }
 
-const kbd = (k: string) => `<span class="kbd">${k}</span>`;
+export const kbd = (k: string) => `<span class="kbd">${k}</span>`;
 const plus = '<span class="help-plus">+</span>';
 const or = '<span class="help-plus">/</span>';
 
@@ -92,7 +92,7 @@ export function fillHelp(parent: HTMLElement, solo: boolean, lobby = false) {
 type Gesture = 'tap' | 'hold' | 'drag' | 'box' | 'pinch';
 
 /** 손가락 동작 그림: 금색 점 = 손가락이 닿은 곳, 고리 = 탭/길게, 화살표 = 끌기. */
-function gesture(kind: Gesture): string {
+export function gesture(kind: Gesture): string {
   const on = 'rgb(255,214,120)', dim = 'rgba(255,214,120,0.45)', line = 'rgb(220,214,196)';
   const dot = (x: number, y: number) => `<circle cx="${x}" cy="${y}" r="4.5" fill="${on}" stroke="#000" stroke-width="1"/>`;
   const arrow = (x1: number, y1: number, x2: number, y2: number) => {
@@ -111,7 +111,7 @@ function gesture(kind: Gesture): string {
 }
 
 /** 화면 버튼 모양 (touchUi의 .t-btn을 작게). */
-const tbtn = (t: string, cls = '') => `<span class="tkey ${cls}">${t}</span>`;
+export const tbtn = (t: string, cls = '') => `<span class="tkey ${cls}">${t}</span>`;
 
 export function touchHelpBox(solo: boolean) {
   const { box, close } = panel('help-panel');

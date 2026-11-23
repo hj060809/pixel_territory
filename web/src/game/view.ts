@@ -25,6 +25,7 @@ import { DiploUi } from './diplomacy.ts';
 import { closeMenu, confirmBox, menuBox, menuOpen, type MenuItem } from './gameMenu.ts';
 import { helpBox } from './help.ts';
 import { serverPlea } from '../ui/coffee.ts';
+import { Tutorial } from './tutorial.ts';
 import { setTouchMode, touchMode } from '../ui/device.ts';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -57,6 +58,7 @@ export interface ViewHooks {
   newMap(key: string): void;     // F6
   ready?(): void;                // 첫 장면을 그렸다 (메뉴 배경을 치워도 된다)
   room?(conn: Connection): void; // 방에서 시작한 판이 끝났다: 이 연결로 대기실에 돌아간다
+  single?(): void;               // 튜토리얼을 마쳤다: 싱글 플레이 설정으로
 }
 
 /** 브라우저를 다시 열었을 때 이어 할 판 (판 번호, 내 자리 표, 지도). */
@@ -107,6 +109,7 @@ export class GameView {
   private handed = false;                         // 연결을 대기실에 넘겼다 (닫지 않는다)
   private token: string | null = null;            // 내 자리 표 (이어 하기를 지울 때)
   private menuBtn: HTMLButtonElement | null = null; // 오른쪽 위 [메뉴] (데스크톱)
+  private tut: Tutorial | null = null;              // 튜토리얼 판의 단계 안내
 
   /** overMenu: 메뉴 배경 위에서 시작 (로딩 화면을 반투명하게, 첫 장면이 그려질 때까지 게임 화면을 숨긴다).
    *  attach: 대기실이 들고 있던 연결 (멀티: start를 받은 뒤 이어받는다). 없으면 싱글로 새로 접속한다. */
@@ -132,8 +135,10 @@ export class GameView {
     cancelAnimationFrame(this.raf);
     this.ac.abort();
     if (!this.handed) this.net?.close();
-    clearResume(this.token);
-    this.menuBtn?.remove();                            // 스스로 나갔다: 다시 열어도 이어 하지 않는다
+    clearResume(this.token);                            // 스스로 나갔다: 다시 열어도 이어 하지 않는다
+    this.menuBtn?.remove();
+    this.tut?.dispose();
+    document.body.classList.remove('in-tutorial');
     closeMenu();
     this.scene?.dispose();
     this.hud?.dispose();
@@ -232,6 +237,16 @@ export class GameView {
         this.bar = new ActionBar(st, ctl, bank);          // 하단 버튼 (건물 1~, 병종 QWE)
         if (!this.hud) this.hud = new Hud(st, ctl, scene, rules);
         else this.hud.reset(st, ctl);
+        document.body.classList.toggle('in-tutorial', !!info.tutorial);   // 튜토리얼: 새 판·새 지도 없음, 단계 안내
+        if (info.tutorial && !this.tut) {
+          this.tut = new Tutorial({
+            st: () => st, ctl: () => ctl, cam,
+            center: (x, y) => { const [vw, vh] = cam.view(); cam.x = x - vw / 2; cam.y = y - vh / 2; cam.clamp(); },
+            home: () => centerHome(),
+            lobby: () => this.hooks.lobby(),
+            single: () => (this.hooks.single ?? this.hooks.lobby)(),
+          });
+        }
         if (!first && !info.resumed) loading.hide();
         if (!info.resumed || first) waitHome = true;   // 첫 상태가 오면 내 거점으로 (그리고 두 프레임 뒤에 화면을 보인다)
       },
@@ -275,6 +290,7 @@ export class GameView {
     let waitHome = false, revealAt = -1;
     let sid: string | null = null, token: string | null = null, reconnecting = false, gaveUp = false, lostAt = 0, autoPaused = false;
     const solo = () => (st?.info.humans ?? 1) <= 1;      // 사람이 1명인 판 (싱글): 속도·일시정지·새 판
+    const fresh = () => solo() && !st?.info.tutorial;    // 같은 지도로 새 판·새 지도 (튜토리얼에는 없다)
     const playing = () => !!st && !st.over && st.nations[st.info.me]?.alive !== false;   // 아직 살아서 하는 중
     const canSurrender = () => !solo() && playing();     // 항복은 멀티에서만 (싱글은 그냥 나가면 된다)
     const surrender = () => confirmBox('항복', '내 병사·건물·배가 모두 허물어지고, 판이 끝날 때까지 관전합니다.', '항복하기',
@@ -295,7 +311,7 @@ export class GameView {
     const openMenu = () => {                           // 오른쪽 위 [메뉴]
       const items: MenuItem[] = [{ label: '계속하기', fn: () => {} }, { label: '설명', fn: () => helpBox(solo()) }];
       if (canSurrender()) items.push({ label: '항복하기', fn: surrender, warm: true });
-      if (solo()) items.push({ label: '같은 지도로 새 판', fn: () => net.send({ t: 'restart' }) }, { label: '새 지도', fn: () => this.hooks.newMap(nextSeedKey(key)) });
+      if (fresh()) items.push({ label: '같은 지도로 새 판', fn: () => net.send({ t: 'restart' }) }, { label: '새 지도', fn: () => this.hooks.newMap(nextSeedKey(key)) });
       if (st?.ended && st.info.room) items.push({ label: '대기실로', fn: toRoom });
       items.push({ label: '로비로 나가기', fn: exit });
       menuBox('메뉴', items);
@@ -433,7 +449,7 @@ export class GameView {
       if (k === 'escape' && closeMenu()) return;
       if (menuOpen() && k !== 'f1') return;               // 창이 열려 있으면 게임 키는 쉰다
       if (k === 'enter' && st?.over && !document.querySelector('.t-menu-back')) { exit(); return; }
-      if (k === 'f6') { if (solo()) this.hooks.newMap(nextSeedKey(key)); return; }
+      if (k === 'f6') { if (fresh()) this.hooks.newMap(nextSeedKey(key)); return; }
       const hud = this.hud;
       if (!ctl || !st || !hud) return;
       hudWait = 1;
@@ -456,7 +472,7 @@ export class GameView {
         case 'p': togglePause(); break;
         case '.': cycleSpeed(); break;
         case 'f1': if (!closeMenu()) helpBox(solo()); break;
-        case 'f5': if (solo()) net.send({ t: 'restart' }); break;
+        case 'f5': if (fresh()) net.send({ t: 'restart' }); break;
         case 'f12': screenshot(canvas, overlay); break;
       }
     });
@@ -507,6 +523,7 @@ export class GameView {
         this.diplo?.render();
         this.bar?.update();
         this.tui?.update();
+        this.tut?.update();
         if (st) fadeCovered([...this.hud.panels(), ...(this.bar ? [this.bar.el] : []), ...(this.tui?.panels() ?? [])],
                             onScreen(st, cam, pointer));
       }

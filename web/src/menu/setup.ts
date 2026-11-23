@@ -41,7 +41,7 @@ export interface RoomRequest {
 export interface PlayRequest {
   key: string;
   options: { bots: number; color: number; name: string; difficulty: string; season: number;
-    spot?: [number, number] | null; starts?: number[][] | null; colors?: number[] | null };
+    spot?: [number, number] | null; starts?: number[][] | null; colors?: number[] | null; tutorial?: boolean };
 }
 
 interface Listing { presets: { key: string; name: string }[]; sizes: number[] }
