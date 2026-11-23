@@ -514,3 +514,11 @@ body.touch .coffee-mini svg { width: 12px; height: 12px; }
 body:not(.touch) .chat-dock { display: flex; }
 .chat-dock.show { transform: scale(1); opacity: 1; pointer-events: auto; transition: transform 0.25s cubic-bezier(0.3, 1.6, 0.6, 1) 0.35s, opacity 0.15s 0.35s; }
 .chat-dock:hover { background: rgb(84, 58, 38); }
+/* 모바일 게임 버튼을 조금 작게 (왼쪽 아래 튜토리얼 버튼과 아래 건물 막대가 겹치지 않게) */
+body.touch .act-btn { width: 46px; height: 46px; }
+body.touch .action-bar { gap: 8px; padding: 3px 5px; }
+body.touch .act-group { gap: 4px; }
+body.touch .t-btn { min-width: 40px; height: 40px; font-size: 14px; }
+body.touch .t-selrow .t-btn { height: 36px; font-size: 12px; }
+body.touch .tut-dock { width: 48px; height: 48px; }
+body.touch .tut-dock .tut-q { font-size: 23px; }
