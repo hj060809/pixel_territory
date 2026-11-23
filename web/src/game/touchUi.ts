@@ -1,8 +1,8 @@
 // 터치 화면 (body.touch일 때만 보인다): PC의 키보드 단축키를 손가락으로 누르는 버튼으로.
-//   위 오른쪽   [⏸] [×1] [☰]      일시정지(P), 속도(.), 메뉴 (도움말, 항복, 같은 지도로 새 판 F5, 새 지도 F6, 대기실로, 로비로)
+//   위 오른쪽   [⏸] [×1] [☰]      일시정지(P), 속도(.), 메뉴 (조작 설명, 항복, 같은 지도로 새 판 F5, 새 지도 F6, 대기실로, 로비로)
 //   왼쪽        [1] [2] [3]        부대: 탭 = 부르기, 길게 = 지정 (Shift+숫자 / Ctrl+숫자)
 //   오른쪽      [⌂] [▣]            내 거점으로 (Space), 화면 안 내 병사 모두 고르기
-//   아래        고른 것 한 줄 + [⚔ 공격이동] [■ 정지] [+ 더하기] [✕ 풀기]   (A, S, Shift, Esc)
+//   아래        고른 것 한 줄 + [⚔ 공격이동] [■ 정지] [+ 더 고르기] [✕ 풀기]   (A, S, Shift, Esc)
 //   건물 놓기   건물 그림 옆에 [✓ 짓기] [✕]  (그림을 가리지 않게 아래, 화면 아래쪽이면 위)
 //   길게 누르기  그 자리 설명 카드 (손가락에 가리지 않게 위로)
 
@@ -12,6 +12,7 @@ import type { GameState } from './state.ts';
 import { unitCounts } from './hud.ts';
 import type { TouchInput } from './touch.ts';
 import { addToHomeHint, canFullscreen, enterFullscreen, isStandalone } from '../ui/device.ts';
+import { touchHelpBox } from './help.ts';
 
 export interface TouchUiHooks {
   st(): GameState | null;
@@ -30,17 +31,6 @@ export interface TouchUiHooks {
   room(): (() => void) | null;         // 판이 끝났고 방에서 시작했으면: 대기실로
   changed(): void;
 }
-
-const HELP = [
-  ['고르기', '내 병사·건물·배를 탭. 멀리서 보면 무리 배지를 탭하면 그 무리 전체'],
-  ['여러 명', '길게 누른 채 끌어서 상자로 고르기, 또는 오른쪽 ▣ (화면 안 내 병사 모두)'],
-  ['명령', '고른 뒤 땅을 탭하면 이동, 적을 탭하면 공격, 빈 자원지를 탭하면 짓기 (바다 건너면 배를 탄다)'],
-  ['화면', '한 손가락으로 끌어 이동, 두 손가락으로 벌리고 오므려 확대'],
-  ['건물', '아래 건물 버튼 → 그림을 탭이나 끌기로 옮기고 ✓. 고른 병사가 없으면 가까운 쉬는 병사가 짓는다'],
-  ['훈련', '아래 보병·궁수·전함 버튼. 거점이나 항구를 골라 두면 그곳에서, 아니면 돌아가며'],
-  ['부대', '왼쪽 1~3: 길게 누르면 지금 고른 병사를 부대로, 탭하면 부르기'],
-  ['설명', '빈 땅을 길게 누르면 지형·자원지 설명'],
-];
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent: HTMLElement, text?: string) {
   const d = document.createElement(tag);
@@ -85,7 +75,7 @@ export class TouchUi {
     btn(this.side, '▣', '', () => this.selectOnScreen()).title = '화면 안 내 병사 모두';
     this.atkBtn = btn(this.selRow, '⚔ 공격이동', 'warm', () => { const c = h.ctl(); if (c && c.sel.size) c.mode = c.mode === 'attack' ? null : 'attack'; });
     this.stopBtn = btn(this.selRow, '■ 정지', '', () => h.ctl()?.stop());
-    this.addBtn = btn(this.selRow, '+ 더하기', '', () => { h.touch.add = !h.touch.add; });
+    this.addBtn = btn(this.selRow, '+ 더 고르기', '', () => { h.touch.add = !h.touch.add; });
     btn(this.selRow, '✕', '', () => { const c = h.ctl(); if (c) { c.sel.clear(); c.selShips.clear(); c.selB = null; c.mode = null; } h.touch.add = false; });
     this.okBtn = btn(this.confirm, '✓ 짓기', 'ok', () => this.build());
     btn(this.confirm, '✕', '', () => { const c = h.ctl(); if (c) c.mode = null; });
@@ -132,14 +122,16 @@ export class TouchUi {
   private openMenu() {
     if (this.menu) return;
     const back = (this.menu = el('div', 't-menu-back', document.body));
-    const box = el('div', 't-menu', back);
+    const box = el('div', 't-menu touch-menu', back);
     el('div', 't-menu-title', box, '메뉴');
     const row = el('div', 't-menu-row', box);
     const item = (text: string, fn: () => void) => {
       const b = el('button', 't-btn wide', row, text);
       b.addEventListener('click', () => { this.closeMenu(); fn(); });
     };
-    if (!document.body.classList.contains('multi')) {     // 사람이 여럿인 판에는 새 판이 없다
+    const solo = !document.body.classList.contains('multi');
+    item('조작 설명', () => touchHelpBox(solo));
+    if (solo) {                                            // 사람이 여럿인 판에는 새 판이 없다
       item('같은 지도로 새 판', () => this.h.restart());
       item('새 지도', () => this.h.newMap());
     }
@@ -147,16 +139,10 @@ export class TouchUi {
     const toRoom = this.h.room();
     if (toRoom) item('대기실로', toRoom);
     item('로비로', () => this.h.lobby());
-    if (canFullscreen() && !isStandalone() && !document.fullscreenElement) item('전체 화면 (주소창 내리기)', () => void enterFullscreen());
+    if (canFullscreen() && !isStandalone() && !document.fullscreenElement) item('전체 화면', () => void enterFullscreen());
     item('닫기', () => {});
     const hint = addToHomeHint();
     if (hint) el('div', 't-help', box, hint);
-    el('div', 't-menu-head', box, '조작');
-    for (const [k, v] of HELP) {
-      const line = el('div', 't-help', box);
-      el('b', '', line, k);
-      line.append(` ${v}`);
-    }
     back.addEventListener('click', (e) => { if (e.target === back) this.closeMenu(); });
   }
 

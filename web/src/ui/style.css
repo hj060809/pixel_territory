@@ -325,3 +325,16 @@ body.touch .game-menu-btn { display: none; }
 .help-other .t-help { margin-bottom: 6px; }
 .help-col .help-head:not(:first-child) { margin-top: 18px; }
 .help-foot { justify-content: center; margin: 14px 0 0; }
+.tkey { display: inline-block; box-sizing: border-box; min-width: 28px; height: 28px; padding: 0 7px; text-align: center;
+  font: bold 13px/24px 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; color: rgb(238, 232, 214); white-space: nowrap;
+  background: rgb(46, 52, 64); border: 2px solid rgb(96, 100, 112); outline: 1px solid rgb(10, 10, 14); text-shadow: 1px 1px 0 #000; }
+.tkey.warm { color: rgb(255, 220, 200); }
+.tkey.ok { background: rgb(36, 102, 104); border-color: rgb(120, 214, 200); }
+body.touch .help-row { min-height: 38px; }
+body.touch .help-panel .help-text { font-size: 13px; }
+body.touch .help-col:not(.mouse) .help-row { grid-template-columns: 160px 1fr; }
+/* 터치 ☰ 메뉴: 제목 가운데, 버튼은 같은 너비 2열 (홀수면 마지막 버튼이 한 줄) */
+.t-menu.touch-menu { width: min(480px, calc(100vw - 24px)); text-align: center; }
+.touch-menu .t-menu-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.touch-menu .t-btn { width: 100%; min-width: 0; }
+.touch-menu .t-btn:last-child:nth-child(odd) { grid-column: 1 / -1; }
