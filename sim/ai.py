@@ -78,11 +78,21 @@ def dragon_tribes(w) -> set:
     return out
 
 
+def set_ai_nations(w, ids) -> None:
+    """AI가 조종하는 나라들 (sim/match.py가 알려 준다). 드래곤·거북 부족을 고를 때 AI 나라 중에서만 고른다."""
+    w.__dict__['_ai_nations'] = set(int(i) for i in ids)
+    w.__dict__.pop('_dragon_tribes', None)
+    w.__dict__.pop('_tortoise_tribes', None)
+
+
 def _starts(w) -> dict:
     """AI 나라마다 시작 거점 자리 (첫 거점)."""
     b = w.builds
     out = {}
-    for nat in w.nations[1:]:
+    ai = w.__dict__.get('_ai_nations')
+    for nat in w.nations:
+        if ai is not None and nat.id not in ai:
+            continue
         halls = w.building_ids(nat.id, R.HALL)
         if len(halls):
             out[nat.id] = (int(b.y[halls[0]]), int(b.x[halls[0]]))

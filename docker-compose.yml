@@ -12,7 +12,8 @@ services:
     volumes:
       - pt-data:/data
     environment:
-      TS_MAX_SESSIONS: "6"        # 동시에 열 수 있는 판 수
+      TS_MAX_SESSIONS: "6"        # 동시에 도는 판 수 (싱글·멀티 모두. 멀티 한 판 = 사람 여럿이어도 1)
+      TS_MAX_ROOMS: "30"          # 동시에 열린 멀티 대기실 수
       TS_MAP_WORKERS: "1"         # 직접 입력한 시드·고급 설정 지도를 동시에 몇 개 만들지 (CPU를 많이 쓴다)
       TS_MAX_SIZE: "512"          # 지도 크기 상한
       TS_RESUME_SECONDS: "60"     # 연결이 끊긴 판을 기다리는 시간

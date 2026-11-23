@@ -19,7 +19,7 @@ from sim.world import World
 def run(report, cache_dir='.cache'):
     scene = TerrainScene.load(load_preset('continent', default_config(512, 42)), cache_dir, progress=lambda s: None)
     gm = GameMap(scene)
-    w = World(gm, 2, seed=3, map_seed=42)
+    w = World(gm, 3, seed=3, map_seed=42)
     wild = w.wild
     n = wild.count(R.HORSE)
     horses = [a for a in wild.animals.values() if a.kind == R.HORSE]
@@ -65,7 +65,6 @@ def run(report, cache_dir='.cache'):
     report('다른 명령이면 끊긴다', i3 not in wild.tamers and a3.prog == 0 and w.units.kind[i3] == R.INFANTRY)
 
     # 겨루기: 다른 나라가 길들이는 중이어도 길들일 수 있고, 먼저 끝낸 나라가 가져간다. 같은 나라는 겹쳐 길들이지 않는다
-    w.bots = {}
     a4 = next(a for a in wild.animals.values() if a.kind == R.HORSE and not wild.taming(a.id))
     hp = R.UNIT_STATS[R.INFANTRY]['hp']
     far = w.units.add(1, R.INFANTRY, a4.x, a4.y, hp)              # 다른 나라: 멀리서 (아직 못 닿았다)

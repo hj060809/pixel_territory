@@ -12,10 +12,21 @@ HTTP
     GET  /api/maps/{키}/rules.bin          게임 규칙 지형 (client_info.py)
     GET  /api/lobby                        로비 배경 배치 + 설정 화면에 쓸 것 (나라 색, 난이도, 규칙 표)
     GET  /api/lobby.png                    로비 배경 지형 조각
+    GET  /api/rooms                        열린 방 목록 (대기 중인 방만, server/rooms.py)
+    GET  /api/resume?sid=&token=           이어 할 수 있는 판인가 (브라우저를 다시 열었을 때): {ok, map}
 WebSocket /ws
-    처음 메시지: {t:'join', map:키, options:{bots, color, name, difficulty, season, spot?, starts?, colors?}}
-                또는 {t:'resume', sid} (연결이 끊겼던 판에 다시 접속: cfg.resume_seconds 안이면 그 판을 이어 간다)
-    그다음 서버 → 브라우저: JSON(start, msg, over, ack, error)과 이진 상태 메시지(protocol.py), 브라우저 → 서버: 명령 JSON
+    처음 메시지 (하나):
+      {t:'join', map:키, options:{bots, color, name, difficulty, season, spot?, starts?, colors?}}   싱글 (사람 1 + AI)
+      {t:'room_create', name, password?, cap, bots, start_mode:'pick'|'random', setup:{map, difficulty, season},
+       player:{name, color}}                                                                      방 만들기 (방장)
+      {t:'room_join', id | code, password?, player:{name, color}}                                방 들어가기
+      {t:'resume', sid, token?} (연결이 끊겼던 판에 다시 접속: 그 자리로. 싱글은 token 없이도)
+    대기실 (브라우저 → 서버): room_ready {on} · room_color {color} · room_spot {y, x} · room_leave {}
+                              방장만: room_setup {바꿀 것} · room_kick {member} · room_start {}
+    대기실 (서버 → 브라우저): room {방 상태 (server/rooms.py Room.view)}, room_error {error}, room_kicked {}, room_closed {}
+    판 (시작한 뒤): 서버 → 브라우저: JSON(start, msg, over, ack, diplo, seats, error)과 이진 상태 메시지(protocol.py),
+                     브라우저 → 서버: 명령 JSON (server/session.py)
+    판이 끝난 뒤: room_back {} → 같은 방의 대기실로 (처음 돌아온 사람이 방장, 나머지는 돌아오는 대로 들어온다)
 """
 from __future__ import annotations
 
@@ -35,6 +46,7 @@ from server import lobby_art
 from server.client_info import rules_bin, rules_info
 from server.config import ServerConfig
 from server.maps import MapStore
+from server.rooms import Member, RoomManager
 from server.session import GameSession
 from sim import rules as R
 from sim.spawn import choose_starts, pick_colors
@@ -43,6 +55,7 @@ from sim.spawn import choose_starts, pick_colors
 def create_app(cfg: ServerConfig | None = None) -> FastAPI:
     cfg = cfg or ServerConfig()
     state = {'maps': None, 'sessions': {}, 'layout_maps': {}, 'lobby': None}     # sessions: sid → GameSession
+    rooms = RoomManager()                                                         # 멀티 플레이 방
     lobby_lock = threading.Lock()
 
     def lobby():
@@ -110,6 +123,18 @@ def create_app(cfg: ServerConfig | None = None) -> FastAPI:
     def map_status(key: str):
         return maps().status(key)
 
+    @app.get('/api/rooms')
+    def list_rooms():
+        return rooms.listing()
+
+    @app.get('/api/resume')
+    def can_resume(sid: str = '', token: str = ''):
+        """브라우저를 다시 열었을 때: 끊긴 채 기다리는 내 자리가 있는가 (그 판의 지도 키도)."""
+        session = state['sessions'].get(sid)
+        seat = session.seat_of(token or None) if session is not None else -1
+        ok = session is not None and seat >= 0 and session.alive and not session.crashed and not session.match.over
+        return {'ok': bool(ok), 'map': getattr(session.scene, 'map_key', '') if ok else ''}
+
     @app.get('/api/maps/{key}/layout')
     async def layout(key: str, bots: int = 4, color: int = 0, spot: str | None = None):
         """시작 배치 미리보기: 무작위(또는 고른 내 자리 + 나머지 무작위). 게임 시작 때 그대로 넘겨 받는다."""
@@ -125,7 +150,7 @@ def create_app(cfg: ServerConfig | None = None) -> FastAPI:
             if err:
                 return JSONResponse({'error': err}, status_code=422)
             player_spot = (y, x)
-        starts = choose_starts(gmap, n, rng, player_spot, sites)
+        starts = choose_starts(gmap, n, rng, [player_spot] if player_spot else None, sites)   # 맨 앞 = 고른 사람 자리
         from sim.wildlife import lairs_for
         lairs = lairs_for(gmap, R.WILDLIFE[R.DRAGON]['cap'])               # 드래곤 둥지 (미리보기에 표시)
         return {'starts': [list(map(int, s)) for s in starts], 'colors': pick_colors(rng, n, color),
@@ -167,9 +192,9 @@ def create_app(cfg: ServerConfig | None = None) -> FastAPI:
         await ws.accept()
         loop = asyncio.get_running_loop()
         out: asyncio.Queue = asyncio.Queue()
-        session = None
+        session, seat, room, member = None, 0, None, None
 
-        def send(item):                                     # 세션 스레드에서 불린다
+        def send(item):                                     # 세션 스레드에서도 불린다
             loop.call_soon_threadsafe(out.put_nowait, item)
 
         async def writer():
@@ -180,67 +205,253 @@ def create_app(cfg: ServerConfig | None = None) -> FastAPI:
                 else:
                     await ws.send_text(json.dumps(item, ensure_ascii=False))
 
+        async def fatal(text):
+            await ws.send_text(json.dumps({'t': 'error', 'error': text, 'fatal': True}, ensure_ascii=False))
+
         wtask = asyncio.create_task(writer())
         try:
             try:
-                join = json.loads(await ws.receive_text())
+                first = json.loads(await ws.receive_text())
             except ValueError:
-                join = {}
-            if join.get('t') == 'resume':                               # 끊겼던 판에 다시 접속
-                session = state['sessions'].get(str(join.get('sid')))
-                if session is None or not session.away or not session.alive:
-                    session = None
-                    await ws.send_text(json.dumps({'t': 'error', 'error': '이어 할 판이 없습니다 (너무 오래 끊겼습니다)',
-                                                   'fatal': True}, ensure_ascii=False))
+                first = {}
+            t = first.get('t') if isinstance(first, dict) else None
+            if t == 'resume':                                               # 끊겼던 판에 다시 접속 (그 자리로)
+                session = state['sessions'].get(str(first.get('sid')))
+                seat = session.seat_of(first.get('token')) if session is not None else -1
+                if session is None or seat < 0 or not session.alive or session.crashed:
+                    await fatal('이어 할 판이 없습니다 (너무 오래 끊겼습니다)')
                     return
-                session.attach(send)
-            elif join.get('t') != 'join':
-                await ws.send_text(json.dumps({'t': 'error', 'error': '처음에는 join을 보내세요'}))
-                return
+                session.attach(send, seat)
+                r = getattr(session, 'room', None)                          # 방에서 시작한 판: 대기실로 돌아갈 수 있게
+                if r is not None:
+                    member = next((mm for mm in r.members if mm.game is session and mm.seat == seat), None)
+                    if member is not None:
+                        room, member.send, member.ws = r, send, ws
+            elif t == 'join':                                               # 싱글: 사람 1명짜리 판을 바로
+                session = await _start_single(first, send, ws)
+                if session is None:
+                    return
+            elif t in ('room_create', 'room_join'):                         # 멀티: 대기실
+                room, member = await _enter_room(first, send, ws)
+                if room is None:
+                    return
             else:
-                if len(state['sessions']) >= cfg.max_sessions:
-                    await ws.send_text(json.dumps({'t': 'error', 'error': '지금 열린 판이 너무 많습니다. 잠시 뒤에 다시 해 주세요',
-                                                   'fatal': True}, ensure_ascii=False))
-                    return
-                key = join['map']
-                while maps().status(key)['state'] == 'building':            # 지도를 만드는 중이면 진행 상황을 보낸다
-                    await ws.send_text(json.dumps({'t': 'map_status', **maps().status(key)}, ensure_ascii=False))
-                    await asyncio.sleep(0.5)
-                if maps().status(key)['state'] != 'ready':
-                    await ws.send_text(json.dumps({'t': 'error', 'error': f'지도를 쓸 수 없습니다: {maps().status(key)}',
-                                                   'fatal': True}, ensure_ascii=False))
-                    return
-                await ws.send_text(json.dumps({'t': 'map_status', 'state': 'loading', 'progress': '판 준비 중...'},
-                                              ensure_ascii=False))
-                scene = await asyncio.to_thread(maps().scene, key)
-                session = await asyncio.to_thread(GameSession, scene, join.get('options', {}), send, cfg)
-                state['sessions'][session.sid] = session
-                session.start()
+                await ws.send_text(json.dumps({'t': 'error', 'error': '처음에는 join, room_create, room_join을 보내세요'}))
+                return
             while True:
                 msg = await ws.receive_text()
                 try:
                     m = json.loads(msg)
                 except ValueError:
-                    continue                                            # 깨진 메시지는 버린다
-                if isinstance(m, dict) and not str(m.get('t', '')).startswith('_'):
-                    session.submit(m)
+                    continue                                                # 깨진 메시지는 버린다
+                if not isinstance(m, dict) or str(m.get('t', '')).startswith('_'):
+                    continue
+                if room is not None and session is None and member.game is not None:   # 방장이 시작했다: 이제 판의 내 자리로
+                    session, seat = member.game, member.seat
+                if m.get('t') == 'room_back' and session is not None:     # 판이 끝났다: 같은 방의 대기실로
+                    err = await _room_back(room, member, session, seat)
+                    if err:
+                        send({'t': 'room_error', 'error': err, 'fatal': True})
+                    else:
+                        session = None
+                    continue
+                if room is not None and session is None:
+                    await _room_message(room, member, m)
+                    if member not in room.members:                         # 나갔다
+                        room = None
+                        return
+                    continue
+                session.submit(m, seat)
         except WebSocketDisconnect:
             pass
         finally:
             wtask.cancel()
+            if room is not None and session is None and member is not None and member.game is not None:
+                session, seat = member.game, member.seat
             if session is not None:
-                if session.alive and not session.crashed:               # 잠시 멈춘 채 다시 접속을 기다린다
-                    session.detach()
-                    loop.call_later(cfg.resume_seconds, _expire, session)
+                if session.alive and not session.crashed:               # 그 자리는 잠시 비운 채 다시 접속을 기다린다
+                    session.detach(seat, send)
+                    if session.abandoned:                               # 멀티: 모두 메뉴로 스스로 나갔다 → 바로 지운다
+                        session.stop()
+                        _forget(session)
+                    else:
+                        loop.call_later(cfg.resume_seconds, _expire, session)
                 else:
                     session.stop()
-                    state['sessions'].pop(session.sid, None)
+                    _forget(session)
+            elif room is not None and member is not None:              # 대기실에서 나갔다
+                rooms.leave(room, member)
+                await _broadcast(room)
+
+    async def _start_single(join, send, ws):
+        if len(state['sessions']) >= cfg.max_sessions:
+            await ws.send_text(json.dumps({'t': 'error', 'error': '지금 열린 판이 너무 많습니다. 잠시 뒤에 다시 해 주세요',
+                                           'fatal': True}, ensure_ascii=False))
+            return None
+        key = join['map']
+        if not await _wait_map(key, ws):
+            return None
+        scene = await asyncio.to_thread(maps().scene, key)
+        session = await asyncio.to_thread(GameSession, scene, join.get('options', {}), send, cfg)
+        state['sessions'][session.sid] = session
+        session.start()
+        return session
+
+    async def _wait_map(key, ws) -> bool:
+        """지도가 준비될 때까지 진행 상황을 보낸다. 쓸 수 없으면 알리고 False."""
+        while maps().status(key)['state'] == 'building':
+            await ws.send_text(json.dumps({'t': 'map_status', **maps().status(key)}, ensure_ascii=False))
+            await asyncio.sleep(0.5)
+        if maps().status(key)['state'] != 'ready':
+            await ws.send_text(json.dumps({'t': 'error', 'error': f'지도를 쓸 수 없습니다: {maps().status(key)}',
+                                           'fatal': True}, ensure_ascii=False))
+            return False
+        await ws.send_text(json.dumps({'t': 'map_status', 'state': 'loading', 'progress': '판 준비 중...'}, ensure_ascii=False))
+        return True
+
+    # ------------------------------------------------------------- 방 (대기실)
+    async def _enter_room(first, send, ws):
+        p = first.get('player') or {}
+        member = Member(str(p.get('name') or '이름 없음'), int(p.get('color', 0)), send, ws)
+        if first['t'] == 'room_create':
+            r = rooms.create(first.get('name'), first.get('password'), first.get('cap', 4), first.get('bots', 0),
+                             first.get('start_mode', 'random'), first.get('setup') or {}, cfg.max_rooms)
+            if isinstance(r, str):
+                await ws.send_text(json.dumps({'t': 'room_error', 'error': r, 'fatal': True}, ensure_ascii=False))
+                return None, None
+        else:
+            r = rooms.find(first.get('id'), first.get('code'))
+            if r is None:
+                await ws.send_text(json.dumps({'t': 'room_error', 'error': '그런 방이 없습니다', 'fatal': True}, ensure_ascii=False))
+                return None, None
+        got = rooms.join(r, first.get('password'), member)
+        if isinstance(got, str):
+            await ws.send_text(json.dumps({'t': 'room_error', 'error': got, 'fatal': True}, ensure_ascii=False))
+            return None, None
+        await _broadcast(r)
+        return r, member
+
+    async def _broadcast(r):
+        """방 상태를 모두에게 (사람마다 '나'가 다르다). 무작위 배치가 필요하면 먼저 정한다."""
+        key = r.setup.get('map', '')
+        status = maps().status(key) if key else {'state': 'error'}
+        if r.start_mode == 'random' and status.get('state') == 'ready' and (r.layout is None or len(r.layout) != r.nations):
+            gmap, sites = await asyncio.to_thread(_layout_map, key)
+            from sim.spawn import choose_starts
+            r.layout = [list(map(int, q)) for q in choose_starts(gmap, r.nations, np.random.default_rng(), None, sites)]
+        for i, m in enumerate(r.members):
+            m.send(r.view(i, status))
+
+    async def _room_message(r, member, m):
+        t = m.get('t')
+        me = r.members.index(member)
+        host = me == r.host
+        err = None
+        if r.state != 'wait':
+            return
+        if t == 'room_leave':
+            rooms.leave(r, member)
+            member.send({'t': 'room_closed'})
+        elif t == 'room_ready':
+            member.ready = bool(m.get('on', True))
+        elif t == 'room_color':
+            err = rooms.set_color(r, member, int(m.get('color', -1)))
+        elif t == 'room_spot':
+            key = r.setup.get('map', '')
+            if maps().status(key).get('state') != 'ready':
+                err = '지도가 아직 준비되지 않았습니다'
+            else:
+                gmap, sites = await asyncio.to_thread(_layout_map, key)
+                err = rooms.set_spot(r, member, int(m['y']), int(m['x']), lambda y, x: _check_spot(gmap, sites, y, x))
+        elif t == 'room_setup' and host:
+            err = rooms.set_setup(r, {k: v for k, v in m.items() if k != 't'})
+        elif t == 'room_kick' and host:
+            k = int(m.get('member', -1))
+            if 0 <= k < len(r.members) and k != me:
+                gone = r.members[k]
+                rooms.leave(r, gone)
+                gone.send({'t': 'room_kicked'})
+                if gone.ws is not None:
+                    asyncio.create_task(gone.ws.close())
+        elif t == 'room_start' and host:
+            err = r.can_start() or await _start_room(r)
+            if err is None:
+                return
+        else:
+            err = '방장만 할 수 있습니다' if t in ('room_setup', 'room_kick', 'room_start') else f'모르는 명령 {t}'
+        if err:
+            member.send({'t': 'room_error', 'error': err})
+        if r.members:
+            await _broadcast(r)
+
+    async def _start_room(r) -> str | None:
+        """방장이 시작: 지도를 확인하고 판(GameSession)을 만든다. 사람 자리 = 참가자 순서."""
+        if len(state['sessions']) >= cfg.max_sessions:
+            return '지금 열린 판이 너무 많습니다. 잠시 뒤에 다시 해 주세요'
+        key = r.setup.get('map', '')
+        if maps().status(key).get('state') != 'ready':
+            return '지도가 아직 준비되지 않았습니다'
+        r.state = 'starting'
+        await _broadcast(r)
+        try:
+            scene = await asyncio.to_thread(maps().scene, key)
+            players = [{'name': m.name, 'color': m.color, 'spot': list(m.spot) if (m.spot and r.start_mode == 'pick') else None}
+                       for m in r.members]
+            opts = {'bots': r.bots, 'difficulty': r.setup.get('difficulty', '보통'), 'season': int(r.setup.get('season', 0)),
+                    'players': players, 'room': True}
+            if r.start_mode == 'random' and r.layout and len(r.layout) == len(r.members) + r.bots:
+                opts['starts'] = r.layout                               # 대기실에서 보여 준 배치 그대로
+            for i, m in enumerate(r.members):
+                m.seat = i
+            session = await asyncio.to_thread(GameSession, scene, opts, [m.send for m in r.members], cfg)
+        except Exception as e:                                          # 판을 못 만들었다: 대기실로 되돌린다
+            r.state = 'wait'
+            return f'판을 만들지 못했습니다: {e}'
+        state['sessions'][session.sid] = session
+        session.room = r
+        r.session = session
+        for m in r.members:
+            m.game = session
+        r.state = 'play'
+        session.start()
+        return None
+
+    async def _room_back(r, member, session, seat) -> str | None:
+        """판이 끝난 뒤 대기실로: 처음 돌아온 사람이 방을 대기 상태로 되돌리고 (방장), 나머지는 돌아오는 대로 들어온다.
+        지도·설정은 그대로, 준비·시작 자리는 다시. 모두 떠난 판은 바로 정리한다."""
+        if r is None or member is None or rooms.rooms.get(r.id) is not r:
+            return '방이 없어졌습니다'
+        if not session.match.over:
+            return '판이 아직 끝나지 않았습니다'
+        if r.session is session:                                     # 처음 돌아온 사람
+            r.state, r.session, r.last = 'wait', None, session
+            r.members, r.host, r.layout, r.created = [], 0, None, time.monotonic()
+        elif not (r.state == 'wait' and getattr(r, 'last', None) is session):
+            return '방이 이미 새 판을 시작했습니다'
+        if len(r.members) >= r.cap:
+            return '방이 가득 찼습니다'
+        session.release(seat)
+        if session.away:                                             # 모두 떠났다: 판 정리
+            session.stop()
+            _forget(session)
+        member.ready, member.spot, member.seat, member.game = False, None, -1, None
+        if any(mm.color == member.color for mm in r.members):
+            member.color = r.free_color()
+        r.members.append(member)
+        await _broadcast(r)
+        return None
+
+    def _forget(session):
+        state['sessions'].pop(session.sid, None)
+        r = getattr(session, 'room', None)
+        if r is not None and r.session is session:                   # 대기실로 돌아간 방은 남긴다
+            rooms.rooms.pop(r.id, None)
 
     def _expire(session):
-        """끊긴 뒤 다시 접속하지 않은 판을 정리한다."""
+        """사람이 모두 나간 뒤 다시 접속하지 않은 판을 정리한다 (방도 함께)."""
         if session.away and time.monotonic() - session.away_since >= cfg.resume_seconds - 0.5:
             session.stop()
-            state['sessions'].pop(session.sid, None)
+            _forget(session)
 
     # ------------------------------------------------------------- 정적 파일
     assets = cfg.demo_dir.parent                     # assets/ (데모 지도, 기준 그림, 검증 값)
@@ -293,7 +504,7 @@ def _warmup(store, lobby):
     lobby()
     t1 = time.perf_counter()
     scene = store.scene(next(iter(store.demo)))
-    w = World(GameMap(scene), 2, seed=1, map_seed=scene.config.seed)
+    w = World(GameMap(scene), 3, seed=1, map_seed=scene.config.seed)
     u = w.unit_ids(0)
     w.order_move(u, float(w.units.y[u].mean()) + 5, float(w.units.x[u].mean()) + 5)
     for _ in range(10):

@@ -16,14 +16,6 @@ export function unitCounts(st: GameState, slots: Iterable<number>, sep = '   '):
   return k.map((n: number, i: number) => (n || i < 2 ? `${R.unit_names[i]} ${n}` : '')).filter(Boolean).join(sep);
 }
 
-export const HELP = [
-  '왼쪽: 고르기 · 드래그    오른쪽: 이동 · 공격 · 자원지에 짓기    A: 공격 이동    S: 정지',
-  '야생 동물을 오른쪽 클릭하면 병사가 다가가 길들인다 (드래곤은 먼저 쓰러뜨려야 한다)',
-  '다른 나라의 거점을 누르면 외교: 동맹 요청 · 동맹끼리 지원 · 공격 요청',
-  'Ctrl+숫자: 부대 지정    Shift+숫자: 부대 부르기    Space: 내 거점으로',
-  '휠: 확대    P: 일시정지    . : 속도    F1: 도움말 끄기',
-];
-
 const BAR_H = 76;          // 하단 버튼 막대 높이 (그 위로 패널을 올린다)
 const fmt = (v: number) => (v >= 10000 ? `${(v / 1000).toFixed(1)}K` : `${Math.round(v)}`);
 
@@ -35,7 +27,10 @@ function el(cls: string, parent: HTMLElement = document.body) {
 }
 
 export class Hud {
-  showHelp = true;
+  private bannerMode = '';
+  /** 결과·관전 표시의 버튼이 할 일 (게임 화면이 정한다). */
+  actions: { lobby: () => void; restart: () => void; newMap: () => void; room: (() => void) | null } =
+    { lobby: () => {}, restart: () => {}, newMap: () => {}, room: null };
   private top = el('hud');
   private nations = el('hud-nations');
   private sel = el('hud-panel hud-sel');
@@ -68,7 +63,8 @@ export class Hud {
     lines.push(`${this.scene.season.label()}  농사 ×${sf.toFixed(1)}   ${this.scene.cycle.label()}   ×${st.speed}` +
       (st.paused ? '   일시정지' : ''));
     const touch = touchMode();                                  // 터치: 도움말은 ☰ 메뉴에, 고른 것은 아래 한 줄 막대에
-    this.top.textContent = [...lines, ...(this.showHelp && !touch ? HELP : [])].join('\n');
+    if (!touch) lines.push('F1: 조작 설명');                      // 자세한 조작은 메뉴의 '설명' 창 (help.ts)
+    this.top.textContent = lines.join('\n');
     // 오른쪽 위: 나라들
     this.nations.innerHTML = '';
     st.info.nations.forEach((n, i) => {
@@ -80,6 +76,14 @@ export class Hud {
       sw.style.background = `rgb(${n.color.join(',')})`;
       row.append(sw, `${n.name}  병사 ${s?.nUnits ?? 0}  건물 ${s?.nBuildings ?? 0}`);
       const d = st.diplo, me = st.info.me;
+      const conn = (text: string, color: string) => {          // 사람 나라의 접속 상태 (멀티)
+        const t = document.createElement('span');
+        t.textContent = '  ' + text;
+        t.style.color = color;
+        row.appendChild(t);
+      };
+      if (st.seats.gone.includes(i)) conn('떠남', 'rgb(170,170,170)');
+      else if (st.seats.away.includes(i)) conn('연결 끊김', 'rgb(255,190,120)');
       if (d) {
         const tag = (text: string, color: string) => {
           const t = document.createElement('span');
@@ -133,11 +137,45 @@ export class Hud {
     this.prompt.className = `hud-prompt ${mode === 'attack' ? 'warm' : 'cool'}`;
     // 안내는 하단 막대 바로 위 (고른 것 패널이 있으면 그 위)
     this.prompt.style.bottom = `${BAR_H + 10 + (sl.length ? this.sel.offsetHeight + 8 : 0)}px`;
-    if (st.over) {
-      const next = touch ? '☰ 메뉴: 같은 지도로 새 판 · 새 지도 · 로비로' : 'F5: 같은 지도로 새 판    F6: 새 지도    Enter: 로비로';
-      this.banner.innerHTML = `<div class="big">${st.over === '승리' ? '승리!' : '패배'}</div><div>${next}</div>`;
-      this.banner.style.display = '';
-    } else this.banner.style.display = 'none';
+    // 판 끝: 결과 + 버튼 (싱글은 새 판·새 지도도). 진 뒤 판이 이어지는 동안: 관전 + [나가기]
+    const solo = (st.info.humans ?? 1) <= 1;
+    const toRoom = st.info.room ? this.actions.room : null;
+    const bmode = st.over && st.ended ? `end:${st.over}:${solo}:${!!toRoom}` : st.over ? 'watch' : '';
+    if (bmode !== this.bannerMode) {
+      this.bannerMode = bmode;
+      this.banner.innerHTML = '';
+      this.banner.className = 'hud-banner' + (bmode === 'watch' ? ' watch' : '');
+      if (bmode) {
+        const big = document.createElement('div');
+        big.className = 'big';
+        big.textContent = bmode === 'watch' ? '패배 · 관전 중' : st.over === '승리' ? '승리!' : '패배';
+        this.banner.appendChild(big);
+        const row = document.createElement('div');
+        row.className = 'banner-btns';
+        const b = (label: string, fn: () => void) => {
+          const e = document.createElement('button');
+          e.className = 'dbtn';
+          e.textContent = label;
+          e.addEventListener('click', (ev) => { ev.stopPropagation(); fn(); });
+          row.appendChild(e);
+        };
+        if (bmode !== 'watch' && solo) {
+          b('같은 지도로 새 판', () => this.actions.restart());
+          b('새 지도', () => this.actions.newMap());
+        }
+        if (bmode !== 'watch' && toRoom) b('대기실로', () => toRoom());
+        b(bmode === 'watch' ? '나가기' : '로비로', () => this.actions.lobby());
+        this.banner.appendChild(row);
+        if (!touch) {
+          const hint = document.createElement('div');
+          hint.className = 'hint';
+          hint.textContent = bmode === 'watch' ? '판이 끝날 때까지 볼 수 있습니다 · Enter: 나가기'
+            : solo ? 'F5: 같은 지도로 새 판    F6: 새 지도    Enter: 로비로' : toRoom ? '같은 사람들과 다시 하려면 대기실로' : 'Enter: 로비로';
+          this.banner.appendChild(hint);
+        }
+      }
+    }
+    this.banner.style.display = bmode ? '' : 'none';
   }
 
   private selectionLines(): string[] {

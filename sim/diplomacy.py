@@ -92,11 +92,12 @@ class Diplomacy:
         return 0 <= a < self.n and self.w.nations[a].alive
 
     def _name(self, a) -> str:
-        return self.w.nations[a].name if a != 0 else '나'
+        return self.w.nations[a].name
 
     def _say(self, text, *who):
-        if 0 in who:
-            self.w.say(text)
+        """who 나라들에게 (누가 읽을지는 조종자가 정한다)."""
+        for a in who:
+            self.w.say(text, to=a)
 
     def _bump(self):
         self.version += 1
@@ -159,10 +160,9 @@ class Diplomacy:
                 del self.targets[x]
         self.w.calm_between(a, b)
         na, nb = self._name(a), self._name(b)
-        if 0 in (a, b):
-            self.w.say(f'{R.josa(nb if a == 0 else na, "과", "와")} 동맹을 맺었습니다 ({ALLY_TIME / 60:.0f}분)')
-        else:
-            self.w.say(f'{R.josa(na, "과", "와")} {R.josa(nb, "이", "가")} 동맹을 맺었습니다')
+        self._say(f'{R.josa(nb, "과", "와")} 동맹을 맺었습니다 ({ALLY_TIME / 60:.0f}분)', a)
+        self._say(f'{R.josa(na, "과", "와")} 동맹을 맺었습니다 ({ALLY_TIME / 60:.0f}분)', b)
+        self.w.say(f'{R.josa(na, "과", "와")} {R.josa(nb, "이", "가")} 동맹을 맺었습니다', skip=(a, b))
         self._bump()
 
     def extend(self, a, b) -> bool:
@@ -173,7 +173,8 @@ class Diplomacy:
         if b in al['ext']:
             al['until'] = self.w.time + ALLY_TIME
             al['ext'] = set()
-            self._say(f'{R.josa(self._name(b if a == 0 else a), "과", "와")} 동맹을 연장했습니다', a, b)
+            self._say(f'{R.josa(self._name(b), "과", "와")} 동맹을 연장했습니다', a)
+            self._say(f'{R.josa(self._name(a), "과", "와")} 동맹을 연장했습니다', b)
         self._bump()
         return True
 
@@ -192,13 +193,12 @@ class Diplomacy:
                 if c not in (a, b):
                     self._rel(c, a, -40)
             na, nb = self._name(a), self._name(b)
-            if a == 0:
-                self.w.say(f'{R.josa(nb, "과", "와")}의 동맹을 깼습니다: {TRAITOR_TIME / 60:.0f}분 동안 배신자 (받는 피해 {TRAITOR_HURT:.1f}배, 모든 나라의 관계 하락)')
-            else:
-                self.w.say(f'{R.josa(na, "이", "가")} {R.josa(nb, "과", "와")}의 동맹을 깼습니다! (배신자)')
+            self._say(f'{R.josa(nb, "과", "와")}의 동맹을 깼습니다: {TRAITOR_TIME / 60:.0f}분 동안 배신자 (받는 피해 {TRAITOR_HURT:.1f}배, 모든 나라의 관계 하락)', a)
+            self._say(f'{R.josa(na, "이", "가")} 우리와의 동맹을 깼습니다! (배신)', b)
+            self.w.say(f'{R.josa(na, "이", "가")} {R.josa(nb, "과", "와")}의 동맹을 깼습니다! (배신자)', skip=(a, b))
         else:
-            other = b if a == 0 else a
-            self._say(f'{R.josa(self._name(other), "과", "와")}의 동맹 기간이 끝났습니다', a, b)
+            self._say(f'{R.josa(self._name(b), "과", "와")}의 동맹 기간이 끝났습니다', a)
+            self._say(f'{R.josa(self._name(a), "과", "와")}의 동맹 기간이 끝났습니다', b)
         self._bump()
         return True
 
@@ -206,8 +206,7 @@ class Diplomacy:
     def give_res(self, a, b, pcts) -> bool:
         """a가 b에게 자원마다 가진 것의 pcts[k] (0~DONATE_MAX)만큼 보낸다 (식량, 목재, 석재, 유황)."""
         if not self.allied(a, b) or self.donate_cd[a] > self.w.time:
-            if a == 0:
-                self.w.say('잠시 뒤에 다시 보낼 수 있습니다' if self.allied(a, b) else '동맹에게만 보낼 수 있습니다')
+            self._say('잠시 뒤에 다시 보낼 수 있습니다' if self.allied(a, b) else '동맹에게만 보낼 수 있습니다', a)
             return False
         na, nb = self.w.nations[a], self.w.nations[b]
         pcts = (list(pcts) + [0, 0, 0, 0])[:4]
@@ -234,8 +233,7 @@ class Diplomacy:
         바다 건너인데 병사들이 있는 땅에 a의 항구가 없으면 보내지 않는다. 반환: 보낸 병사 수."""
         w, u, bb = self.w, self.w.units, self.w.builds
         if not self.allied(a, b) or self.troop_cd[a] > w.time:
-            if a == 0:
-                w.say('잠시 뒤에 다시 보낼 수 있습니다' if self.allied(a, b) else '동맹에게만 보낼 수 있습니다')
+            self._say('잠시 뒤에 다시 보낼 수 있습니다' if self.allied(a, b) else '동맹에게만 보낼 수 있습니다', a)
             return 0
         ids = np.asarray(ids, np.int64)
         ids = ids[u.alive[ids] & (u.own[ids] == a) & ~u.aboard[ids]] if len(ids) else ids
@@ -279,8 +277,8 @@ class Diplomacy:
             ok = u.alive[ids] & (u.gen[ids] == gens) & (u.own[ids] == a)
             ids, gens = ids[ok], gens[ok]
             if not len(ids) or not self.allied(a, b) or not bb.alive[h] or bb.own[h] != b or w.time > m['until']:
-                if len(ids) and a == 0:
-                    w.say(f'{self._name(b)}에게 가던 병사 {len(ids)}명이 돌아섰습니다')
+                if len(ids):
+                    self._say(f'{self._name(b)}에게 가던 병사 {len(ids)}명이 돌아섰습니다', a)
                 continue
             on_way = (u.state[ids] == MOVE) | (u.state[ids] == IDLE) | u.aboard[ids]   # 다른 명령을 받은 병사는 빠진다
             ids, gens = ids[on_way], gens[on_way]
@@ -317,12 +315,9 @@ class Diplomacy:
         self.targets[a] = (t, w.time + TARGET_TIME)
         self.target_cd[a] = w.time + TARGET_CD
         self._rel(t, a, -40)
-        nt = self._name(t)
-        if a == 0:
-            w.say(f'동맹들에게 {R.josa(nt, "을", "를")} 함께 치자고 했습니다')
-        elif 0 in self.allies_of(a):
-            na = self._name(a)
-            w.say(f'동맹 {R.josa(na, "이", "가")} {R.josa(nt, "을", "를")} 함께 치자고 합니다')
+        nt, na = self._name(t), self._name(a)
+        self._say(f'동맹들에게 {R.josa(nt, "을", "를")} 함께 치자고 했습니다', a)
+        self._say(f'동맹 {R.josa(na, "이", "가")} {R.josa(nt, "을", "를")} 함께 치자고 합니다', *self.allies_of(a))
         self._bump()
         return True
 

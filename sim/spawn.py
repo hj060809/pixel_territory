@@ -6,10 +6,12 @@ import numpy as np
 from sim import rules as R
 
 
-def pick_colors(rng, n: int, player_color: int) -> list[int]:
-    """나라 순서대로 rules.COLORS 번호 (내 색이 맨 앞, AI는 나머지에서 무작위)."""
-    others = [c for c in range(len(R.COLORS)) if c != player_color]
-    return [player_color] + [int(c) for c in rng.permutation(others)[:n - 1]]
+def pick_colors(rng, n: int, first: int | None = None) -> list[int]:
+    """나라 순서대로 rules.COLORS 번호. first를 주면 맨 앞 나라가 그 색, 나머지는 무작위 (설정 화면 미리보기: 맨 앞 = 고른 색)."""
+    if first is None:
+        return [int(c) for c in rng.permutation(len(R.COLORS))[:n]]
+    others = [c for c in range(len(R.COLORS)) if c != first]
+    return [first] + [int(c) for c in rng.permutation(others)[:n - 1]]
 
 
 MIN_ISLAND = 2500          # 시작할 수 있는 섬의 최소 넓이 (칸)
@@ -26,11 +28,13 @@ def start_islands(gmap, sites) -> np.ndarray:
     return np.array(ok if ok else [int(area.argmax())], np.int64)
 
 
-def choose_starts(gmap, n: int, rng, player_spot=None, sites=None) -> list[tuple]:
+def choose_starts(gmap, n: int, rng, fixed=None, sites=None) -> list[tuple]:
     """나라 n개의 거점 자리 (y, x). 살 만한 섬들(start_islands)의 살 만한 곳 중 서로 충분히 떨어진 곳을 무작위로.
     섬마다 넓이에 비례해 후보가 뽑히므로 나라들이 여러 섬에 흩어진다 (한 섬에 여럿이 모일 수도 있다).
-    player_spot을 주면 맨 앞(내 자리)은 그 자리. sites: 자원지 (없으면 가장 큰 땅만).
-    설정 화면 미리보기와 게임이 같은 결과를 쓴다."""
+    fixed: 미리 고른 자리들 [(y, x)...] — 결과의 맨 앞 len(fixed)개가 그 자리 (못 쓰는 땅이면 가까운 곳).
+    sites: 자원지 (없으면 가장 큰 땅만). 설정 화면 미리보기와 게임이 같은 결과를 쓴다."""
+    fixed = [tuple(p) for p in (fixed or [])]
+    nf = len(fixed)
     m = gmap
     if sites is None:
         area = np.bincount(m.comp[m.land & (m.comp > 0)])
@@ -48,14 +52,14 @@ def choose_starts(gmap, n: int, rng, player_spot=None, sites=None) -> list[tuple
         ys, xs = np.nonzero(on)
     k = rng.choice(len(ys), min(1500, len(ys)), replace=False)
     pts = np.stack([ys[k], xs[k]], 1).astype(float)
-    if player_spot is not None:
-        pts = np.vstack([np.array(player_spot, float)[None], pts])
+    if nf:
+        pts = np.vstack([np.array(fixed, float), pts])
     # 서로 충분히 떨어진 자리를 무작위 순서로 고른다. 모자라면 간격을 조금씩 줄인다
     gap = np.sqrt(on.sum() / n) * 0.75
     while True:
-        chosen = [0] if player_spot is not None else []
+        chosen = list(range(nf))
         for j in rng.permutation(len(pts)):
-            if player_spot is not None and j == 0:
+            if j < nf:
                 continue
             if all(np.hypot(*(pts[j] - pts[c])) >= gap for c in chosen):
                 chosen.append(j)
@@ -64,7 +68,7 @@ def choose_starts(gmap, n: int, rng, player_spot=None, sites=None) -> list[tuple
         if len(chosen) == n or gap < 10:
             break
         gap *= 0.9
-    if player_spot is None:
+    if not nf:
         chosen = [chosen[i] for i in rng.permutation(len(chosen))]
 
     def open_square(y, x, r=5):
@@ -75,7 +79,7 @@ def choose_starts(gmap, n: int, rng, player_spot=None, sites=None) -> list[tuple
     for i, j in enumerate(chosen):
         y, x = pts[j]
         spot = None
-        if i == 0 and player_spot is not None and open_square(int(y), int(x)):
+        if i < nf and open_square(int(y), int(x)):
             spot = (int(y), int(x))                                    # 고른 자리 그대로
         for _ in range(60 if spot is None else 0):                     # 그 둘레 10칸쯤의 넓은 땅
             a = rng.uniform(0, 2 * np.pi)

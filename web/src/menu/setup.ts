@@ -3,7 +3,10 @@
 //   상대(AI 나라 수, 난이도), 시작 계절. '게임 시작'은 지도가 없으면 만들고 바로 시작한다.
 // 무작위 배치를 미리보기에서 봤으면 게임도 그 배치 그대로 시작한다 (서버 /layout → join의 starts, colors).
 // '고급 설정': 지형 세부 값 창 (advanced.ts). 고친 값은 여기서 기억해 다시 열면 그대로, 지도 만들기에 실어 보낸다.
+// 방 만들기 (멀티, mode 'room'): 같은 화면에 방 항목(방 이름, 사람 정원, 비밀번호, 시작 자리 방식)을 더하고 '방 만들기'.
+//   시작 자리는 대기실에서 정하므로 여기에는 없다. AI 수는 0부터 (사람 정원 + AI ≤ 나라 수).
 
+import { randomName } from './names.ts';
 import { SpriteBank } from '../game/sprites.ts';
 import { AdvancedDialog, AdvancedState } from './advanced.ts';
 import type { LobbyInfo } from './lobbyArt.ts';
@@ -16,12 +19,23 @@ export interface Settings {
   name: string; color: number;
   spotMode: 'random' | 'pick'; spot: [number, number] | null;
   bots: number; difficulty: string; season: number;
+  // 방 만들기 (멀티)
+  roomName: string; cap: number; password: string; roomStart: 'random' | 'pick';
+  multiName: string;            // 멀티에서 쓰는 내 이름 (처음엔 무작위 '형용사 명사', 싱글의 name과 따로)
 }
 
 export const defaultSettings = (): Settings => ({
   preset: null, size: 512, seed: '8767564', name: '나', color: 0, spotMode: 'random', spot: null,
   bots: 4, difficulty: '보통', season: 0,
+  roomName: '같이 해요', cap: 4, password: '', roomStart: 'random', multiName: randomName(),
 });
+
+/** 방 만들기에 넘길 것 (server/app.py room_create). */
+export interface RoomRequest {
+  name: string; password: string; cap: number; bots: number; start_mode: 'random' | 'pick';
+  setup: { map: string; difficulty: string; season: number };
+  player: { name: string; color: number };
+}
 
 /** 게임 시작에 넘길 것. */
 export interface PlayRequest {
@@ -62,7 +76,8 @@ export class Setup {
   private dialog: AdvancedDialog | null = null;
 
   constructor(readonly s: Settings, private lobby: LobbyInfo | null, listing: Listing,
-              private onBack: () => void, private onPlay: (req: PlayRequest) => void) {
+              private onBack: () => void, private onPlay: (req: PlayRequest) => void,
+              readonly mode: 'single' | 'room' = 'single', private onRoom: ((req: RoomRequest) => void) | null = null) {
     this.presets = [[null, '기본'], ...listing.presets.map((p) => [p.key, p.name] as [string, string])];
     this.sizes = listing.sizes;
     if (!this.sizes.includes(s.size)) s.size = this.sizes[this.sizes.length - 1];
@@ -73,14 +88,14 @@ export class Setup {
     this.msgEl = div('setup-msg', this.el);
     const foot = div('setup-foot', this.el);
     button(foot, '뒤로', () => this.onBack(), { size: 18, w: 140, h: 48 });
-    button(foot, '게임 시작', () => this.start(), { size: 20, w: 220, h: 48, selected: true, accent: true });
+    button(foot, this.mode === 'room' ? '방 만들기' : '게임 시작', () => this.start(), { size: 20, w: 220, h: 48, selected: true, accent: true });
     foot.appendChild(this.msgEl);
     this.prevBox.addEventListener('mousemove', (e) => {          // 화면 픽셀 → 메뉴 픽셀
       const r = this.prevBox.getBoundingClientRect(), k = this.previewSize / r.width;
       this.mouse = [(e.clientX - r.left) * k, (e.clientY - r.top) * k];
     });
     this.prevBox.addEventListener('mouseleave', () => { this.mouse = null; });
-    this.prevBox.addEventListener('mousedown', (e) => { if (e.button === 0 && this.s.spotMode === 'pick') void this.pickSpot(e); });
+    this.prevBox.addEventListener('mousedown', (e) => { if (e.button === 0 && this.mode === 'single' && this.s.spotMode === 'pick') void this.pickSpot(e); });
     this.render();
   }
 
@@ -129,7 +144,7 @@ export class Setup {
   private render() {
     const s = this.s, L = this.left;
     L.innerHTML = '';
-    div('setup-title', L, '새 게임 설정');
+    div('setup-title', L, this.mode === 'room' ? '새 방 만들기' : '새 게임 설정');
     const head = (t: string) => div('setup-head', L, t);
     const row = (label: string) => { const r = div('setup-row', L); div('setup-label', r, label); return div('setup-ctl', r); };
     const set = (f: () => void) => () => { f(); this.render(); };
@@ -154,7 +169,8 @@ export class Setup {
 
     head('내 나라');
     r = row('이름');
-    field(r, s.name, 10, 200, (v) => { s.name = v; });
+    if (this.mode === 'room') nameField(r, s);           // 멀티: 무작위 이름 + 다시 뽑기
+    else field(r, s.name, 10, 200, (v) => { s.name = v; });
     r = row('색');
     (this.lobby?.colors ?? []).forEach(([, col], i) => {
       const sw = div('swatch' + (s.color === i ? ' on' : ''), r);
@@ -168,6 +184,8 @@ export class Setup {
     }
     div('gap', L);
 
+    if (this.mode === 'room') this.renderRoom(L, head, row, set);
+    else {
     head('시작 자리');
     r = row('');
     button(r, '무작위', set(() => {
@@ -181,13 +199,16 @@ export class Setup {
       t.style.color = s.spot === null ? GOLD : DIM;
     } else if (this.mapReady) div('note small', r, '다시 누르면 새 배치');
     div('gap', L);
+    }
 
     head('상대');
     r = row('AI 나라');
-    const maxBots = Math.max(1, (this.lobby?.colors.length ?? 7) - 1);
-    button(r, '-', set(() => { s.bots = Math.min(Math.max(s.bots - 1, 1), maxBots); }), { size: 18, w: 36, h: 32 });
+    const nMax = this.lobby?.colors.length ?? 8;
+    const minBots = this.mode === 'room' ? 0 : 1, maxBots = this.mode === 'room' ? nMax - s.cap : nMax - 1;
+    s.bots = Math.min(Math.max(s.bots, minBots), maxBots);
+    button(r, '-', set(() => { s.bots = Math.min(Math.max(s.bots - 1, minBots), maxBots); }), { size: 18, w: 36, h: 32 });
     div('count', r, `${s.bots}`);
-    button(r, '+', set(() => { s.bots = Math.min(Math.max(s.bots + 1, 1), maxBots); }), { size: 18, w: 36, h: 32 });
+    button(r, '+', set(() => { s.bots = Math.min(Math.max(s.bots + 1, minBots), maxBots); }), { size: 18, w: 36, h: 32 });
     div('setup-label inline', r, '난이도');
     for (const d of this.lobby?.difficulty ?? ['쉬움', '보통', '어려움']) {
       button(r, d, set(() => { s.difficulty = d; }), { selected: s.difficulty === d, size: 15, w: 74, h: 32 });
@@ -195,6 +216,26 @@ export class Setup {
     r = row('시작 계절');
     SEASONS.forEach((name, i) => button(r, name, set(() => { s.season = i; }), { selected: s.season === i, size: 15, w: 64, h: 32 }));
     this.refreshPreview();
+  }
+
+  /** 방 만들기의 방 항목: 방 이름, 사람 정원, 비밀번호, 시작 자리 방식. */
+  private renderRoom(L: HTMLElement, head: (t: string) => HTMLElement, row: (label: string) => HTMLElement, set: (f: () => void) => () => void) {
+    const s = this.s, nMax = this.lobby?.colors.length ?? 8;
+    head('방');
+    let r = row('방 이름');
+    field(r, s.roomName, 24, 260, (v) => { s.roomName = v; });
+    r = row('사람 정원');
+    button(r, '-', set(() => { s.cap = Math.max(2, s.cap - 1); }), { size: 18, w: 36, h: 32 });
+    div('count', r, `${s.cap}`);
+    button(r, '+', set(() => { s.cap = Math.min(nMax, s.cap + 1); s.bots = Math.min(s.bots, nMax - s.cap); }), { size: 18, w: 36, h: 32 });
+    div('note small', r, `사람 + AI ≤ ${nMax}나라`);
+    r = row('비밀번호');
+    field(r, s.password, 16, 200, (v) => { s.password = v; });
+    div('note small', r, '비우면 누구나 들어온다');
+    r = row('시작 자리');
+    button(r, '무작위', set(() => { s.roomStart = 'random'; }), { selected: s.roomStart === 'random', size: 15, w: 110, h: 32 });
+    button(r, '각자 고르기', set(() => { s.roomStart = 'pick'; }), { selected: s.roomStart === 'pick', size: 15, w: 130, h: 32 });
+    div('gap', L);
   }
 
   private say(t: string) { this.msgEl.textContent = t; }
@@ -270,6 +311,13 @@ export class Setup {
   // ------------------------------------------------------------- 시작
   private start() {
     const s = this.s;
+    if (this.mode === 'room') {                                    // 방 만들기: 지도가 없으면 만들고 나서
+      if (!this.mapReady) { this.startAfterBuild = true; void this.build(); return; }
+      this.onRoom?.({ name: s.roomName.trim() || '같이 해요', password: s.password, cap: s.cap, bots: s.bots, start_mode: s.roomStart,
+        setup: { map: this.builtKey!, difficulty: s.difficulty, season: s.season },
+        player: { name: s.multiName.trim() || randomName(), color: s.color } });
+      return;
+    }
     if (s.spotMode === 'pick' && (s.spot === null || !this.mapReady)) {
       this.say('지도를 만들고, 미리보기에서 시작할 자리를 클릭하세요');
       return;
@@ -393,16 +441,25 @@ export class Setup {
         text('드래곤', sx, sy - h / 2 - 1, 12, 'rgb(200,228,255)', 'bottom');
       }
     }
-    if (this.s.spotMode === 'random') {
+    if (this.mode === 'room') {
+      // 방 만들기: 시작 자리는 대기실에서
+    } else if (this.s.spotMode === 'random') {
       if (this.layout && this.layout.key === this.layoutWant()) {
         this.layout.starts.forEach(([y, x], i) => hall(y, x, this.layout!.colors[i], i === 0, this.s.name.trim() || '나'));
       }
     } else if (this.s.spot) hall(this.s.spot[0], this.s.spot[1], this.s.color, true);
-    if (this.s.spotMode === 'pick' && this.mouse) {
+    if (this.mode === 'single' && this.s.spotMode === 'pick' && this.mouse) {
       g.strokeStyle = GOLD;
       g.beginPath();
       g.arc(this.mouse[0], this.mouse[1], 10, 0, Math.PI * 2);
       g.stroke();
     }
   }
+}
+
+/** 멀티 이름 칸: 입력 + [🎲] (다시 뽑기). 멀티 화면과 방 만들기가 함께 쓴다. */
+export function nameField(parent: HTMLElement, s: Settings) {
+  const f = field(parent, s.multiName, 10, 200, (v) => { s.multiName = v; });
+  const b = button(parent, '🎲', () => { s.multiName = randomName(); f.value = s.multiName; }, { size: 16, w: 40, h: 32 });
+  b.title = '다른 이름';
 }

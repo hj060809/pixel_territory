@@ -1,4 +1,4 @@
-// 로비 (데스크톱 game/menu.py의 Lobby): 도트 제목, 부제, 버튼(게임 시작, 게임 방법), 아래 한 줄, 게임 방법 창.
+// 로비 (데스크톱 game/menu.py의 Lobby): 도트 제목, 부제, 버튼(싱글 플레이, 멀티 플레이, 게임 방법), 아래 한 줄, 게임 방법 창.
 // 배경(LobbyArt)과 왼쪽 그늘은 메뉴 캔버스에 따로 그린다 (pages/game.ts).
 
 import { button, div, pixelTitle } from './widgets.ts';
@@ -47,11 +47,12 @@ export class Lobby {
   readonly el = div('menu lobby');
   private help: HTMLDivElement | null = null;
 
-  constructor(onStart: () => void) {
+  constructor(onStart: () => void, onMulti: () => void) {
     this.el.appendChild(pixelTitle('Pixel Territory', 4));
     div('subtitle', this.el, '자연 속에서 플레이하는 실시간 전략 RTS');
     const col = div('lobby-buttons', this.el);
-    button(col, '게임 시작', onStart, { size: 20, w: 260, h: 50 });
+    button(col, '싱글 플레이', onStart, { size: 20, w: 260, h: 50 });
+    button(col, '멀티 플레이', onMulti, { size: 20, w: 260, h: 50 });
     button(col, '게임 방법', () => this.showHelp(), { size: 20, w: 260, h: 50 });
     // 모바일만 (CSS: body.touch), 앱으로 열었으면 숨김: 홈 화면에 설치하면 주소창 없이 전체 화면
     button(col, '앱으로 설치', () => void installApp(), { size: 20, w: 260, h: 50 }).classList.add('install-btn');

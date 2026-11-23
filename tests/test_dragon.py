@@ -22,7 +22,7 @@ from sim.world import World
 def run(report, cache_dir='.cache'):
     scene = TerrainScene.load(default_config(512, 7), cache_dir, progress=lambda s: None)        # 큰 설원 둘 (둥지 2)
     gm = GameMap(scene)
-    w = World(gm, 2, seed=3, map_seed=7)
+    w = World(gm, 3, seed=3, map_seed=7)
     wild, u = w.wild, w.units
     dragons = [a for a in wild.animals.values() if a.unit >= 0]
     report('둥지마다 잠든 드래곤', 1 <= len(dragons) <= 3 and all(a.mode == SLEEP for a in dragons), f'{len(dragons)}마리')

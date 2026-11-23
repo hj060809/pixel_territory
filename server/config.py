@@ -22,7 +22,8 @@ class ServerConfig:
     max_size: int = field(default_factory=lambda: _env('MAX_SIZE', 512, int))       # 지도 크기 상한
     size_choices: tuple = (384, 512, 640, 768)                                      # 이 중 max_size 이하만 연다
     tick_hz: float = 20.0                                                           # 시뮬레이션 걸음 (초당)
-    max_sessions: int = field(default_factory=lambda: _env('MAX_SESSIONS', 8, int))
+    max_sessions: int = field(default_factory=lambda: _env('MAX_SESSIONS', 8, int))     # 동시에 도는 판 (싱글·멀티 모두)
+    max_rooms: int = field(default_factory=lambda: _env('MAX_ROOMS', 30, int))          # 동시에 열린 대기실 (판은 위에서 따로 센다)
     resume_seconds: float = field(default_factory=lambda: _env('RESUME_SECONDS', 60.0, float))   # 끊긴 판을 기다리는 시간
     map_workers: int = field(default_factory=lambda: _env('MAP_WORKERS', 1, int))   # 지도 만들기 동시 작업 수
     scene_cache: int = 3                                                            # 메모리에 둘 지도 장면 수

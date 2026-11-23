@@ -11,8 +11,7 @@ from sim.world import World
 
 def run(report, cache_dir='.cache'):
     gm = GameMap(TerrainScene.load(default_config(512, 7), cache_dir, progress=lambda s: None))
-    w = World(gm, 3, seed=3, map_seed=7)
-    w.bots = {}
+    w = World(gm, 4, seed=3, map_seed=7)                     # AI 없이 (World만)
     d, u = w.diplo, w.units
     d.request(0, 1)
     pending = (0, 1) in d.requests

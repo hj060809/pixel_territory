@@ -31,7 +31,7 @@ def _flat(gm, w):
 
 def run(report, cache_dir='.cache'):
     gm = GameMap(TerrainScene.load(default_config(512, 42), cache_dir, progress=lambda s: None))
-    w = World(gm, 2, seed=4, map_seed=42)
+    w = World(gm, 3, seed=4, map_seed=42)
     u, nat = w.units, w.nations[0]
     pits = [s for s in w.sites if s.kind == R.SULFUR]
     report('사막에 유황 웅덩이', 1 <= len(pits) <= 6, f'{len(pits)}곳')

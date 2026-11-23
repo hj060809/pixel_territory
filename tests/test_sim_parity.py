@@ -16,6 +16,7 @@ from engine.mapgen.defaults import default_config
 from engine.render.seasons import SeasonCycle
 from engine.scene import TerrainScene
 from sim.terrain import GameMap
+from sim.match import Match
 from sim.world import World
 
 U_KEYS = ('x', 'y', 'hp', 'own', 'kind', 'state', 'slot', 'tgt', 'tgb', 'bld', 'alive', 'aboard')
@@ -24,10 +25,11 @@ MAP_KEYS = ('walk', 'cost', 'value', 'cover', 'cliff', 'ocean', 'nav', 'ford')
 
 
 def _play(world, seconds, year_length=360.0):
+    m = Match(world)                                          # AI끼리
     cyc = SeasonCycle(year=0.05, year_length=year_length)
     for _ in range(int(seconds)):
         cyc.advance(1 / year_length)
-        world.update(1.0, cyc.weights())
+        m.update(1.0, cyc.weights())
     return world
 
 
@@ -62,8 +64,8 @@ def _case(report, name, preset, seconds, seed=3, map_seed=8767564, size=384):
     report(f'게임 지도 겨울 (눈, 얼어붙은 바다): {name}',
            all(np.array_equal(getattr(tm, k), getattr(gm, k)) for k in ('walk', 'cost', 'ice', 'nav')))
     # 판: 같은 시드로 두 번
-    a = _snapshot(_play(World(GameMap(scene), 4, seed=seed, map_seed=map_seed), seconds))
-    b = _snapshot(_play(World(GameMap(scene), 4, seed=seed, map_seed=map_seed), seconds))
+    a = _snapshot(_play(World(GameMap(scene), 5, seed=seed, map_seed=map_seed), seconds))
+    b = _snapshot(_play(World(GameMap(scene), 5, seed=seed, map_seed=map_seed), seconds))
     bad = [k for k in a if a[k].shape != b[k].shape or not np.array_equal(a[k], b[k])]
     report(f'같은 시드 → 같은 판, AI끼리 {seconds}초: {name} (병사 {int(a["병사.alive"].sum())}명, '
            f'건물 {int(a["건물.alive"].sum())}채, 나룻배 {int(a["배 기록"][0])}척 띄움)', not bad, ', '.join(bad))

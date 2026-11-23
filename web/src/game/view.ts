@@ -1,7 +1,9 @@
 // 게임 화면 하나: 지도 준비 → 지형 장면 → 서버와 판 → 매 프레임 그리기와 입력.
-// 로비로 나가거나(F10, 끝난 뒤 Enter) 새 지도로 바꾸면(F6) dispose()로 연결·워커·GL·이벤트를 모두 정리한다.
+// 오른쪽 위 [메뉴] (터치는 ☰): 계속 · 항복 · 새 판 · 대기실로 · 로비로. 로비로 나가거나 새 지도로 바꾸면(F6) dispose()로 연결·워커·GL·이벤트를 모두 정리한다.
 // 연결이 끊기면 같은 판에 자동으로 다시 접속한다 (서버가 RESUME_SECONDS 동안 판을 멈춘 채 기다린다).
-// 탭을 숨기면 일시정지하고, 돌아오면 이어 간다 (내가 멈춘 경우만 다시 푼다).
+// 브라우저를 닫았다 다시 열어도 이어 하도록 판 번호와 내 자리 표를 localStorage에 둔다 (스스로 나가면 지운다: saveResume).
+// 탭을 숨기면 일시정지하고, 돌아오면 이어 간다 (싱글만, 내가 멈춘 경우만 다시 푼다).
+// 방에서 시작한 판이 끝나면 [대기실로]: 연결을 그대로 대기실에 넘긴다 (hooks.room).
 
 import { Life } from '../life/life.ts';
 import { Camera } from '../sim/camera.ts';
@@ -11,7 +13,7 @@ import { ActionBar, TRAIN_KEYS } from './actionBar.ts';
 import { Controller } from './controller.ts';
 import { Overlay } from './draw.ts';
 import { Hud } from './hud.ts';
-import { Connection, type JoinOptions } from './net.ts';
+import { Connection, type Handlers, type JoinOptions } from './net.ts';
 import { SpriteBank } from './sprites.ts';
 import { GameState, type StartInfo } from './state.ts';
 import { F_OCEAN, TerrainRules } from './terrainRules.ts';
@@ -20,6 +22,8 @@ import { TouchInput } from './touch.ts';
 import { TouchUi } from './touchUi.ts';
 import { DevConsole } from './devConsole.ts';
 import { DiploUi } from './diplomacy.ts';
+import { closeMenu, confirmBox, menuBox, menuOpen, type MenuItem } from './gameMenu.ts';
+import { helpBox } from './help.ts';
 import { setTouchMode, touchMode } from '../ui/device.ts';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -48,9 +52,40 @@ export async function ensureMap(key: string, progress: (t: string) => void, aliv
 }
 
 export interface ViewHooks {
-  lobby(): void;                 // F10, 끝난 뒤 Enter
+  lobby(): void;                 // 메뉴 '로비로', 끝난 뒤 Enter
   newMap(key: string): void;     // F6
   ready?(): void;                // 첫 장면을 그렸다 (메뉴 배경을 치워도 된다)
+  room?(conn: Connection): void; // 방에서 시작한 판이 끝났다: 이 연결로 대기실에 돌아간다
+}
+
+/** 브라우저를 다시 열었을 때 이어 할 판 (판 번호, 내 자리 표, 지도). */
+export interface ResumeInfo { sid: string; token: string; map: string; at: number }
+const RESUME_KEY = 'pt.resume';
+
+// 탭마다 따로인 sessionStorage를 먼저 (새로고침: 같은 브라우저에 탭이 둘이어도 제 자리로), 비었으면 (브라우저를 새로 열었다)
+// 모든 탭이 함께 쓰는 localStorage의 마지막 판으로.
+export function loadResume(): ResumeInfo | null {
+  for (const store of [() => sessionStorage, () => localStorage]) {
+    try {
+      const r = JSON.parse(store().getItem(RESUME_KEY) ?? 'null');
+      if (r) return r;
+    } catch { /* 저장소를 못 쓰면 이어 하기만 없다 */ }
+  }
+  return null;
+}
+
+export function saveResume(r: ResumeInfo) {
+  for (const store of [() => sessionStorage, () => localStorage]) {
+    try { store().setItem(RESUME_KEY, JSON.stringify(r)); } catch { /* 저장소를 못 쓰면 이어 하기만 없다 */ }
+  }
+}
+
+/** 이 탭의 이어 하기를 지운다 (localStorage는 이 자리 표일 때만: 다른 탭의 판은 남긴다). */
+export function clearResume(token?: string | null) {
+  try {
+    sessionStorage.removeItem(RESUME_KEY);
+    if (!token || JSON.parse(localStorage.getItem(RESUME_KEY) ?? 'null')?.token === token) localStorage.removeItem(RESUME_KEY);
+  } catch { /* 없어도 된다 */ }
 }
 
 export class GameView {
@@ -68,9 +103,14 @@ export class GameView {
   private tui: TouchUi | null = null;
   private raf = 0;
   private disposed = false;
+  private handed = false;                         // 연결을 대기실에 넘겼다 (닫지 않는다)
+  private token: string | null = null;            // 내 자리 표 (이어 하기를 지울 때)
+  private menuBtn: HTMLButtonElement | null = null; // 오른쪽 위 [메뉴] (데스크톱)
 
-  /** overMenu: 메뉴 배경 위에서 시작 (로딩 화면을 반투명하게, 첫 장면이 그려질 때까지 게임 화면을 숨긴다). */
-  constructor(readonly key: string, readonly opts: JoinOptions, private hooks: ViewHooks, overMenu = false) {
+  /** overMenu: 메뉴 배경 위에서 시작 (로딩 화면을 반투명하게, 첫 장면이 그려질 때까지 게임 화면을 숨긴다).
+   *  attach: 대기실이 들고 있던 연결 (멀티: start를 받은 뒤 이어받는다). 없으면 싱글로 새로 접속한다. */
+  constructor(readonly key: string, readonly opts: JoinOptions, private hooks: ViewHooks, overMenu = false,
+              private attach: Connection | null = null) {
     this.canvas.id = 'view';
     this.overlay.id = 'overlay';
     for (const c of [this.canvas, this.overlay]) c.style.visibility = 'hidden';   // 첫 장면 전의 검은 화면을 숨긴다
@@ -90,12 +130,16 @@ export class GameView {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     this.ac.abort();
-    this.net?.close();
+    if (!this.handed) this.net?.close();
+    clearResume(this.token);
+    this.menuBtn?.remove();                            // 스스로 나갔다: 다시 열어도 이어 하지 않는다
+    closeMenu();
     this.scene?.dispose();
     this.hud?.dispose();
     this.bar?.dispose();
     this.dev?.dispose();
     this.diplo?.dispose();
+    document.body.classList.remove('multi');
     this.tui?.dispose();
     this.loading.dispose();
     this.gl?.getExtension('WEBGL_lose_context')?.loseContext();     // GPU 메모리를 바로 돌려준다
@@ -147,15 +191,18 @@ export class GameView {
     let rules: TerrainRules | null = null;
     loading.set('판 준비 중...');
     const stuck = (text: string, show = true) => this.stuck(text, show);
-    const net = (this.net = new Connection(key, this.opts, {
+    const handlers: Handlers = {
       start: async (info: StartInfo) => {
         const first = !st;
         sid = info.sid ?? sid;
+        token = info.token ?? token;
         if (info.resumed && reconnecting) {               // 다시 접속: 화면 자리는 그대로, 전체 상태가 곧 온다
           reconnecting = false;
           loading.fadeOut();
         }
         st = new GameState(info);
+        if (sid && token) { this.token = token; saveResume({ sid, token, map: key, at: Date.now() }); }
+        document.body.classList.toggle('multi', (info.humans ?? 1) > 1);   // 사람이 여럿: 속도·일시정지·새 판 없음
         rules ??= await TerrainRules.load(`/api/maps/${key}/rules.bin`, info.rules);
         if (this.disposed) return;
         ctl = new Controller(st, net, rules);
@@ -185,7 +232,7 @@ export class GameView {
         if (!this.hud) this.hud = new Hud(st, ctl, scene, rules);
         else this.hud.reset(st, ctl);
         if (!first && !info.resumed) loading.hide();
-        if (!info.resumed) waitHome = true;   // 첫 상태가 오면 내 거점으로 (그리고 두 프레임 뒤에 화면을 보인다)
+        if (!info.resumed || first) waitHome = true;   // 첫 상태가 오면 내 거점으로 (그리고 두 프레임 뒤에 화면을 보인다)
       },
       state(m) {
         if (!st) return;
@@ -195,6 +242,7 @@ export class GameView {
       msg(items) { for (const t of items) st?.say(t); hudWait = 1; },
       over(result) { if (st) st.over = result; hudWait = 1; },
       diplo: (m) => { if (st) { st.diplo = m; this.diplo?.render(); } },
+      seats(m) { if (st) st.seats = m; hudWait = 1; },
       status(text) { loading.set(text); },
       error(text, fatal) {
         if (fatal) {                          // 판을 이어 갈 수 없다: 다시 접속하지 않는다
@@ -217,14 +265,47 @@ export class GameView {
           this.stuck('다시 연결하지 못했습니다', false);
           return;
         }
-        setTimeout(() => { if (!this.disposed && reconnecting) net.resume(sid!); }, 1500);
+        setTimeout(() => { if (!this.disposed && reconnecting) net.resume(sid!, token); }, 1500);
       },
-    }));
+    };
+    const net = (this.net = this.attach ?? new Connection(key, this.opts, handlers));
+    if (this.attach) net.setHandlers(handlers);          // 대기실에서 받은 start와 그 뒤의 것을 이어받는다
     let waitHome = false, revealAt = -1;
-    let sid: string | null = null, reconnecting = false, gaveUp = false, lostAt = 0, autoPaused = false;
-    this.listen(document, 'visibilitychange', () => {   // 탭을 숨기면 일시정지, 돌아오면 이어 간다
-      if (!st || st.over) return;
-      if (document.hidden && !st.paused) { autoPaused = true; net.send({ t: 'pause', on: true }); }
+    let sid: string | null = null, token: string | null = null, reconnecting = false, gaveUp = false, lostAt = 0, autoPaused = false;
+    const solo = () => (st?.info.humans ?? 1) <= 1;      // 사람이 1명인 판 (싱글): 속도·일시정지·새 판
+    const playing = () => !!st && !st.over && st.nations[st.info.me]?.alive !== false;   // 아직 살아서 하는 중
+    const canSurrender = () => !solo() && playing();     // 항복은 멀티에서만 (싱글은 그냥 나가면 된다)
+    const surrender = () => confirmBox('항복', '내 병사·건물·배가 모두 허물어지고, 판이 끝날 때까지 관전합니다.', '항복하기',
+                                      () => net.send({ t: 'surrender' }));
+    const exit = () => {                               // 로비로: 사람이 여럿인 판에서 아직 하는 중이면 묻는다
+      if (solo()) { this.hooks.lobby(); return; }
+      // 멀티에서 스스로 나간다고 서버에 알린다 (끊김과 구분: 모두 스스로 나갔으면 판을 바로 지운다)
+      if (!playing()) { net.send({ t: 'leave' }); this.hooks.lobby(); return; }
+      confirmBox('판 떠나기', '떠나면 내 나라는 조종자 없이 남습니다 (병사·건물은 그대로, 다른 나라가 차지할 수 있습니다).', '떠나기',
+                 () => { net.send({ t: 'leave' }); this.hooks.lobby(); });
+    };
+    const toRoom = () => {                             // 판이 끝났다: 이 연결로 같은 방의 대기실에
+      if (!this.hooks.room || !st?.ended) return;
+      this.handed = true;
+      net.hold();
+      this.hooks.room(net);
+    };
+    const openMenu = () => {                           // 오른쪽 위 [메뉴]
+      const items: MenuItem[] = [{ label: '계속하기', fn: () => {} }, { label: '설명', fn: () => helpBox(solo()) }];
+      if (canSurrender()) items.push({ label: '항복하기', fn: surrender, warm: true });
+      if (solo()) items.push({ label: '같은 지도로 새 판', fn: () => net.send({ t: 'restart' }) }, { label: '새 지도', fn: () => this.hooks.newMap(nextSeedKey(key)) });
+      if (st?.ended && st.info.room) items.push({ label: '대기실로', fn: toRoom });
+      items.push({ label: '로비로 나가기', fn: exit });
+      menuBox('메뉴', items);
+    };
+    const mb = (this.menuBtn = document.createElement('button'));
+    mb.className = 'game-menu-btn';
+    mb.textContent = '☰ 메뉴';
+    mb.addEventListener('click', (e) => { e.stopPropagation(); openMenu(); });
+    document.body.appendChild(mb);
+    this.listen(document, 'visibilitychange', () => {   // 탭을 숨기면 일시정지, 돌아오면 이어 간다 (싱글만)
+      if (!st || st.over || !solo()) return;
+      if (document.hidden && !st.paused) { autoPaused = true; net.send({ t: 'pause', on: true, auto: true }); }
       else if (!document.hidden && autoPaused) { autoPaused = false; net.send({ t: 'pause', on: false }); }
     });
 
@@ -251,13 +332,13 @@ export class GameView {
     let midDrag = false, lifeClick: [number, number] | null = null, hudWait = 1;
     const pending = { speed: 1, speedAt: -1e9, pause: false, pauseAt: -1e9 };   // 방금 보낸 속도/일시정지 (답이 오기 전)
     const togglePause = () => {               // 서버 답을 기다리지 않고 마지막으로 요청한 값 기준으로
-      if (!st) return;
+      if (!st || !solo()) return;
       const cur = performance.now() - pending.pauseAt < 1000 ? pending.pause : st.paused;
       pending.pause = !cur; pending.pauseAt = performance.now();
       net.send({ t: 'pause', on: pending.pause });
     };
     const cycleSpeed = () => {
-      if (!st) return;
+      if (!st || !solo()) return;
       const cur = performance.now() - pending.speedAt < 1000 ? pending.speed : st.speed;
       pending.speed = cur === 1 ? 2 : cur === 2 ? 4 : 1; pending.speedAt = performance.now();
       net.send({ t: 'speed', value: pending.speed });
@@ -274,7 +355,8 @@ export class GameView {
       st: () => st, ctl: () => ctl, cam, touch,
       infoAt: (mx, my) => this.hud?.infoAt(mx, my, cam.zoom) ?? null,
       pause: togglePause, speed: cycleSpeed, home: () => centerHome(),
-      restart: () => net.send({ t: 'restart' }), newMap: () => this.hooks.newMap(nextSeedKey(key)), lobby: () => this.hooks.lobby(),
+      restart: () => net.send({ t: 'restart' }), newMap: () => this.hooks.newMap(nextSeedKey(key)), lobby: exit,
+      surrender, canSurrender, room: () => (st?.ended && st.info.room ? toRoom : null),
       changed: () => { hudWait = 1; },
     });
     let lastTouch = -1e9;                     // 터치 뒤 브라우저가 흉내 내 보내는 마우스 이벤트는 무시한다
@@ -346,8 +428,10 @@ export class GameView {
       const k = e.key.toLowerCase();
       const digit = /^Digit[1-9]$/.test(e.code) ? Number(e.code.slice(5)) : 0;   // Shift를 눌러도 숫자 (e.key는 '!' 등)
       if (['f1', 'f5', 'f6', 'f10', 'f12', ' ', 'tab'].includes(k) || (digit && (e.ctrlKey || e.shiftKey))) e.preventDefault();
-      if (k === 'f10' || (k === 'enter' && st?.over)) { this.hooks.lobby(); return; }
-      if (k === 'f6') { this.hooks.newMap(nextSeedKey(key)); return; }
+      if (k === 'escape' && closeMenu()) return;
+      if (menuOpen() && k !== 'f1') return;               // 창이 열려 있으면 게임 키는 쉰다
+      if (k === 'enter' && st?.over && !document.querySelector('.t-menu-back')) { exit(); return; }
+      if (k === 'f6') { if (solo()) this.hooks.newMap(nextSeedKey(key)); return; }
       const hud = this.hud;
       if (!ctl || !st || !hud) return;
       hudWait = 1;
@@ -369,8 +453,8 @@ export class GameView {
         case ' ': centerHome(); break;
         case 'p': togglePause(); break;
         case '.': cycleSpeed(); break;
-        case 'f1': hud.showHelp = !hud.showHelp; break;
-        case 'f5': net.send({ t: 'restart' }); break;
+        case 'f1': if (!closeMenu()) helpBox(solo()); break;
+        case 'f5': if (solo()) net.send({ t: 'restart' }); break;
         case 'f12': screenshot(canvas, overlay); break;
       }
     });
@@ -414,7 +498,10 @@ export class GameView {
       hudWait += dt;
       if (this.hud && hudWait >= 0.25) {
         hudWait = 0;
+        this.hud.actions = { lobby: exit, restart: () => net.send({ t: 'restart' }),
+                             newMap: () => this.hooks.newMap(nextSeedKey(key)), room: this.hooks.room ? toRoom : null };
         this.hud.update(cam, touchMode() ? null : mouse);
+        if (this.bar && st) this.bar.el.style.display = st.over ? 'none' : '';   // 졌거나 끝났으면 (관전) 명령 버튼을 숨긴다
         this.diplo?.render();
         this.bar?.update();
         this.tui?.update();

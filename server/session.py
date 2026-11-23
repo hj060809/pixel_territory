@@ -1,20 +1,30 @@
-"""판 하나: 자기 스레드에서 초당 tick_hz번 걸음을 돌리고, 걸음마다 상태 메시지를 보낸다.
+"""판 하나: 자기 스레드에서 초당 tick_hz번 걸음을 돌리고, 걸음마다 사람 자리(Seat)마다 상태 메시지를 보낸다.
+
+판 = 세계(World, 나라만 안다) + 나라마다 조종자 (sim/match.py): 사람 자리 Seat 또는 AI.
+싱글 = 사람 1 + AI, 멀티 = 사람 N + AI (구조는 같다). 사람이 몇 번 나라를 맡을지는 무작위 (0번에 고정하지 않는다).
 
 걸음 하나
-1. 받은 명령을 적용한다 (브라우저 → JSON, 받는 즉시 줄에 넣고 다음 걸음 맨 앞에서 처리: 최대 1걸음 대기)
-2. 게임 시간을 진행한다 (일시정지/속도). 낮밤 시계, 1년 시계. 눈·얼음은 계절이 1/240년 움직이고
-   실제 1초가 지났을 때만 갱신한다. 계산(수십 ms)은 보조 스레드에서 하고, 다 되면 걸음 맨 앞에서 바꿔 끼운다
-3. 세계 진행 (world.update, 안에서 0.05초 걸음으로 나눈다)
-4. 상태 메시지(이진)와 새 알림(JSON)을 보낸다
+1. 받은 명령을 적용한다 (자리마다 그 나라로. 받는 즉시 줄에 넣고 다음 걸음 맨 앞에서 처리: 최대 1걸음 대기)
+2. 게임 시간을 진행한다. 속도·일시정지는 사람이 1명인 판에서만. 접속한 사람이 없으면 멈춘다.
+   낮밤 시계, 1년 시계. 눈·얼음은 계절이 1/240년 움직이고 실제 1초가 지났을 때만 갱신한다
+   (계산(수십 ms)은 보조 스레드에서 하고, 다 되면 걸음 맨 앞에서 바꿔 끼운다)
+3. 세계 진행 (Match.update → world.update, 안에서 0.05초 걸음으로 나누고 AI가 돌아가며 생각한다)
+4. 상태 메시지(이진)는 한 번만 만들어 모든 자리에 보낸다 (자리마다 다른 것은 머리의 flags 1바이트뿐).
+   알림(JSON)은 그 자리의 나라에게 온 것만, 외교 상태는 그 나라의 눈으로.
 
 명령 (JSON, 't'로 구분)
     command  {units:[[칸,세대]...], ships:[번호...], x, y, attack, r}   오른쪽 클릭 (r: 클릭 반경, 화면 배율에 따라)
-    place    {kind:'tower'|'hall'|'harbor', units, x, y}               건물 자리
+    place    {kind:'tower'|'hall'|'harbor'|..., units, x, y}           건물 자리
     train    {kind:'infantry'|'archer'|'warship', buildings:[[칸,세대]...]}
     stop     {units}
-    pause    {on}            speed {value: 1|2|4}            restart {}  (같은 지도로 새 판)
+    diplo    {act, to, ...}  외교 (상대 나라 번호 to)
+    surrender {}             항복 (내 나라를 모두 허물고 관전)
+    leave    {}              판을 떠난다 (사람이 여럿인 판: 30초를 기다리지 않고 바로 조종자 없음)
+    pause    {on, auto?}     speed {value: 1|2|4}            restart {}  (같은 지도로 새 판) — 사람 1명인 판에서만
 
-연결이 끊기면 (detach) 판은 멈춘 채 잠시 남아 있고, 같은 sid로 다시 접속하면 (attach) 전체 상태를 다시 보내고 이어 간다.
+보내는 것 (JSON): start, msg, over, diplo, ack, error, seats {away:[나라], gone:[나라]} (사람 나라의 접속 상태가 바뀔 때)
+
+연결이 끊기면 (detach) 그 자리는 잠시 비고, 같은 sid로 다시 접속하면 (attach) 전체 상태를 다시 보내고 이어 간다.
 걸음 안에서 오류가 나면 브라우저에 알리고 판을 멈춘다 (서버 로그에 자세히).
 """
 from __future__ import annotations
@@ -34,14 +44,40 @@ from server.client_info import rules_info
 from server.protocol import StateEncoder
 from sim import rules as R
 from sim.commands import PlayerCommands
+from sim.match import Match
+from sim.spawn import pick_colors
 from sim.terrain import GameMap
 from sim.world import World
+
+FLAGS_AT = 17                                    # 상태 메시지 머리에서 flags 바이트 자리 (protocol.encode: '<BIfffBBH')
+LEAVE_AFTER = 30.0                               # 사람이 2명 이상인 판: 이만큼 끊겨 있으면 그 나라는 조종자 없음
+
+
+class Seat:
+    """사람 자리: 접속 하나 = 나라 하나. 그 나라로 명령하고, 그 나라에게 온 알림·외교 상태를 받는다."""
+
+    def __init__(self, send, name: str, color: int, spot=None):
+        self.send = send
+        self.name, self.color, self.spot = name, color, spot
+        self.nid = -1                            # 판마다 정해진다
+        self.cmd: PlayerCommands | None = None
+        self.away = False                        # 연결이 끊겨 기다리는 중
+        self.away_since = 0.0
+        self.msg_seen = -1.0
+        self.diplo_v, self.diplo_at = -1, -1e9
+        self.over_sent = False
+        self.left = False                        # 오래 끊겨 (또는 스스로 나가) '조종자 없음'이 됐다
+        self.quit = False                        # 메뉴로 스스로 나갔다 (끊김과 달리 돌아오지 않는다)
+        self.seats_v = -1                        # 마지막으로 보낸 접속 상태 판
+        self.token = secrets.token_urlsafe(9)    # 다시 접속할 때 이 자리를 찾는 표
 
 
 class GameSession:
     def __init__(self, scene, options: dict, send, cfg):
-        """scene: TerrainScene, send(bytes|dict): 브라우저로 보내기 (다른 스레드에서 불린다)."""
-        self.scene, self.opts, self.send, self.cfg = scene, dict(options), send, cfg
+        """scene: TerrainScene, send(bytes|dict): 브라우저로 보내기 (다른 스레드에서 불린다). 사람이 여럿이면 send의 목록.
+        options: 판 설정 (bots: AI 수, difficulty, season). 사람: name, color, spot (싱글, 미리보기의 starts/colors도)
+                 또는 players: [{name, color, spot}...] (사람 여럿: send 목록과 같은 순서)."""
+        self.scene, self.opts, self.cfg = scene, dict(options), cfg
         self.gmap = GameMap(scene)
         self.season = SeasonCycle(year=(SEASON_CENTERS[int(options.get('season', 0))] - 0.08) % 1.0,
                                   year_length=cfg.year_length)
@@ -50,49 +86,113 @@ class GameSession:
         self._season_step = int(self.season.year * 240)
         self._season_at = time.perf_counter()
         self.paused, self.speed = False, 1.0
-        self.away = False                       # 연결이 끊겨 기다리는 중 (다시 접속하면 이어 간다)
-        self.away_since = 0.0
+        self.auto_paused = False                 # 탭을 숨겨서 건 일시정지 (다시 접속하면 푼다: 새로고침 때 옛 탭이 걸고 간다)
         self.sid = secrets.token_urlsafe(9)     # 다시 접속할 때 쓰는 판 번호
         self.crashed = False
         self._resumed = False
         self._season_pool = ThreadPoolExecutor(1, thread_name_prefix='season')
         self._season_job = None
-        self._inbox: deque = deque()
+        self._inbox: deque = deque()             # (자리, 명령)
         self._stop = threading.Event()
         self._thread = None
         self.round = 0
+        self.rng = np.random.default_rng()
+        self._seats_sig = None                   # 사람 나라의 접속 상태 (바뀌면 모두에게 seats)
+        self._seats_v = 0
+        sends = list(send) if isinstance(send, (list, tuple)) else [send]
+        players = options.get('players') or [{'name': options.get('name') or '나', 'color': options.get('color', 0),
+                                              'spot': options.get('spot')}]
+        self.seats = [Seat(sd, p.get('name') or f'사람 {i + 1}', int(p.get('color', i)), tuple(p['spot']) if p.get('spot') else None)
+                      for i, (sd, p) in enumerate(zip(sends, players))]
         self._new_world(first=True)
+
+    # ------------------------------------------------------------- 사람 자리
+    @property
+    def solo(self) -> bool:
+        """사람이 1명인 판 (싱글): 속도·일시정지·새 판을 쓸 수 있다."""
+        return len(self.seats) == 1
+
+    @property
+    def away(self) -> bool:
+        """접속한 사람이 아무도 없다 (판을 멈춘다)."""
+        return all(s.away for s in self.seats)
+
+    @property
+    def away_since(self) -> float:
+        return max(s.away_since for s in self.seats)
+
+    @property
+    def send(self):                              # 싱글에서 쓰던 이름 (첫 자리)
+        return self.seats[0].send
 
     # ------------------------------------------------------------- 판
     def _new_world(self, first=False):
-        o = self.opts
+        o, rng = self.opts, self.rng
         self.round += 1
-        seed = int(np.random.default_rng().integers(2 ** 31))
-        starts = o.get('starts') if first else None                 # 미리보기로 본 배치는 첫 판에만
-        colors = o.get('colors') if first else None
-        self.world = World(self.gmap, int(o.get('bots', 4)), seed=seed, map_seed=self.scene.config.seed,
-                           player_spot=tuple(o['spot']) if o.get('spot') and first else None,
-                           player_color=int(o.get('color', 0)), player_name=o.get('name') or '나',
-                           difficulty=R.DIFFICULTY.get(o.get('difficulty', '보통'), 1.0),
-                           starts=[tuple(s) for s in starts] if starts else None, colors=colors)
-        self.cmd = PlayerCommands(self.world, 0)
+        n = min(int(o.get('bots', 4)) + len(self.seats), len(R.COLORS))
+        humans = [int(h) for h in rng.permutation(n)[:len(self.seats)]]   # 사람이 맡을 나라 (무작위: 0번 고정 아님)
+        for seat, h in zip(self.seats, humans):
+            seat.nid = h
+        # 색·이름·시작 자리: 사람 자리는 고른 대로, 나머지는 무작위. 미리보기 배치는 첫 판에만 그대로
+        # (미리보기 목록은 사람 자리 순서, 그다음 AI: k번째 → 나라 order[k])
+        order = humans + [i for i in range(n) if i not in humans]
+        starts = o.get('starts') if first else None
+        pcolors = o.get('colors') if first else None
+        if pcolors and len(pcolors) == n:
+            colors = [0] * n
+            for k, nid in enumerate(order):
+                colors[nid] = int(pcolors[k])
+        else:
+            taken = {s.color for s in self.seats}
+            rest = [c for c in pick_colors(rng, len(R.COLORS)) if c not in taken]
+            colors = [0] * n
+            for s in self.seats:
+                colors[s.nid] = s.color
+            it = iter(rest)
+            for i in range(n):
+                if i not in humans:
+                    colors[i] = next(it)
+        if starts and len(starts) == n:
+            st = [None] * n
+            for k, nid in enumerate(order):
+                st[nid] = tuple(starts[k])
+            starts = st
+        else:
+            starts = None
+        names = [None] * n
+        for s in self.seats:
+            names[s.nid] = s.name
+        spots = {s.nid: s.spot for s in self.seats if s.spot and first}
+        seed = int(rng.integers(2 ** 31))
+        self.world = World(self.gmap, n, seed=seed, map_seed=self.scene.config.seed,
+                           starts=starts, colors=colors, names=names, spots=spots)
+        self.match = Match(self.world, humans, difficulty=R.DIFFICULTY.get(o.get('difficulty', '보통'), 1.0))
         self.encoder = StateEncoder(self.world) if first else (self.encoder.reset(self.world) or self.encoder)
-        self._msg_seen = 0.0
-        self._over_sent = False
-        self._diplo_v, self._diplo_at = -1, -1e9
-        self.send({'t': 'start', **self.info()})
+        for s in self.seats:
+            s.cmd = PlayerCommands(self.world, s.nid)
+            s.msg_seen = -1.0
+            s.diplo_v, s.diplo_at = -1, -1e9
+            s.over_sent = False
+            s.seats_v = -1
+            s.send({'t': 'start', **self.info(s)})
 
-    def info(self) -> dict:
+    def info(self, seat: Seat) -> dict:
         w = self.world
         return {
             'map': getattr(self.scene, 'map_key', ''), 'H': self.scene.H, 'W': self.scene.W, 'round': self.round,
-            'tick_hz': self.cfg.tick_hz, 'me': 0,
+            'tick_hz': self.cfg.tick_hz, 'me': seat.nid, 'humans': len(self.seats), 'room': bool(self.opts.get('room')),
             'nations': [{'id': n.id, 'name': n.name, 'color': list(n.color), 'light': list(n.light)} for n in w.nations],
             'sites': [{'id': s.id, 'kind': s.kind, 'x': s.x, 'y': s.y, 'rich': round(s.rich, 2), 'snow': s.snow} for s in w.sites],
             'lairs': [[lr.y, lr.x] for lr in w.wild.lairs],
             'year_length': self.cfg.year_length, 'day_length': self.cfg.day_length,
-            'rules': rules_info(), 'sid': self.sid, 'resumed': self._resumed, 'dev': bool(self.cfg.dev),
+            'rules': rules_info(), 'sid': self.sid, 'token': seat.token, 'resumed': self._resumed, 'dev': bool(self.cfg.dev),
         }
+
+    def seat_of(self, token: str | None) -> int:
+        """다시 접속: 표로 자리를 찾는다 (없으면 싱글의 첫 자리, 못 찾으면 -1)."""
+        if not token:
+            return 0 if self.solo else -1
+        return next((i for i, s in enumerate(self.seats) if s.token == token), -1)
 
     # ------------------------------------------------------------- 실행
     def start(self):
@@ -103,47 +203,57 @@ class GameSession:
         self._stop.set()
         self._season_pool.shutdown(wait=False, cancel_futures=True)
 
-    def submit(self, msg: dict):
-        self._inbox.append(msg)
+    def submit(self, msg: dict, seat: int = 0):
+        """명령을 줄에 넣는다 (seat: 자리 번호, 싱글은 0)."""
+        if msg.get('t') == 'leave':              # 스스로 나감은 바로 표시 (곧 이어 연결이 닫힌다: abandoned)
+            self.seats[seat].quit = True
+        self._inbox.append((seat, msg))
 
     # ------------------------------------------------------------- 연결
-    def detach(self):
-        """연결이 끊겼다: 보내기를 멈추고 판을 멈춘 채 기다린다."""
-        self.send = lambda item: None
-        self.away, self.away_since = True, time.monotonic()
+    def detach(self, seat: int = 0, send=None):
+        """연결이 끊겼다: 그 자리는 보내기를 멈추고 기다린다 (아무도 없으면 판이 멈춘다).
+        send: 끊긴 연결의 보내기. 그 자리를 이미 새 연결이 넘겨받았으면 (새로고침) 아무것도 하지 않는다."""
+        s = self.seats[seat]
+        if send is not None and s.send is not send and not s.away:
+            return
+        s.send = lambda item: None
+        s.away, s.away_since = True, time.monotonic()
+        if not self.solo:                        # 모두에게 (30초 기다린다)
+            self._inbox.append((seat, {'t': '_away'}))
 
-    def attach(self, send):
+    def release(self, seat: int):
+        """판이 끝난 뒤 대기실로 돌아갔다: 그 자리는 더 보내지 않는다 (알림 없이)."""
+        s = self.seats[seat]
+        s.send = lambda item: None
+        s.away, s.away_since, s.left, s.quit = True, time.monotonic(), True, True
+
+    def attach(self, send, seat: int = 0):
         """다시 접속: 판 정보와 전체 상태를 다시 보내고 이어 간다 (다음 걸음부터)."""
-        self._inbox.append({'t': '_attach', 'send': send})
+        self._inbox.append((seat, {'t': '_attach', 'send': send}))
+
+    @property
+    def abandoned(self) -> bool:
+        """사람이 여럿인 판에서 모두 메뉴로 스스로 나갔다 (끝난 판, 사람이 다 져서 AI만 남은 판 등): 기다리지 않고 바로 지운다.
+        한 명이라도 끊겨서 나간 것이면 아니다 (RESUME_SECONDS 동안 다시 접속을 기다린다)."""
+        return not self.solo and all(s.away and s.quit for s in self.seats)
 
     @property
     def alive(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
+
     def _run(self):
         period = 1.0 / self.cfg.tick_hz
         nxt = time.perf_counter()
         n = 0
         while not self._stop.is_set():
-            t0 = time.perf_counter()
             try:
-                self._apply_commands()
-                w = self.world
-                running = not self.paused and not self.away and w.phase == 'play'
-                gdt = period * self.speed if running else 0.0
-                self.day.update(gdt)
-                self.season.update(gdt)
-                self._maybe_set_season()
-                w.update(gdt, self.season.weights())
-                sim_ms = (time.perf_counter() - t0) * 1000
-                flags = int(self.paused or self.away) | (2 if w.phase == 'over' else 0) | (4 if w.result == '승리' else 0)
-                self.send(self.encoder.encode({'hour': self.day.hour, 'year': self.season.year, 'flags': flags,
-                                               'speed': self.speed}, nations=(n % 4 == 0), sim_ms=sim_ms))
-                self._send_messages()
+                self.step(period, n)
             except Exception:                       # 판을 멈추고 알린다 (서버는 계속 돈다)
                 traceback.print_exc()
                 self.crashed = True
-                self.send({'t': 'error', 'error': '서버에서 오류가 나서 판이 멈췄습니다. F10으로 로비에 가서 다시 시작해 주세요',
-                           'fatal': True})
+                for s in self.seats:
+                    s.send({'t': 'error', 'error': '서버에서 오류가 나서 판이 멈췄습니다. F10으로 로비에 가서 다시 시작해 주세요',
+                            'fatal': True})
                 break
             n += 1
             nxt += period
@@ -152,6 +262,45 @@ class GameSession:
                 self._stop.wait(delay)
             else:
                 nxt = time.perf_counter()           # 밀렸으면 따라잡지 않고 다시 맞춘다
+
+    def step(self, period: float, n: int = 0):
+        """걸음 하나: 명령 → 진행 → 자리마다 보내기 (상태 메시지는 한 번만 만든다)."""
+        t0 = time.perf_counter()
+        self._apply_commands()
+        m = self.match
+        if not self.solo:                        # 오래 끊긴 사람의 나라: 조종자 없음 (병사·건물은 그대로, 알림만)
+            now = time.monotonic()
+            for s in self.seats:
+                if s.away and not s.left and now - s.away_since >= LEAVE_AFTER:
+                    s.left = True
+                    m.leave(s.nid)
+        paused = self.paused and self.solo
+        speed = self.speed if self.solo else 1.0
+        running = not paused and not self.away and not m.over
+        gdt = period * speed if running else 0.0
+        self.day.update(gdt)
+        self.season.update(gdt)
+        self._maybe_set_season()
+        m.update(gdt, self.season.weights())
+        if not self.solo:                        # 사람 나라의 접속 상태: 바뀌면 모두에게
+            sig = (tuple(s.nid for s in self.seats if s.away and not s.left), tuple(sorted(m.gone)))
+            if sig != self._seats_sig:
+                self._seats_sig = sig
+                self._seats_v += 1
+        sim_ms = (time.perf_counter() - t0) * 1000
+        base = int(paused or self.away) | (2 if m.over else 0)
+        msg = self.encoder.encode({'hour': self.day.hour, 'year': self.season.year, 'flags': base,
+                                   'speed': speed}, nations=(n % 4 == 0), sim_ms=sim_ms)
+        for s in self.seats:
+            if s.away:
+                continue
+            out = msg
+            if m.result.get(s.nid) == '승리':           # 자리마다 다른 것: 이긴 사람의 flags (4)
+                out = bytearray(msg)
+                out[FLAGS_AT] = base | 4
+                out = bytes(out)
+            s.send(out)
+            self._send_messages(s)
 
     def _maybe_set_season(self):
         """눈·얼음 갱신: 계산은 보조 스레드에서 (걸음을 막지 않게), 다 되면 여기서 바꿔 끼운다."""
@@ -167,89 +316,124 @@ class GameSession:
             self._season_step, self._season_at = step, now
             self._season_job = self._season_pool.submit(self.gmap.compute_season, self.season.weights())
 
-    def _send_messages(self):
-        w = self.world
-        new = [(text, t) for text, t in w.messages if t > self._msg_seen]
+    def _send_messages(self, s: Seat):
+        """그 자리의 나라에게 온 알림, 판 끝 (그 나라의 결과), 외교 상태 (바뀌었거나 1초 지났으면)."""
+        w, m, nid = self.world, self.match, s.nid
+        new = [text for text, t, to, skip in w.messages if t > s.msg_seen and (to is None or to == nid) and nid not in skip]
+        if w.messages:
+            s.msg_seen = w.messages[-1][1]
         if new:
-            self._msg_seen = new[-1][1]
-            self.send({'t': 'msg', 'items': [text for text, _ in new]})
-        if w.phase == 'over' and not self._over_sent:
-            self._over_sent = True
-            self.send({'t': 'over', 'result': w.result})
-        d = w.diplo                                    # 외교: 바뀌었거나 1초 지났으면 (남은 시간·관계가 흐르니)
+            s.send({'t': 'msg', 'items': new})
+        if not s.over_sent and (m.over or nid in m.lost):
+            s.over_sent = True
+            s.send({'t': 'over', 'result': m.result.get(nid, '패배')})
+        if s.seats_v != self._seats_v and self._seats_sig is not None:
+            s.seats_v = self._seats_v
+            s.send({'t': 'seats', 'away': list(self._seats_sig[0]), 'gone': list(self._seats_sig[1])})
+        d = w.diplo
         now = time.perf_counter()
-        if d.version != self._diplo_v or now - self._diplo_at >= 1.0:
-            self._diplo_v, self._diplo_at = d.version, now
-            self.send({'t': 'diplo', **d.state_for(0)})
+        if d.version != s.diplo_v or now - s.diplo_at >= 1.0:
+            s.diplo_v, s.diplo_at = d.version, now
+            s.send({'t': 'diplo', **d.state_for(nid)})
 
     # ------------------------------------------------------------- 명령
     def _apply_commands(self):
         while self._inbox:
-            m = self._inbox.popleft()
+            seat, m = self._inbox.popleft()
+            s = self.seats[seat]
             try:
-                self._apply(m)
+                self._apply(s, m)
             except (KeyError, TypeError, ValueError) as e:
-                self.send({'t': 'error', 'error': f'잘못된 명령: {e}'})
+                s.send({'t': 'error', 'error': f'잘못된 명령: {e}'})
 
-    def _apply(self, m: dict):
-        t, c = m.get('t'), self.cmd
+    def _apply(self, s: Seat, m: dict):
+        t, c, nid = m.get('t'), s.cmd, s.nid
+        if t == '_away':                            # 연결이 끊겼다 (사람이 2명 이상인 판): 알림만. 이미 진 나라는 조용히 나간다
+            if self.world.nations[nid].alive and not s.left and s.away:   # 그사이 돌아왔으면 알리지 않는다
+                self.world.say(f'{self.world.nations[nid].name}의 연결이 끊겼습니다 ({LEAVE_AFTER:.0f}초 기다립니다)', skip=(nid,))
+            return
         if t == '_attach':                          # 다시 접속 (서버 안에서만 쓰는 명령)
-            self.send = m['send']
-            self.away = False
+            if not s.away:                          # 아직 붙어 있는 연결을 넘겨받는다 (다른 창, 또는 끊김이 아직 안 닿은 새로고침)
+                s.send({'t': 'error', 'error': '다른 창에서 이 판을 이어 합니다', 'fatal': True})
+            s.send = m['send']
+            s.away = False
             self._resumed = True
-            self.encoder.reset()
-            self.send({'t': 'start', **self.info()})
+            self.encoder.reset()                    # 모두에게 다음 걸음은 전체 상태 (한 번 커질 뿐)
+            s.send({'t': 'start', **self.info(s)})
             self._resumed = False
-            self._msg_seen = self.world.time
-            self._diplo_v = -1                          # 외교 상태도 다시
-            if self.world.phase == 'over':
-                self.send({'t': 'over', 'result': self.world.result})
+            s.msg_seen = self.world.time
+            s.diplo_v = -1                          # 외교 상태도 다시
+            s.over_sent = False
+            s.seats_v = -1
+            s.quit = False
+            if self.auto_paused:                    # 옛 탭이 숨으며 건 일시정지
+                self.paused = self.auto_paused = False
+            if not self.solo:
+                if s.left:
+                    s.left = False
+                    self.match.back(nid)                # 판이 끝나기 전에 돌아왔다: 다시 조종한다
+                else:
+                    self.world.say(f'{R.josa(self.world.nations[nid].name, "이", "가")} 다시 접속했습니다', skip=(nid,))
+            return
+        if nid in self.match.lost or nid in self.match.gone:   # 진 사람(관전)은 명령하지 못한다
             return
         if t == 'command':
             shown = c.command(m.get('units', []), m.get('ships', []), float(m['x']), float(m['y']),
                               bool(m.get('attack')), float(m.get('r', 2.0)))
             if 'id' in m:
-                self.send({'t': 'ack', 'id': m['id'], 'shown': shown})
+                s.send({'t': 'ack', 'id': m['id'], 'shown': shown})
         elif t == 'place':
             c.place(m['kind'], m.get('units', []), float(m['x']), float(m['y']))
         elif t == 'train':
             c.train(m['kind'], m.get('buildings', []))
         elif t == 'stop':
             c.stop(m.get('units', []))
-        elif t == 'pause':
-            self.paused = bool(m.get('on', not self.paused))
-        elif t == 'speed':
-            self.speed = float(m['value']) if float(m['value']) in (1.0, 2.0, 4.0) else 1.0
-        elif t == 'restart':
-            self._new_world()
+        elif t == 'surrender':
+            self.match.surrender(nid)
+        elif t == 'leave':                               # 메뉴에서 나간다: 사람이 여럿인 판이면 바로 조종자 없음
+            if not self.solo and not s.left:
+                s.left = True
+                self.match.leave(nid, chose=True)
+        elif t in ('pause', 'speed', 'restart'):    # 사람이 1명인 판에서만
+            if not self.solo:
+                return
+            if t == 'pause':
+                self.paused = bool(m.get('on', not self.paused))
+                self.auto_paused = self.paused and bool(m.get('auto'))
+            elif t == 'speed':
+                self.speed = float(m['value']) if float(m['value']) in (1.0, 2.0, 4.0) else 1.0
+            else:
+                self._new_world()
         elif t == 'diplo':                               # 외교: 상대 나라 번호 to
             d, w, to = self.world.diplo, self.world, int(m.get('to', -1))
             act = m.get('act')
-            if not (0 < to < len(w.nations)):
+            if not (0 <= to < len(w.nations)) or to == nid:
                 raise ValueError('나라 번호')
             if act == 'request':
-                d.request(0, to)
+                d.request(nid, to)
             elif act == 'reply':
-                d.reply(0, to, bool(m.get('accept')))
+                d.reply(nid, to, bool(m.get('accept')))
             elif act == 'extend':
-                d.extend(0, to)
+                d.extend(nid, to)
             elif act == 'break':
-                d.end(0, to, betray=True)
+                d.end(nid, to, betray=True)
             elif act == 'give':                          # 자원마다 보낼 비율 (0~1): 식량, 목재, 석재, 유황
-                d.give_res(0, to, [float(v) for v in m.get('pct', [0, 0, 0, 0])][:4])
+                d.give_res(nid, to, [float(v) for v in m.get('pct', [0, 0, 0, 0])][:4])
             elif act == 'units':                         # 고른 병사
-                d.give_units(0, to, c.units(m.get('units', [])))
+                d.give_units(nid, to, c.units(m.get('units', [])))
             elif act == 'target':
-                d.target(0, to)
+                d.target(nid, to)
             else:
                 raise ValueError(f'모르는 외교 {act}')
-            self._diplo_v = -1
+            s.diplo_v = -1
         elif t == 'dev' and self.cfg.dev:                # 개발용 (서버를 --dev로 켰을 때만)
             if m.get('cmd') == 'res':
                 add = [float(min(max(v, -1e6), 1e6)) for v in (list(m.get('add', [])) + [0, 0, 0, 0])[:4]]
-                nat = self.world.nations[0]
+                nat = self.world.nations[nid]
                 nat.res = [max(0.0, r + a) for r, a in zip(nat.res, add[:3])]
                 nat.sulfur = max(0.0, nat.sulfur + add[3])
-                self.world.say('개발: 자원 ' + ', '.join(f'{n} {a:+.0f}' for n, a in zip(('식량', '목재', '석재', '유황'), add) if a))
+                self.world.say('개발: 자원 ' + ', '.join(f'{n} {a:+.0f}' for n, a in zip(('식량', '목재', '석재', '유황'), add) if a), to=nid)
+            elif m.get('cmd') == 'die':                      # 내 병사·건물을 모두 허문다 (진 뒤 관전 화면 시험)
+                self.world.ruin(nid)
         else:
             raise ValueError(f'모르는 명령 {t}')

@@ -65,7 +65,7 @@ class PlayerCommands:
             elif w.fleet.order_ships(ships, y, x):
                 shown = 'ship'
             elif len(sel) == 0:
-                w.say('전함은 물 위로만 갈 수 있습니다')
+                w.say('전함은 물 위로만 갈 수 있습니다', to=self.nid)
         if len(sel) == 0:
             return shown
         foe = w.unit_at(y, x, max(2.0, r))
@@ -125,14 +125,14 @@ class PlayerCommands:
         if kind in SITE_OF:
             site = self._free_site(SITE_OF[kind], y, x, 8.0)
             if site < 0:
-                w.say(f'{R.josa(R.BUILD_NAMES[kind], "은", "는")} 빈 {R.SITE_NAMES[SITE_OF[kind]]} 자리에 지어야 합니다')
+                w.say(f'{R.josa(R.BUILD_NAMES[kind], "은", "는")} 빈 {R.SITE_NAMES[SITE_OF[kind]]} 자리에 지어야 합니다', to=self.nid)
                 return False
             y, x = w.sites[site].y, w.sites[site].x
         sel = self.units(unit_refs)
         if len(sel) == 0:
             sel = self._idle_near(y, x)
         if len(sel) == 0:
-            w.say('지을 병사가 없습니다')
+            w.say('지을 병사가 없습니다', to=self.nid)
             return False
         builders = self._builders(sel, y, x, 3)
         if site >= 0:
@@ -170,7 +170,7 @@ class PlayerCommands:
             return bool(harbors) and w.train(self.nid, harbors[0], R.WARSHIP)
         halls = [i for i in chosen if b.kind[i] == R.HALL] or list(w.building_ids(self.nid, R.HALL, done=True))
         if not halls:
-            w.say('훈련할 거점이 없습니다')
+            w.say('훈련할 거점이 없습니다', to=self.nid)
             return False
         return w.train(self.nid, min(halls, key=lambda i: len(b.queue[i])), kind)
 

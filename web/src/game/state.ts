@@ -18,8 +18,10 @@ export interface StartInfo {
   lairs?: number[][];                  // 드래곤 둥지 [y, x]
   year_length: number; day_length: number;
   rules: any;
-  sid?: string; resumed?: boolean;
-  dev?: boolean;                       // 서버가 --dev로 켜졌다 (개발용 콘솔)     // 다시 접속할 때 쓰는 판 번호, 다시 접속해서 받은 start인가
+  sid?: string; token?: string; resumed?: boolean;   // 다시 접속할 때 쓰는 판 번호·내 자리 표, 다시 접속해서 받은 start인가
+  humans?: number;                     // 사람 수 (2 이상: 멀티)
+  room?: boolean;                      // 방에서 시작한 판 (끝나면 대기실로 돌아갈 수 있다)
+  dev?: boolean;                       // 서버가 --dev로 켜졌다 (개발용 콘솔)
 }
 
 const SNAP = 4;                 // 이보다 멀리 한 번에 움직이면 보간하지 않는다 (칸)
@@ -47,6 +49,7 @@ export class GameState {
   private segSpan = 50;         // 지금 보간 구간의 길이 (다음 상태가 올 때쯤까지)
   over: string | null = null;
   diplo: DiploState | null = null;   // 외교 (서버가 바뀔 때마다 보낸다)
+  seats: { away: number[]; gone: number[] } = { away: [], gone: [] };   // 사람 나라의 접속 상태 (끊겨 기다리는 중, 떠남)
 
   constructor(info: StartInfo) {
     this.info = info;

@@ -9,6 +9,7 @@ from server.protocol import POS, StateEncoder, decode
 from sim import rules as R
 from sim.commands import PlayerCommands
 from sim.terrain import GameMap
+from sim.match import Match
 from sim.world import World
 
 
@@ -26,7 +27,8 @@ def _client_apply(units, builds, m):
 def run(report, seconds=240, size=384):
     world_ = generate_world(default_config(size, 8767564))
     scene = TerrainScene(world_.height, world_.coast, world_.climate)
-    w = World(GameMap(scene), 4, seed=7, map_seed=8767564)
+    w = World(GameMap(scene), 5, seed=7, map_seed=8767564)
+    m = Match(w, humans=[0])
     enc = StateEncoder(w)
     cyc = SeasonCycle(year=0.05, year_length=360)
     units, builds, total = {}, {}, 0
@@ -39,7 +41,7 @@ def run(report, seconds=240, size=384):
     report('명령 해석: 자원지 오른쪽 클릭 → 짓기, 세대가 다른 병사는 무시', ok_cmd and len(stale) == 0)
     for step in range(int(seconds / 0.05)):
         cyc.advance(0.05 / 360)
-        w.update(0.05, cyc.weights())
+        m.update(0.05, cyc.weights())
         blob = enc.encode({'hour': 12.0, 'year': cyc.year, 'flags': 0, 'speed': 1.0}, nations=step % 4 == 0, sim_ms=0)
         total += len(blob)
         _client_apply(units, builds, decode(blob))
@@ -56,7 +58,10 @@ def run(report, seconds=240, size=384):
 
 def _lobby_art(report, scene):
     """로비 배경: 서버가 고른 조각과 장식 배치 = 데스크톱 로비(game/menu.py LobbyArt)."""
-    from game.menu import LobbyArt                      # 최상위 원본
+    try:
+        from game.menu import LobbyArt                  # 최상위 원본 (옛 데스크톱 코드가 옆에 있을 때만)
+    except ModuleNotFoundError:
+        return
     from server import lobby_art
     info, png = lobby_art.build(scene)
     h = np.asarray(scene.height, dtype=np.float64)[:scene.day.shape[0], :scene.day.shape[1]]

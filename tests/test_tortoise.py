@@ -15,7 +15,7 @@ from sim.world import World
 
 def run(report, cache_dir='.cache'):
     gm = GameMap(TerrainScene.load(default_config(512, 42), cache_dir, progress=lambda s: None))
-    w = World(gm, 2, seed=4, map_seed=42)
+    w = World(gm, 3, seed=4, map_seed=42)
     wild, u = w.wild, w.units
     pang = [a for a in wild.animals.values() if a.kind == R.TORTOISE_W]
     report('사막에 바위거북이 산다', 1 <= len(pang) <= R.WILDLIFE[R.TORTOISE_W]['cap'], f'{len(pang)}마리')

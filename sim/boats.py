@@ -276,7 +276,7 @@ class Fleet:
     def ferry(self, ids, ty, tx, then, src_comp, dst_comp) -> bool:
         w, m, u = self.w, self.w.map, self.w.units
         own = int(u.own[ids[0]])
-        quiet = own != 0
+        quiet = False                                   # 알림은 그 나라에게 (누가 읽을지는 조종자가)
         big = 4 * max(m.H, m.W)
         # 1. 내릴 곳: 목표 가까이의 해안 물 칸
         shore_dst = self._shore(dst_comp)
@@ -291,7 +291,7 @@ class Fleet:
                 break
         if landing is None:
             if not quiet:
-                w.say('그쪽에는 배를 댈 해안이 없습니다 (절벽은 안 됩니다)')
+                w.say('그쪽에는 배를 댈 해안이 없습니다 (절벽은 안 됩니다)', to=own)
             return False
         land = self._land_next_to(landing[0], landing[1], dst_comp, near=(ty, tx))
         if land is None:
@@ -321,7 +321,7 @@ class Fleet:
                     self.want_harbor[own] = embark
             if not quiet:
                 w.say('바다 건너로 가려면 병사들이 있는 땅에 항구가 있어야 합니다 (H: 항구 짓기)'
-                      if not self.harbors_on(own, src_comp) else '이 땅의 항구에서 그쪽 바다로 갈 수 없습니다')
+                      if not self.harbors_on(own, src_comp) else '이 땅의 항구에서 그쪽 바다로 갈 수 없습니다', to=own)
             return False
         _, h, route, gather = best
         # 3. 병사들은 항구로 모이고, 첫 나룻배가 항구 앞에 댄다
@@ -333,7 +333,7 @@ class Fleet:
         self.convoys.append(c)
         self._new_ferry(c)
         if not quiet:
-            w.say(f'병사 {len(ids)}명이 항구에 모여 배를 탑니다')
+            w.say(f'병사 {len(ids)}명이 항구에 모여 배를 탑니다', to=own)
         return True
 
     def _new_ferry(self, c):
@@ -442,7 +442,7 @@ class Fleet:
                     landing = (int(ys[q] + y0), int(xs[q] + x0))
                     break
             if landing is None:
-                w.say('그쪽에는 배를 댈 해안이 없습니다 (절벽은 안 됩니다)')
+                w.say('그쪽에는 배를 댈 해안이 없습니다 (절벽은 안 됩니다)', to=ferries[0].own)
                 return False
             land = self._land_next_to(landing[0], landing[1], comp, near=(y, x))
             for b in ferries:
@@ -460,7 +460,7 @@ class Fleet:
                     self._set_path(b, p, 'move')
                     ok = True
         if not ok:
-            w.say('배로 갈 수 없는 곳입니다')
+            w.say('배로 갈 수 없는 곳입니다', to=ferries[0].own)
         return ok
 
     def _gather(self, c, dt):
@@ -508,9 +508,9 @@ class Fleet:
                     self._go_home(b)
             if c.assigned:                              # 끝내 안 온 병사는 그 자리에 둔다
                 u.state[np.array(c.assigned)] = IDLE
-            if loaded and c.own == 0:
+            if loaded:
                 n = sum(len(b.cargo) for b in loaded)
-                w.say(f'나룻배 {len(loaded)}척 출발 (병사 {n}명)')
+                w.say(f'나룻배 {len(loaded)}척 출발 (병사 {n}명)', to=c.own)
             c.done = True
 
     def _sail(self, b, dt, end=None) -> bool:
@@ -566,8 +566,7 @@ class Fleet:
             bi = b.then[1]
             if w.builds.alive[bi] and w.builds.prog[bi] < 1:
                 w.order_build(ids, bi)
-        if b.own == 0:
-            w.say(f'병사 {len(landed)}명 상륙')
+        w.say(f'병사 {len(landed)}명 상륙', to=b.own)
 
     def _go_home(self, b):
         """나룻배를 출발한 항구로 (항구가 없어졌으면 그 자리에서 떠난다)."""
@@ -650,9 +649,8 @@ class Fleet:
         if lost:
             u.alive[lost] = False
             u.aboard[lost] = False
-        if b.own == 0:
-            w.say('전함이 가라앉았습니다' if b.kind == WARSHIP else
-                  f'나룻배가 가라앉았습니다' + (f' (병사 {len(lost)}명을 잃었습니다)' if lost else ''))
+        w.say('전함이 가라앉았습니다' if b.kind == WARSHIP else
+              f'나룻배가 가라앉았습니다' + (f' (병사 {len(lost)}명을 잃었습니다)' if lost else ''), to=b.own)
         for o in self.boats:
             if o.target is b:
                 o.target = None

@@ -1,5 +1,5 @@
 // 터치 화면 (body.touch일 때만 보인다): PC의 키보드 단축키를 손가락으로 누르는 버튼으로.
-//   위 오른쪽   [⏸] [×1] [☰]      일시정지(P), 속도(.), 메뉴 (도움말, 같은 지도로 새 판 F5, 새 지도 F6, 로비로 F10)
+//   위 오른쪽   [⏸] [×1] [☰]      일시정지(P), 속도(.), 메뉴 (도움말, 항복, 같은 지도로 새 판 F5, 새 지도 F6, 대기실로, 로비로)
 //   왼쪽        [1] [2] [3]        부대: 탭 = 부르기, 길게 = 지정 (Shift+숫자 / Ctrl+숫자)
 //   오른쪽      [⌂] [▣]            내 거점으로 (Space), 화면 안 내 병사 모두 고르기
 //   아래        고른 것 한 줄 + [⚔ 공격이동] [■ 정지] [+ 더하기] [✕ 풀기]   (A, S, Shift, Esc)
@@ -24,7 +24,10 @@ export interface TouchUiHooks {
   home(): void;
   restart(): void;
   newMap(): void;
-  lobby(): void;
+  lobby(): void;                       // 로비로 (멀티에서 아직 하는 중이면 묻는다)
+  surrender(): void;                   // 항복 (묻고 나서)
+  canSurrender(): boolean;
+  room(): (() => void) | null;         // 판이 끝났고 방에서 시작했으면: 대기실로
   changed(): void;
 }
 
@@ -74,6 +77,8 @@ export class TouchUi {
     };
     this.pauseBtn = btn(this.top, '⏸', '', () => h.pause());
     this.speedBtn = btn(this.top, '×1', '', () => h.speed());
+    this.pauseBtn.classList.add('t-solo');                // 사람이 여럿인 판에는 없다
+    this.speedBtn.classList.add('t-solo');
     btn(this.top, '☰', '', () => this.openMenu());
     for (let n = 1; n <= 3; n++) this.groupBtns.push(this.groupButton(n));
     btn(this.side, '⌂', '', () => h.home()).title = '내 거점으로';
@@ -134,8 +139,13 @@ export class TouchUi {
       const b = el('button', 't-btn wide', row, text);
       b.addEventListener('click', () => { this.closeMenu(); fn(); });
     };
-    item('같은 지도로 새 판', () => this.h.restart());
-    item('새 지도', () => this.h.newMap());
+    if (!document.body.classList.contains('multi')) {     // 사람이 여럿인 판에는 새 판이 없다
+      item('같은 지도로 새 판', () => this.h.restart());
+      item('새 지도', () => this.h.newMap());
+    }
+    if (this.h.canSurrender()) item('항복하기', () => this.h.surrender());
+    const toRoom = this.h.room();
+    if (toRoom) item('대기실로', toRoom);
     item('로비로', () => this.h.lobby());
     if (canFullscreen() && !isStandalone() && !document.fullscreenElement) item('전체 화면 (주소창 내리기)', () => void enterFullscreen());
     item('닫기', () => {});

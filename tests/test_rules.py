@@ -24,8 +24,7 @@ def run(report, cache_dir='.cache'):
 def _setup(scene, extra=16, harbor=True):
     """내 거점 곁에 병사를 더 두고, 내 섬 해안에 완성된 항구 하나. 반환: (세계, 병사, 내 섬, 다른 섬의 목표 칸)."""
     gm = GameMap(scene)
-    w = World(gm, 4, seed=5, map_seed=42, player_spot=None)
-    w.bots = {}                                              # 내 배만 본다 (AI도 배를 띄우면 수가 섞인다)
+    w = World(gm, 5, seed=5, map_seed=42)                      # AI 없이 (World만: 내 배만 본다)
     m, b = gm, w.builds
     hall = next(i for i in range(b.n) if b.own[i] == 0 and b.kind[i] == R.HALL)
     hy, hx = int(b.y[hall]), int(b.x[hall])
@@ -84,13 +83,13 @@ def _convoy(report, scene):
 def _no_harbor(report, scene):
     w, ids, src, other, (ty, tx) = _setup(scene, extra=0, harbor=False)
     w.order_move(ids, ty, tx)
-    said = any('항구가 있어야' in t for t, _ in w.messages)
+    said = any('항구가 있어야' in t for t, *_ in w.messages)
     report('나룻배: 병사들이 있는 땅에 항구가 없으면 건너지 않고 알려 줌', said and not w.fleet.convoys and not w.fleet.boats)
 
 
 def _islands(report, scene):
     gm = GameMap(scene)
-    w = World(gm, 4, seed=1, map_seed=42)
+    w = World(gm, 5, seed=1, map_seed=42)
     isl = set(start_islands(gm, w.sites).tolist())
     many = 0
     on_ok = True

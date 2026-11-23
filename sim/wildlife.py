@@ -248,11 +248,11 @@ class Wildlife:
         hostile = self.hostile(a0)
         if hostile and a0.mode not in (SUBDUED, HELD, TAMING):
             if not quiet:
-                w.say(f'{R.josa(info["name"], "은", "는")} 체력을 깎아 쓰러뜨려야 길들일 수 있습니다')
+                w.say(f'{R.josa(info["name"], "은", "는")} 체력을 깎아 쓰러뜨려야 길들일 수 있습니다', to=nid)
             return 0
         if hostile and self.riders(nid, a0.kind) >= info['limit']:
             if not quiet:
-                w.say(f'{R.UNIT_NAMES[next(iter(info["mounts"].values()))]}는 나라마다 {info["limit"]}기까지입니다')
+                w.say(f'{R.UNIT_NAMES[next(iter(info["mounts"].values()))]}는 나라마다 {info["limit"]}기까지입니다', to=nid)
             return 0
         comp = w.map.comp
         ids = np.asarray(ids, np.int64)
@@ -265,7 +265,7 @@ class Wildlife:
                 names = ', '.join(R.UNIT_NAMES[k] for k in sorted(can))
                 far = any(int(u.kind[i]) in can for i in ids)
                 w.say(f'{R.josa(info["name"], "은", "는")} 같은 땅에 있는 병사만 길들일 수 있습니다' if far
-                      else f'{R.josa(info["name"], "은", "는")} {names}만 길들일 수 있습니다')
+                      else f'{R.josa(info["name"], "은", "는")} {names}만 길들일 수 있습니다', to=nid)
             return 0
         self.release(ok)                                     # 다른 동물을 길들이러 가던 병사도 새로 맡긴다
         busy = {t.aid for k, t in self.tamers.items() if u.own[k] == nid}   # 내 나라가 길들이는 중인 동물만 (다른 나라와는 겨룬다)
@@ -275,7 +275,7 @@ class Wildlife:
         herd.sort(key=lambda a: (a.id != aid, np.hypot(a.x - a0.x, a.y - a0.y)))
         if not herd:
             if not quiet:
-                w.say(f'이미 길들이는 중인 {info["name"]}입니다')
+                w.say(f'이미 길들이는 중인 {info["name"]}입니다', to=nid)
             return 0
         free = list(ok)
         pairs = []
@@ -285,7 +285,7 @@ class Wildlife:
                 1 for k, t in self.tamers.items() if u.own[k] == nid and t.aid in self.animals and self.animals[t.aid].kind == a0.kind)
             if afford <= 0:
                 if not quiet:
-                    w.say(f'{R.josa(info["name"], "을", "를")} 길들일 먹이가 모자랍니다 (식량 {food})')
+                    w.say(f'{R.josa(info["name"], "을", "를")} 길들일 먹이가 모자랍니다 (식량 {food})', to=nid)
                 return 0
             herd = herd[:afford]
         for a in herd:
@@ -305,10 +305,10 @@ class Wildlife:
                 a.mode, a.t = HELD, 0.0
             if hostile:
                 break                                    # 사나운 동물은 한 명만
-        if nid == 0 and not quiet:
+        if not quiet:
             w.say(f'{R.josa(info["name"], "을", "를")} 길들이러 갑니다 ({info["tame"]:.0f}초, 쓰러져 있는 동안 끝내야 합니다)'
                   if hostile else f'{info["name"]} {len(pairs)}마리를 길들이러 갑니다 ({info["tame"]:.0f}초'
-                  + (f', 먹이 식량 {food * len(pairs)})' if food else ')'))
+                  + (f', 먹이 식량 {food * len(pairs)})' if food else ')'), to=nid)
         return 1 if hostile else len(pairs)
 
     def release(self, ids, scare=False) -> None:
@@ -372,8 +372,7 @@ class Wildlife:
                 self.release([i])
                 continue
             if u.hp[i] < t.hp - 1e-3:                       # 맞았다
-                if u.own[i] == 0:
-                    w.say('공격을 받아 길들이기를 멈췄습니다')
+                w.say('공격을 받아 길들이기를 멈췄습니다', to=int(u.own[i]))
                 self.release([i], scare=True)
                 continue
             t.hp = float(u.hp[i])
@@ -423,13 +422,11 @@ class Wildlife:
                 t = self.tamers.pop(k)
                 if u.alive[k] and u.state[k] == TAME and u.gen[k] == t.gen:
                     u.state[k] = IDLE
-                if u.own[k] == 0:
-                    w.say(f'다른 나라가 먼저 {R.josa(info["name"], "을", "를")} 길들였습니다')
+                w.say(f'다른 나라가 먼저 {R.josa(info["name"], "을", "를")} 길들였습니다', to=int(u.own[k]))
         if 'companion' in info:
             nid = int(u.own[i])
             if w.nations[nid].res[R.FOOD] < info.get('food', 0):
-                if nid == 0:
-                    w.say(f'{R.josa(info["name"], "을", "를")} 길들일 먹이가 모자랍니다 (식량 {info.get("food", 0)})')
+                w.say(f'{R.josa(info["name"], "을", "를")} 길들일 먹이가 모자랍니다 (식량 {info.get("food", 0)})', to=nid)
                 self.release([i])
                 return
             w.nations[nid].res[R.FOOD] -= info.get('food', 0)
@@ -440,8 +437,7 @@ class Wildlife:
             u.state[i], u.slot[i] = IDLE, -1
             del self.tamers[i]
             del self.animals[a.id]
-            if nid == 0:
-                w.say(f'{R.josa(info["name"], "을", "를")} 길들였습니다: 함께 싸웁니다')
+            w.say(f'{R.josa(info["name"], "을", "를")} 길들였습니다: 함께 싸웁니다', to=nid)
             return
         old = int(u.kind[i])
         new = R.WILDLIFE[a.kind]['mounts'][old]
@@ -460,9 +456,8 @@ class Wildlife:
         u.cd[i] = 0.0
         del self.tamers[i]
         del self.animals[a.id]
-        if u.own[i] == 0:
-            w.say(f'{R.josa(R.WILDLIFE[a.kind]["name"], "을", "를")} 길들였습니다: '
-                  f'{R.josa(R.UNIT_NAMES[old], "이", "가")} {R.josa(R.UNIT_NAMES[new], "이", "가")} 되었습니다')
+        w.say(f'{R.josa(R.WILDLIFE[a.kind]["name"], "을", "를")} 길들였습니다: '
+              f'{R.josa(R.UNIT_NAMES[old], "이", "가")} {R.josa(R.UNIT_NAMES[new], "이", "가")} 되었습니다', to=int(u.own[i]))
 
     def _flee(self, a, fx, fy) -> None:
         d = max(float(np.hypot(a.x - fx, a.y - fy)), 0.1)
@@ -574,16 +569,16 @@ class Wildlife:
                     u.hp[i] = maxhp * 0.5
                     a.mode, a.prog = FIGHT, 0.0
                     u.own[i], u.state[i] = WILD, TAME
-                    if self._near(lr, info['guard'], 0):
-                        w.say(f'{R.josa(info["name"], "이", "가")} 다시 일어났습니다!')
+                    for o in self._near_nations(lr, info['guard']):
+                        w.say(f'{R.josa(info["name"], "이", "가")} 다시 일어났습니다!', to=o)
                 a.lasthp = float(u.hp[i])
                 continue
             if u.hp[i] <= maxhp * info['subdue']:        # 쓰러진다
                 a.mode, a.sub = SUBDUED, info['subdue_time']
                 u.aboard[i] = True
                 u.state[i], u.tgt[i], u.slot[i] = TAME, -1, -1
-                if self._near(lr, info['guard'] + 6, 0):
-                    w.say(f'{R.josa(info["name"], "이", "가")} 쓰러졌습니다! {info["subdue_time"]:.0f}초 안에 병사를 보내 길들이세요')
+                for o in self._near_nations(lr, info['guard'] + 6):
+                    w.say(f'{R.josa(info["name"], "이", "가")} 쓰러졌습니다! {info["subdue_time"]:.0f}초 안에 병사를 보내 길들이세요', to=o)
                 continue
             hit = u.hp[i] < a.lasthp - 1e-3
             if a.mode == SLEEP:
@@ -623,6 +618,13 @@ class Wildlife:
         if not len(near):
             return -1
         return int(near[np.argmin(np.hypot(u.x[near] - a.x, u.y[near] - a.y))])
+
+    def _near_nations(self, lr: Lair, r: float) -> list[int]:
+        """둥지에서 r 안에 병사가 있는 나라들."""
+        u, w = self.w.units, self.w
+        ids = w.unit_ids()
+        ids = ids[(u.own[ids] < len(w.nations)) & (np.hypot(u.x[ids] - lr.x, u.y[ids] - lr.y) <= r)] if len(ids) else ids
+        return [int(o) for o in np.unique(u.own[ids])]
 
     def _near(self, lr: Lair, r: float, nid: int) -> bool:
         u = self.w.units
