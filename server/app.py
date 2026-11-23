@@ -23,9 +23,10 @@ WebSocket /ws
        player:{name, color}}                                                                      방 만들기 (방장)
       {t:'room_join', id | code, password?, player:{name, color}}                                방 들어가기
       {t:'resume', sid, token?} (연결이 끊겼던 판에 다시 접속: 그 자리로. 싱글은 token 없이도)
-    대기실 (브라우저 → 서버): room_ready {on} · room_color {color} · room_spot {y, x} · room_leave {}
+    대기실 (브라우저 → 서버): room_ready {on} · room_color {color} · room_spot {y, x} · room_leave {} · room_chat {text}
                               방장만: room_setup {바꿀 것} · room_kick {member} · room_start {}
-    대기실 (서버 → 브라우저): room {방 상태 (server/rooms.py Room.view)}, room_error {error, busy?}, room_kicked {}, room_closed {}
+    대기실 (서버 → 브라우저): room {방 상태 (server/rooms.py Room.view)}, room_error {error, busy?}, room_kicked {}, room_closed {},
+                              room_chat {name, color, text} (대기실 대화: 방 안 모두에게, 판 안 대화와 같은 제한)
     상한 (접속자·판·방이 꽉 찼다): error / room_error에 busy: true (브라우저가 '접속자가 많아요' 안내를 띄운다)
     판 (시작한 뒤): 서버 → 브라우저: JSON(start, msg, over, ack, diplo, seats, error)과 이진 상태 메시지(protocol.py),
                      브라우저 → 서버: 명령 JSON (server/session.py)
@@ -51,7 +52,7 @@ from server.client_info import rules_bin, rules_info
 from server.config import ServerConfig
 from server.maps import MapStore
 from server.rooms import Member, RoomManager
-from server.session import GameSession
+from server.session import CHAT_GAP, CHAT_MAX, GameSession
 from server.stats import Stats
 from sim import rules as R
 from sim.spawn import choose_starts, pick_colors
@@ -406,6 +407,18 @@ def create_app(cfg: ServerConfig | None = None) -> FastAPI:
         host = me == r.host
         err = None
         if r.state != 'wait':
+            return
+        if t == 'room_chat':                                    # 대기실 대화: 방 안 모두에게 (방 상태는 다시 보내지 않는다)
+            text = ''.join(ch for ch in str(m.get('text', '')) if ch.isprintable()).strip()[:CHAT_MAX]
+            now = time.monotonic()
+            if not text:
+                return
+            if now - member.chat_at < CHAT_GAP:
+                member.send({'t': 'room_error', 'error': '조금 천천히 보내 주세요'})
+                return
+            member.chat_at = now
+            for mm in r.members:
+                mm.send({'t': 'room_chat', 'name': member.name, 'color': member.color, 'text': text})
             return
         if t == 'room_leave':
             rooms.leave(r, member)

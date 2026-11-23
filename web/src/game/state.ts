@@ -35,7 +35,8 @@ export class GameState {
   animals = new Map<number, Animal>();     // 야생 동물 (번호 → 동물)
   shots: Shot[] = [];
   nations: NationRec[] = [];
-  messages: { text: string; t: number }[] = [];
+  messages: { text: string; t: number; from?: number }[] = [];   // 왼쪽 아래 알림 줄 (from: 대화를 보낸 나라)
+  chatLog: { from: number; text: string }[] = [];              // 대화 기록 (모바일 대화창, 최근 CHAT_LOG줄)
   time = 0;
   hour = 12;
   year = 0;
@@ -113,7 +114,15 @@ export class GameState {
     return s;
   }
 
-  say(text: string) { this.messages.push({ text, t: this.time }); if (this.messages.length > 6) this.messages.shift(); }
+  say(text: string) { this.messages.push({ text, t: this.time }); if (this.messages.length > 8) this.messages.shift(); }
+
+  /** 대화 한 줄: 알림 줄에도, 기록에도. */
+  chatSay(from: number, text: string) {
+    this.messages.push({ text, t: this.time, from });
+    if (this.messages.length > 8) this.messages.shift();
+    this.chatLog.push({ from, text });
+    if (this.chatLog.length > 60) this.chatLog.shift();
+  }
 }
 
 export function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }

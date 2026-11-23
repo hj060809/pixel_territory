@@ -20,9 +20,11 @@
     diplo    {act, to, ...}  외교 (상대 나라 번호 to)
     surrender {}             항복 (내 나라를 모두 허물고 관전)
     leave    {}              판을 떠난다 (사람이 여럿인 판: 30초를 기다리지 않고 바로 조종자 없음)
+    chat     {text}          대화 (판의 모든 사람에게 그대로: CHAT_MAX글자, CHAT_GAP초에 하나. 진 사람도. 기록은 남기지 않는다)
     pause    {on, auto?}     speed {value: 1|2|4}            restart {}  (같은 지도로 새 판) — 사람 1명인 판에서만
 
-보내는 것 (JSON): start, msg, over, diplo, ack, error, seats {away:[나라], gone:[나라]} (사람 나라의 접속 상태가 바뀔 때)
+보내는 것 (JSON): start, msg, over, diplo, ack, error, seats {away:[나라], gone:[나라]} (사람 나라의 접속 상태가 바뀔 때),
+                 chat {from: 나라, text}
 
 연결이 끊기면 (detach) 그 자리는 잠시 비고, 같은 sid로 다시 접속하면 (attach) 전체 상태를 다시 보내고 이어 간다.
 걸음 안에서 오류가 나면 브라우저에 알리고 판을 멈춘다 (서버 로그에 자세히).
@@ -51,6 +53,8 @@ from sim.world import World
 
 FLAGS_AT = 17                                    # 상태 메시지 머리에서 flags 바이트 자리 (protocol.encode: '<BIfffBBH')
 LEAVE_AFTER = 30.0                               # 사람이 2명 이상인 판: 이만큼 끊겨 있으면 그 나라는 조종자 없음
+CHAT_MAX = 80                                    # 대화 한 줄 글자 수
+CHAT_GAP = 0.7                                   # 대화 사이 최소 간격 (초, 도배 막기)
 
 
 class Seat:
@@ -69,6 +73,7 @@ class Seat:
         self.left = False                        # 오래 끊겨 (또는 스스로 나가) '조종자 없음'이 됐다
         self.quit = False                        # 메뉴로 스스로 나갔다 (끊김과 달리 돌아오지 않는다)
         self.seats_v = -1                        # 마지막으로 보낸 접속 상태 판
+        self.chat_at = -1e9                      # 마지막으로 말한 때 (도배 막기)
         self.token = secrets.token_urlsafe(9)    # 다시 접속할 때 이 자리를 찾는 표
 
 
@@ -366,6 +371,21 @@ class GameSession:
             except (KeyError, TypeError, ValueError) as e:
                 s.send({'t': 'error', 'error': f'잘못된 명령: {e}'})
 
+    def _chat(self, s: Seat, m: dict):
+        """대화 한 줄을 판의 모든 사람에게 (보낸 사람 포함: 화면에 같은 순서로). 제어 문자는 빼고 CHAT_MAX글자까지."""
+        text = ''.join(ch for ch in str(m.get('text', '')) if ch.isprintable()).strip()[:CHAT_MAX]
+        if not text:
+            return
+        now = time.monotonic()
+        if now - s.chat_at < CHAT_GAP:
+            s.send({'t': 'error', 'error': '조금 천천히 보내 주세요'})
+            return
+        s.chat_at = now
+        out = {'t': 'chat', 'from': s.nid, 'text': text}
+        for x in self.seats:
+            if not x.away:
+                x.send(out)
+
     def _apply(self, s: Seat, m: dict):
         t, c, nid = m.get('t'), s.cmd, s.nid
         if t == '_away':                            # 연결이 끊겼다 (사람이 2명 이상인 판): 알림만. 이미 진 나라는 조용히 나간다
@@ -394,6 +414,9 @@ class GameSession:
                     self.match.back(nid)                # 판이 끝나기 전에 돌아왔다: 다시 조종한다
                 else:
                     self.world.say(f'{R.josa(self.world.nations[nid].name, "이", "가")} 다시 접속했습니다', skip=(nid,))
+            return
+        if t == 'chat':                             # 대화: 진 사람(관전)도 말할 수 있다
+            self._chat(s, m)
             return
         if nid in self.match.lost or nid in self.match.gone:   # 진 사람(관전)은 명령하지 못한다
             return

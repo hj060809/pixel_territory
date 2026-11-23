@@ -6,6 +6,7 @@
 - 사람이 2명 이상이면 속도·일시정지가 먹지 않는다.
 - 끊기면 다른 사람에게 접속 상태(seats)가 가고, 돌아오면 풀린다. 항복하면 나라가 허물어지고 관전.
 - 모두 메뉴로 스스로 나가면 판을 바로 지운다 (끊긴 사람이 있으면 기다린다).
+- 대화는 판의 모든 사람에게, 너무 빨리 보내면 막는다.
 """
 import numpy as np
 
@@ -66,6 +67,17 @@ def run(report, cache_dir='.cache'):
     t0 = w.time
     gs.step(0.05, 0)
     report('사람이 2명 이상이면 속도·일시정지 없음', abs(w.time - t0 - 0.05) < 1e-6 and not gs.solo)
+
+    # 대화: 판의 모든 사람에게 (보낸 사람도), 너무 빨리 보내면 막는다
+    for g in got:
+        g.clear()
+    gs.submit({'t': 'chat', 'text': '  안녕하세요  '}, seat=0)
+    gs.submit({'t': 'chat', 'text': '또'}, seat=0)
+    gs.step(0.05, 0)
+    chats = [[x for x in g if isinstance(x, dict) and x.get('t') == 'chat'] for g in got]
+    slow = any(isinstance(x, dict) and x.get('t') == 'error' for x in got[0])
+    report('대화는 모든 사람에게 (제어 문자 빼고), 너무 빨리 보내면 막는다',
+           [c['text'] for c in chats[1]] == ['안녕하세요'] and chats[0] == chats[1] and chats[1][0]['from'] == a and slow, str(chats))
 
     # 나가 끊겼다 → 가에게 접속 상태 (seats), 돌아오면 풀린다
     seats = lambda: [x for x in got[0] if isinstance(x, dict) and x.get('t') == 'seats']

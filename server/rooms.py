@@ -33,6 +33,7 @@ class Member:
         self.ws = ws                             # 내보낼 때 닫는다
         self.seat = -1                           # 판이 시작되면 자리 번호
         self.game = None                         # 그 자리가 있는 판 (GameSession). 대기실로 돌아오면 None
+        self.chat_at = -1e9                      # 대기실에서 마지막으로 말한 때 (도배 막기)
 
 
 class Room:

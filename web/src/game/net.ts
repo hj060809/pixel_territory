@@ -23,6 +23,7 @@ export interface Handlers {
   error(text: string, fatal: boolean, busy?: boolean): void;   // busy: 서버가 꽉 찼다 (접속자·판·방 상한)
   closed(): void;
   seats?(m: { away: number[]; gone: number[] }): void;   // 사람 나라의 접속 상태 (멀티)
+  chat?(m: { from: number; text: string }): void;         // 대화 (멀티)
   other?(m: any): void;                    // 그 밖의 JSON (대기실: room, room_error, room_kicked, room_closed)
 }
 
@@ -73,6 +74,7 @@ export class Connection {
       case 'over': h.over(m.result); break;
       case 'diplo': h.diplo(m); break;
       case 'seats': h.seats?.(m); break;
+      case 'chat': h.chat?.(m); break;
       case 'map_status': h.status(m.progress ?? m.state); break;
       case 'error': h.error(m.error, Boolean(m.fatal), Boolean(m.busy)); break;
       default: h.other?.(m);

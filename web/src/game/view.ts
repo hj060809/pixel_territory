@@ -26,6 +26,7 @@ import { closeMenu, confirmBox, menuBox, menuOpen, type MenuItem } from './gameM
 import { helpBox } from './help.ts';
 import { serverPlea } from '../ui/coffee.ts';
 import { Tutorial } from './tutorial.ts';
+import { Chat } from './chat.ts';
 import { setTouchMode, touchMode } from '../ui/device.ts';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -110,6 +111,7 @@ export class GameView {
   private token: string | null = null;            // 내 자리 표 (이어 하기를 지울 때)
   private menuBtn: HTMLButtonElement | null = null; // 오른쪽 위 [메뉴] (데스크톱)
   private tut: Tutorial | null = null;              // 튜토리얼 판의 단계 안내
+  private chat: Chat | null = null;                 // 대화 (사람이 여럿인 판)
 
   /** overMenu: 메뉴 배경 위에서 시작 (로딩 화면을 반투명하게, 첫 장면이 그려질 때까지 게임 화면을 숨긴다).
    *  attach: 대기실이 들고 있던 연결 (멀티: start를 받은 뒤 이어받는다). 없으면 싱글로 새로 접속한다. */
@@ -138,7 +140,8 @@ export class GameView {
     clearResume(this.token);                            // 스스로 나갔다: 다시 열어도 이어 하지 않는다
     this.menuBtn?.remove();
     this.tut?.dispose();
-    document.body.classList.remove('in-tutorial');
+    this.chat?.dispose();
+    document.body.classList.remove('in-tutorial', 'chat-typing');
     closeMenu();
     this.scene?.dispose();
     this.hud?.dispose();
@@ -238,6 +241,7 @@ export class GameView {
         if (!this.hud) this.hud = new Hud(st, ctl, scene, rules);
         else this.hud.reset(st, ctl);
         document.body.classList.toggle('in-tutorial', !!info.tutorial);   // 튜토리얼: 새 판·새 지도 없음, 단계 안내
+        if ((info.humans ?? 1) > 1 && !this.chat) this.chat = new Chat(() => st, net, () => { hudWait = 1; });
         if (info.tutorial && !this.tut) {
           this.tut = new Tutorial({
             st: () => st, ctl: () => ctl, cam,
@@ -259,6 +263,7 @@ export class GameView {
       over(result) { if (st) st.over = result; hudWait = 1; },
       diplo: (m) => { if (st) { st.diplo = m; this.diplo?.render(); } },
       seats(m) { if (st) st.seats = m; hudWait = 1; },
+      chat: (m) => { if (st) { st.chatSay(m.from, m.text); this.chat?.received(m.from, m.text); } hudWait = 1; },
       status(text) { loading.set(text); },
       error: (text, fatal, busy) => {
         if (fatal) {                          // 판을 이어 갈 수 없다: 다시 접속하지 않는다
@@ -442,13 +447,15 @@ export class GameView {
         this.dev.toggle();
         return;
       }
+      if (e.target instanceof HTMLInputElement) return;   // 대화·콘솔에 쓰는 중: 게임 단축키가 아니다
       keys.add(e.key);
       const k = e.key.toLowerCase();
       const digit = /^Digit[1-9]$/.test(e.code) ? Number(e.code.slice(5)) : 0;   // Shift를 눌러도 숫자 (e.key는 '!' 등)
       if (['f1', 'f5', 'f6', 'f10', 'f12', ' ', 'tab'].includes(k) || (digit && (e.ctrlKey || e.shiftKey))) e.preventDefault();
-      if (k === 'escape' && closeMenu()) return;
+      if (k === 'escape' && (closeMenu() || this.chat?.close())) return;
       if (menuOpen() && k !== 'f1') return;               // 창이 열려 있으면 게임 키는 쉰다
       if (k === 'enter' && st?.over && !document.querySelector('.t-menu-back')) { exit(); return; }
+      if (k === 'enter' && this.chat) { e.preventDefault(); this.chat.focus(); return; }   // 멀티: Enter로 대화
       if (k === 'f6') { if (fresh()) this.hooks.newMap(nextSeedKey(key)); return; }
       const hud = this.hud;
       if (!ctl || !st || !hud) return;

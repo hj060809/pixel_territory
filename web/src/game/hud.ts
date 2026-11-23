@@ -8,6 +8,7 @@ import type { GameState } from './state.ts';
 import { F_FORD, F_WATER, type TerrainRules } from './terrainRules.ts';
 import { touchMode } from '../ui/device.ts';
 import { coffeeLink } from '../ui/coffee.ts';
+import { chatLine } from './chat.ts';
 import { A_FIGHT, A_HELD, A_SLEEP, A_TAMING, animalAt, isHostile } from './wildlife.ts';
 
 /** 고른 병사 수: 병종마다 ('보병 3 · 창기병 2', 0인 병종은 뺀다). */
@@ -111,14 +112,15 @@ export class Hud {
     const info = mouse && !placing ? this.hoverInfo(...cam.toMap(mouse[0], mouse[1]), cam.zoom) : null;
     this.hover.textContent = info ?? '';
     this.hover.style.bottom = `${BAR_H + 10 + (this.ctl.hasSelection() ? 60 : 0)}px`;
-    // 아래 왼쪽: 알림 (8초 동안, 마지막 2초에 흐려진다)
+    // 아래 왼쪽: 알림 (8초 동안, 마지막 2초에 흐려진다). 대화는 이름(나라 색)과 함께 20초. 대화를 입력하는 중엔 모두 그대로
     this.msgs.innerHTML = '';
+    const typing = document.body.classList.contains('chat-typing');
     for (const m of [...st.messages].reverse()) {
-      const age = st.time - m.t;
-      if (age > 8) continue;
-      const d = el('msg', this.msgs);
-      d.textContent = m.text;
-      d.style.opacity = String(Math.min(1, (8 - age) / 2));
+      const age = st.time - m.t, life = m.from !== undefined ? 20 : 8;
+      if (age > life && !typing) continue;
+      const d = m.from !== undefined ? chatLine(st, m.from, m.text, 'msg chat') : el('msg', this.msgs);
+      if (m.from !== undefined) this.msgs.appendChild(d); else d.textContent = m.text;
+      d.style.opacity = typing ? '1' : String(Math.min(1, (life - age) / 2));
     }
     // 가운데: 안내
     const mode = this.ctl.mode;
@@ -174,7 +176,7 @@ export class Hud {
             : solo ? 'F5: 같은 지도로 새 판    F6: 새 지도    Enter: 로비로' : toRoom ? '같은 사람들과 다시 하려면 대기실로' : 'Enter: 로비로';
           this.banner.appendChild(hint);
         }
-        if (bmode !== 'watch') {                               // 판 끝: 결과 아래 작게 (개발자에게 커피)
+        {                                                      // 판 끝·관전 중: 결과 아래 작게 (개발자에게 커피)
           const c = document.createElement('div');
           c.className = 'banner-coffee';
           const t = document.createElement('div');

@@ -1,6 +1,8 @@
 // 대기실 (멀티): 서버에 room_create / room_join으로 접속해 방 상태(room)를 받아 그린다.
 //   왼쪽: 방 이름, 입장 코드 (복사), 설정 (방장은 AI 수·난이도·계절·시작 방식을 바꿀 수 있다), 참가자 (색, 이름, 방장, 준비, 내보내기), 내 색.
 //   오른쪽: 지도 약도 + 시작 자리 (무작위: 서버가 정한 배치 / 각자 고르기: 약도를 눌러 내 자리), 드래곤 둥지·유황 웅덩이.
+//   내 색 아래: 대기실 대화 (기록 + 입력 + 보내기, 빠른 대화 없음). 방 상태가 올 때마다 왼쪽을 다시 그리므로 대화 칸은 한 번 만들어
+//   그대로 다시 붙인다 (기록·쓰던 글·입력 중이던 커서를 잃지 않게).
 //   아래: [나가기], [준비] (방장이 아니면) 또는 [시작] (방장).
 // 방장이 시작하면 서버가 start를 보낸다: 연결을 그대로 게임 화면에 넘긴다 (Connection.hold → GameView가 이어받는다).
 // 판이 끝나고 [대기실로]: 게임 화면이 연결을 돌려준다 → room_back을 보내 같은 방에 다시 들어간다.
@@ -40,6 +42,9 @@ export class RoomView {
   private mouse: [number, number] | null = null;
   private extras: { key: string; lairs: number[][]; sulfur: number[][] } | null = null;
   private handed = false;                            // 연결을 게임 화면에 넘겼다 (닫지 않는다)
+  private chatBox = div('room-chat');                // 대기실 대화 (다시 그려도 그대로)
+  private chatLog = div('room-chat-log', this.chatBox);
+  private chatInput = document.createElement('input');
   private gone = false;
 
   /** first: 처음 보낼 것 (room_create / room_join), 또는 끝난 판의 연결 (대기실로 돌아간다). */
@@ -72,6 +77,7 @@ export class RoomView {
       first.send({ t: 'room_back' });
     } else this.conn = Connection.open(first, h);
     this.say('방에 들어가는 중...');
+    this.makeChat();
     this.render();
   }
 
@@ -97,6 +103,35 @@ export class RoomView {
 
   private say(t: string) { this.msgEl.textContent = t; }
 
+  /** 대기실 대화 칸: 기록 + [입력][보내기]. */
+  private makeChat() {
+    const row = div('room-chat-row', this.chatBox);
+    const inp = this.chatInput;
+    inp.className = 'field room-chat-input';
+    inp.maxLength = 80;                                   // server/session.py CHAT_MAX
+    inp.placeholder = '대화 (Enter로 보내기)';
+    row.appendChild(inp);
+    const go = () => {
+      const t = inp.value.trim();
+      if (t) this.send({ t: 'room_chat', text: t });
+      inp.value = '';
+    };
+    inp.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter' && !e.isComposing) go(); });
+    button(row, '보내기', go, { size: 15, w: 80, h: 34 });
+    div('note small room-chat-empty', this.chatLog, '방에 들어온 사람들과 이야기해 보세요');
+  }
+
+  private chatLine(m: { name: string; color: number; text: string }) {
+    this.chatLog.querySelector('.room-chat-empty')?.remove();
+    const d = div('room-chat-line', this.chatLog);
+    const n = document.createElement('b');
+    n.textContent = `${m.name}: `;
+    n.style.color = `rgb(${(this.lobby?.colors[m.color]?.[2] ?? [230, 230, 230]).join(',')})`;
+    d.append(n, m.text);
+    while (this.chatLog.childElementCount > 60) this.chatLog.firstElementChild?.remove();
+    this.chatLog.scrollTop = this.chatLog.scrollHeight;
+  }
+
   private leave(msg?: string, busy = false) {
     if (this.gone || this.handed) return;
     this.gone = true;
@@ -121,7 +156,8 @@ export class RoomView {
       if (m.fatal) this.leave(m.error, Boolean(m.busy));
       else if (m.busy) busyBox(this.el, m.error, [['닫기', () => {}]]);   // 시작하려는데 판이 꽉 찼다: 대기실에 남는다
       else this.say(m.error);
-    } else if (m.t === 'room_kicked') this.leave('방에서 내보내졌습니다');
+    } else if (m.t === 'room_chat') this.chatLine(m);
+    else if (m.t === 'room_kicked') this.leave('방에서 내보내졌습니다');
     else if (m.t === 'room_closed') this.leave();
   }
 
@@ -136,6 +172,7 @@ export class RoomView {
   // ------------------------------------------------------------- 왼쪽
   private render() {
     const L = this.left, r = this.room;
+    const typing = document.activeElement === this.chatInput, at = this.chatInput.selectionStart;   // 지우기 전에 (지우면 커서가 빠진다)
     L.innerHTML = '';
     this.foot.innerHTML = '';
     if (!r) {
@@ -199,6 +236,11 @@ export class RoomView {
       sw.style.background = `rgb(${col.join(',')})`;
       if (!used) sw.addEventListener('click', () => this.send({ t: 'room_color', color: i }));
     });
+    // 내 색 아래: 대화 (한 번 만든 칸을 다시 붙인다. 쓰는 중이었으면 커서도 그대로)
+    div('gap', L);
+    L.appendChild(this.chatBox);
+    if (typing) { this.chatInput.focus(); if (at !== null) this.chatInput.setSelectionRange(at, at); }
+    this.chatLog.scrollTop = this.chatLog.scrollHeight;
     // 아래
     button(this.foot, '나가기', () => this.leaveRoom(), { size: 18, w: 140, h: 48 });
     if (host) {

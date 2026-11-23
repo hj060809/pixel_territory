@@ -84,6 +84,7 @@ export function fillHelp(parent: HTMLElement, solo: boolean, lobby = false) {
     row(right, `${kbd('P')}${or}${kbd('.')}`, '일시정지 · 속도' + only);
     row(right, `${kbd('F5')}${or}${kbd('F6')}`, '같은 지도로 새 판 · 새 지도' + only);
   }
+  if (!solo || lobby) row(right, kbd('Enter'), '대화 입력 (멀티) · 💬 빠른 대화 · 안 쓰면 왼쪽 아래 💬로 접힌다');
   row(right, `${kbd('F1')}${or}${kbd('F12')}`, lobby ? '게임 중 조작 설명 · 화면 저장' : '이 설명 · 화면 저장');
 }
 
@@ -146,5 +147,6 @@ export function fillTouchHelp(parent: HTMLElement, solo: boolean, lobby = false)
   row(right, `${tbtn('건물')}<span class="help-plus">→</span>${tbtn('✓ 짓기', 'ok')}`, '아래 건물 버튼 → 그림을 끌어 자리에 놓고 ✓ (고른 병사가, 없으면 가까운 쉬는 병사가)');
   row(right, `${tbtn('보병')}${tbtn('궁수')}${tbtn('전함')}`, '만들기 (거점·항구를 골라 두면 그곳에서)');
   if (solo) row(right, `${tbtn('⏸')}${tbtn('×1')}`, '일시정지 · 속도' + (lobby ? ' (싱글)' : ''));
+  if (!solo || lobby) row(right, tbtn('💬'), '대화창 (멀티): 빠른 대사 · 입력');
   row(right, tbtn('☰'), lobby ? '메뉴: 조작 설명 · 항복 · 나가기' : '메뉴');
 }
