@@ -39,8 +39,8 @@ export const HOW_TO: [string, string[]][] = [
 const FEEDBACK_URL = 'https://forms.gle/T2pcd9yCjqrEZGep8';
 
 /** 말풍선 그림 (도트 느낌, 커피잔과 같은 결). */
-function bubbleIcon(): string {
-  return `<svg width="22" height="22" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
+function bubbleIcon(size: number): string {
+  return `<svg width="${size}" height="${size}" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
     <path d="M2 2h12v1h1v7h-1v1H7l-3 3v-3H2v-1H1V3h1z" fill="rgb(250,244,228)"/>
     <path d="M4 5h8v1H4zM4 8h6v1H4z" fill="rgb(120,72,40)"/>
   </svg>`;
@@ -68,12 +68,10 @@ export class Lobby {
     cb.innerHTML = cupIcon(26);
     cb.addEventListener('click', () => this.showCoffee());
     this.el.appendChild(cb);
-    const fb = document.createElement('a');                 // 커피 버튼 왼쪽: 피드백 (구글 폼, 새 탭)
+    const fb = document.createElement('button');            // 커피 버튼 왼쪽: 피드백 → 소개 창 → 구글 폼 (새 탭)
     fb.className = 'feedback-btn';
-    fb.href = FEEDBACK_URL;
-    fb.target = '_blank';
-    fb.rel = 'noopener noreferrer';
-    fb.innerHTML = `${bubbleIcon()}<span>피드백 하기</span>`;
+    fb.innerHTML = `${bubbleIcon(22)}<span>피드백 하기</span>`;
+    fb.addEventListener('click', () => this.showFeedback());
     this.el.appendChild(fb);
   }
 
@@ -90,6 +88,26 @@ export class Lobby {
   }
 
   closeCoffee() { this.coffee?.remove(); this.coffee = null; }
+
+  /** [피드백 하기]: 커피 창과 같은 모양의 소개 창. 안의 버튼을 눌러야 구글 폼으로 (새 탭). */
+  showFeedback() {
+    if (this.coffee) return;
+    const back = (this.coffee = div('modal-back', this.el));   // 커피 창과 같은 자리 (한 번에 하나)
+    const box = div('modal coffee', back);
+    div('coffee-icon', box).innerHTML = bubbleIcon(52);
+    div('modal-title', box, '의견을 들려주세요!');
+    div('coffee-text', box, '버그, 불편한 점, 바라는 기능, 재미있었던 점까지 무엇이든 좋아요.\n짧은 설문으로 남겨 주시면 다음 업데이트에 반영할게요.');
+    const a = document.createElement('a');
+    a.className = 'coffee-link';
+    a.href = FEEDBACK_URL;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.innerHTML = `${bubbleIcon(22)}<span>피드백 남기러 가기</span>`;
+    a.addEventListener('click', () => this.closeCoffee());
+    box.appendChild(a);
+    button(box, '닫기', () => this.closeCoffee(), { w: 120, h: 38 }).classList.add('coffee-close');
+    back.addEventListener('mousedown', (e) => { if (e.target === back) this.closeCoffee(); });
+  }
 
   /** 서버 접속자가 꽉 찼으면 로비 위에 안내 ([다시 시도]: 자리가 났으면 닫힌다). */
   async checkBusy() {
