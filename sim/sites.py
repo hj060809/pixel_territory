@@ -3,6 +3,7 @@
 - 식량: 비옥하고 평평한 풀밭 (강가일수록 풍부)
 - 목재: 숲 (활엽수림, 열대우림, 침엽수림). 넓은 설원에도 평평하고 너무 높지 않은 곳엔 눈 덮인 숲 (생산량 SNOW_WOOD배)
 - 석재: 걸어 들어갈 수 있는 바위·자갈 비탈·석회암 지대
+- 물고기 떼: 바다에 맞닿은 해안에 드물게 (작은 섬일수록 많고, 큰 대륙일수록 적다). 낚시터를 지으면 식량
 같은 종류가 넓게 모인 곳의 가운데를 고르고, 서로 일정 거리 이상 떨어지게 한다.
 """
 from __future__ import annotations
@@ -12,7 +13,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import ndimage
 
-from sim.rules import FOOD, STONE, SULFUR, WOOD
+from sim.rules import FISH, FOOD, STONE, SULFUR, WOOD
 from engine.render import materials as S
 
 GRASSY = (S.GRASS, S.GRASS_YELLOW, S.GRASS_DEAD, S.DRYGRASS, S.SAVANNA, S.STEPPE)
@@ -48,6 +49,12 @@ WOOD_ISLAND_BIG = 8000
 # 설원의 숲: 설원(봄·가을에도 눈) 넓이 이만큼(칸)마다 하나, 생산량은 보통 숲의 이만큼
 SNOW_WOOD_PER = 7000
 SNOW_WOOD = 0.6
+# 물고기 떼: 섬마다 기대 개수 = FISH_K × (해안 길이 / (해안 길이 + FISH_COAST)) × √(FISH_REF / 섬 넓이), 최대 FISH_MAX
+FISH_K = 3.0
+FISH_COAST = 80
+FISH_REF = 3000
+FISH_MAX = 3
+FISH_MIN_AREA = 80          # 이보다 작은 섬엔 낚시터가 들어가지 않는다
 
 # 기준에 맞는 곳이 모자랄 때 '가장 비슷한 곳'을 고르는 재질 점수 (1 = 기준에 맞음)
 _LIKE = {
@@ -151,6 +158,7 @@ def find_sites(gmap, rng, spacing: float = 30.0) -> list[Site]:
     _snow_wood(gmap, sites, walk, spacing)
     _wood_per_island(gmap, sites, mat, walk, spacing)
     _sulfur(gmap, sites, mat, walk)
+    _fish(gmap, sites, walk)
     return sites
 
 
@@ -185,6 +193,40 @@ def _snow_wood(gmap, sites, walk, spacing):
         y, x = int(y), int(x)
         rich = float(np.clip(dens[y, x] * 1.4, 0.6, 1.4)) * SNOW_WOOD
         sites.append(Site(len(sites), WOOD, x, y, rich, float(gmap.cold[y, x]), snow=True))
+
+
+def _fish(gmap, sites, walk):
+    """물고기 떼: 바다(지도 가장자리와 이어진 물)에 맞닿은 해안의 땅 (바다에서 2.5~4칸: 낚시터가 땅 위에 들어가게),
+    앞바다가 넓게 트인 곳. 섬마다 기대 개수는 작은 섬일수록 크고 큰 대륙일수록 작다 (FISH_*), 소수 부분은 난수로.
+    서로 22칸, 다른 자원지와 12칸 넘게."""
+    ocean = gmap.ocean
+    if not ocean.any():
+        return
+    comp = gmap.comp
+    d = ndimage.distance_transform_edt(~ocean)
+    sea = ndimage.uniform_filter(ocean.astype(np.float32), 15)
+    cand = walk & (d >= 2.5) & (d <= 4.0) & (sea > 0.25)
+    area = np.bincount(comp[walk & (comp > 0)], minlength=int(comp.max()) + 1)
+    coast = np.bincount(comp[cand], minlength=len(area))
+    fb = np.random.default_rng([FISH, gmap.land_count])                # 따로 쓰는 난수 (다른 자리는 그대로)
+    for c in np.flatnonzero(coast):
+        if area[c] < FISH_MIN_AREA:
+            continue
+        want = FISH_K * coast[c] / (coast[c] + FISH_COAST) * np.sqrt(FISH_REF / area[c])
+        want = min(FISH_MAX, int(want) + (fb.random() < want - int(want)))
+        if want <= 0:
+            continue
+        ys, xs = np.nonzero(cand & (comp == c))
+        got: list = []
+        for k in fb.permutation(len(ys)):
+            y, x = int(ys[k]), int(xs[k])
+            if any((y - s.y) ** 2 + (x - s.x) ** 2 < 12 ** 2 for s in sites) or any((y - a) ** 2 + (x - b) ** 2 < 22 ** 2 for a, b in got):
+                continue
+            got.append((y, x))
+            if len(got) >= want:
+                break
+        for y, x in got:
+            sites.append(Site(len(sites), FISH, x, y, float(np.clip(0.9 + sea[y, x] * 0.5, 0.9, 1.2)), float(gmap.cold[y, x])))
 
 
 def _sulfur(gmap, sites, mat, walk):

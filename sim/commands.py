@@ -16,7 +16,7 @@ from sim import rules as R
 
 PLACE_KINDS = {'tower': R.TOWER, 'hall': R.HALL, 'harbor': R.HARBOR,
                'farm': R.FARM, 'lumber': R.LUMBER, 'quarry': R.QUARRY, 'sulfur': R.SULFUR_PIT,   # 농장~유황은 빈 자원지에
-               'fire': R.FIRE_TOWER}
+               'fire': R.FIRE_TOWER, 'fishery': R.FISHERY}
 SITE_OF = {v: k for k, v in R.SITE_BUILDING.items()}                       # 건물 → 자원지 종류
 TRAIN_KINDS = {'infantry': R.INFANTRY, 'archer': R.ARCHER, 'warship': R.WARSHIP}     # 기병은 훈련하지 않는다 (길들인다)
 

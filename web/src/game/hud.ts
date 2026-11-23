@@ -17,7 +17,7 @@ export function unitCounts(st: GameState, slots: Iterable<number>, sep = '   '):
 
 export const HELP = [
   '왼쪽: 고르기 · 드래그    오른쪽: 이동 · 공격 · 자원지에 짓기    A: 공격 이동    S: 정지',
-  '1~8: 건물 짓기 (Shift: 여러 개)    Q: 보병    W: 궁수    E: 전함',
+  '숫자 키: 건물 짓기 (Shift: 여러 개)    Q: 보병    W: 궁수    E: 전함',
   '야생 동물을 오른쪽 클릭하면 병사가 다가가 길들인다 (드래곤은 먼저 쓰러뜨려야 한다)',
   'Ctrl+숫자: 부대 지정    Shift+숫자: 부대 부르기    Space: 내 거점으로',
   '휠: 확대    P: 일시정지    . : 속도    F1: 도움말 끄기',

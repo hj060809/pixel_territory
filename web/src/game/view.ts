@@ -14,7 +14,7 @@ import { Hud } from './hud.ts';
 import { Connection, type JoinOptions } from './net.ts';
 import { SpriteBank } from './sprites.ts';
 import { GameState, type StartInfo } from './state.ts';
-import { TerrainRules } from './terrainRules.ts';
+import { F_OCEAN, TerrainRules } from './terrainRules.ts';
 import { fadeCovered } from './occlude.ts';
 import { TouchInput } from './touch.ts';
 import { TouchUi } from './touchUi.ts';
@@ -156,6 +156,21 @@ export class GameView {
         rules ??= await TerrainRules.load(`/api/maps/${key}/rules.bin`, info.rules);
         if (this.disposed) return;
         ctl = new Controller(st, net, rules);
+        const FISH = info.rules.kinds?.FISH;                // 물고기 자원지: 그 앞바다를 헤엄치는 물고기 떼
+        const balls: [number, number][] = [];
+        for (const s of info.sites) {
+          const f = s.kind === FISH ? ctl.fishSpot(s) : null;
+          if (!f) continue;
+          // 무리 가운데는 표시에서 바다 쪽으로 조금 더 (물가에 걸려 반쪽이 되지 않게, 표시는 무리 안쪽에)
+          const dx = f.x - s.x, dy = f.y - s.y, n = Math.hypot(dx, dy) || 1;
+          let cx = f.x, cy = f.y;
+          for (let t = 3; t >= 0.5; t -= 0.5) {
+            const x = Math.round(f.x + (dx / n) * t), y = Math.round(f.y + (dy / n) * t);
+            if (x >= 0 && y >= 0 && x < rules.W && y < rules.H && rules.at(y, x) & F_OCEAN) { cx = x; cy = y; break; }
+          }
+          balls.push([cx + 0.5, cy + 0.5]);
+        }
+        life.setBaitBalls(balls);
         const bank = new SpriteBank(info.nations.map((n) => n.color));
         draw = new Overlay(g, bank, st, ctl, scene);
         this.bar?.dispose();
@@ -401,7 +416,7 @@ export class GameView {
       }
     };
     this.raf = requestAnimationFrame(frame);
-    (window as any).__game = { get st() { return st; }, get ctl() { return ctl; }, cam, scene, net, key };
+    (window as any).__game = { get st() { return st; }, get ctl() { return ctl; }, cam, scene, net, key, life };
   }
 }
 

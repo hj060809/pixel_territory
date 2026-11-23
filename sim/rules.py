@@ -63,8 +63,8 @@ STARVE = 0.4               # 식량이 바닥나면 병사가 1초에 잃는 체
 HEAL_NEAR_HALL = 0.6       # 거점 가까이서 1초에 회복하는 체력
 
 # --- 건물
-HALL, FARM, LUMBER, QUARRY, TOWER, HARBOR, SULFUR_PIT, FIRE_TOWER = range(8)
-BUILD_NAMES = ('거점', '농장', '벌목장', '채석장', '망루', '항구', '유황 채취장', '화염탑')
+HALL, FARM, LUMBER, QUARRY, TOWER, HARBOR, SULFUR_PIT, FIRE_TOWER, FISHERY = range(9)
+BUILD_NAMES = ('거점', '농장', '벌목장', '채석장', '망루', '항구', '유황 채취장', '화염탑', '낚시터')
 #             체력, 크기(반지름, 칸), 비용(식량, 목재, 석재), 짓는 데 드는 일(병사×초), sulfur: 유황 비용
 BUILD_STATS = {
     HALL:   dict(hp=700.0, r=5, cost=(0, 200, 80), work=90.0),
@@ -75,6 +75,7 @@ BUILD_STATS = {
     HARBOR: dict(hp=260.0, r=4, cost=(0, 90, 20), work=30.0),     # 해안에만. 이 땅의 병사가 여기 모여 배로 건너고, 전함을 만든다
     SULFUR_PIT: dict(hp=160.0, r=4, cost=(0, 60, 0), work=22.0),  # 사막의 유황 웅덩이에만
     FIRE_TOWER: dict(hp=520.0, r=2, cost=(0, 0, 80), work=35.0, sulfur=40),
+    FISHERY: dict(hp=150.0, r=3, cost=(0, 45, 0), work=18.0),      # 해안의 물고기 떼 자리에만 (식량)
 }
 # 화염탑: cd초마다 range칸 안의 가장 가까운 적에게 dmg (둘레 splash칸의 적에게는 splash_mul배). 유황이 없으면 weak배.
 #   드래곤(용기사, 야생 드래곤)은 vs_dragon배 (얼음은 불에 약하다), 바위거북은 vs_tortoise배 (껍질이 견딘다).
@@ -101,8 +102,10 @@ WARSHIP_DMG = 14.0
 WARSHIP_CD = 1.6
 
 SULFUR = 3                                                     # 자원지 종류: 유황 웅덩이 (자원 0~2와 따로 센다)
-SITE_NAMES = ('식량', '목재', '석재', '유황')
-SITE_BUILDING = {FOOD: FARM, WOOD: LUMBER, STONE: QUARRY, SULFUR: SULFUR_PIT}     # 자원지 종류 → 지을 건물
+FISH = 4                                                       # 자원지 종류: 해안의 물고기 떼 (식량)
+SITE_NAMES = ('식량', '목재', '석재', '유황', '물고기')
+SITE_BUILDING = {FOOD: FARM, WOOD: LUMBER, STONE: QUARRY, SULFUR: SULFUR_PIT, FISH: FISHERY}     # 자원지 종류 → 지을 건물
+SITE_RES = {FOOD: FOOD, WOOD: WOOD, STONE: STONE, SULFUR: SULFUR, FISH: FOOD}     # 자원지 종류 → 나는 자원 (유황은 따로)
 SULFUR_YIELD = 0.25        # 유황 채취장이 1초에 모으는 유황 (× 풍부함)
 
 # --- 야생 동물과 길들이기 (sim/wildlife.py). 동물 하나 = 표 한 줄 (사막 동물 등은 한 줄 더하면 된다)
@@ -143,10 +146,11 @@ def josa(word: str, a: str, b: str) -> str:
 TOWER_RANGE, TOWER_DMG, TOWER_CD = 22.0, 6.0, 1.4
 
 # 1초에 나는 자원 (자원지 풍부함 1 기준). 거점도 조금씩 낸다 (아무것도 없어도 다시 일어설 수 있게)
-YIELD = {FARM: (FOOD, 1.5), LUMBER: (WOOD, 0.9), QUARRY: (STONE, 0.55)}
+YIELD = {FARM: (FOOD, 1.5), LUMBER: (WOOD, 0.9), QUARRY: (STONE, 0.55), FISHERY: (FOOD, 1.3)}
 HALL_YIELD = (0.45, 0.25, 0.0)
 # 계절별 배율 (봄, 여름, 가을, 겨울). 추운 곳일수록 이 차이가 그대로, 열대는 거의 1
 SEASON_YIELD = {FOOD: (0.6, 1.0, 1.7, 0.05), WOOD: (1.0, 1.0, 1.0, 0.7), STONE: (1.0, 1.0, 1.0, 0.8)}
+FISH_SEASON = (0.9, 1.0, 1.1, 0.5)    # 낚시터: 계절을 덜 탄다 (겨울에도 반은 잡힌다)
 
 START_RES = (160.0, 160.0, 40.0)
 START_UNITS = ((INFANTRY, 5), (ARCHER, 2))

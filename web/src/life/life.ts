@@ -3,6 +3,7 @@
 //   해 질 녘엔 하나둘 사라진다.
 // - 물고기: 얕은 물에서 떼 지어 다닌다 (물색보다 어두운 1칸). 가끔 뛰어올라 물보라와 파문. 밤에는 안 보인다.
 // - 마우스 가까이에서 흩어지고, 물을 클릭하면 파문이 생기며 물고기가 달아난다.
+// - 물고기 자원지(게임): 그 앞바다(반지름 9칸)를 큰 물고기 떼가 자유롭게 헤엄친다 (BaitBalls).
 // 그리기는 지도 칸 단위 연산 목록(곱하기/덮어쓰기/밝히기)으로 만들고, render/lifeDraw.ts가 GPU로 그린다.
 
 import type { Bundle } from '../bundle/tsb.ts';
@@ -279,9 +280,109 @@ class FishSchools {
   }
 }
 
+/** 물고기 자원지마다 그 앞바다(반지름 BALL_R칸)를 자유롭게 헤엄치는 무리: 보이드(떨어지기·나란히·모이기)
+ *  + 작은 무리 셋이 저마다 영역 안의 목표를 몇 초마다 바꾸며 따라가기 + 영역 밖이면 되돌아오기 + 흔들림.
+ *  바다 물고기보다 크게: 가는 쪽으로 머리 한 칸 + 몸 + 옅은 꼬리. */
+const BALL_R = 9;
+const BALL_GROUPS = 3;        // 작은 무리 수 (저마다 다른 곳으로)
+const SCARE_R = 4.5;          // 커서가 이만큼 가까이 오면 놀란다 (칸)
+const SCARE_PUSH = 0.6;       // 숨기 전에 튀어나가는 동안 (초)
+class BaitBalls {
+  private balls: { c: V2; flock: Flock; targets: V2[]; timers: number[]; scare: number[]; push: number[]; depth: number[] }[] = [];
+
+  constructor(private water: Uint8Array, private W: number, private H: number, private rng: Rng) {}
+
+  set(centers: V2[]) {
+    const rng = this.rng;
+    this.balls = centers.map((c) => {
+      const n = rng.int(18, 24), pos: V2[] = [], group: number[] = [];
+      for (let i = 0; i < n; i++) {                                              // 작은 무리 셋으로 흩어져 시작
+        const a = rng.uniform(0, 2 * Math.PI), r = rng.uniform(0, BALL_R * 0.7);
+        pos.push([c[0] + Math.cos(a) * r, c[1] + Math.sin(a) * r]);
+        group.push(i % BALL_GROUPS);
+      }
+      return { c, flock: new Flock(pos, group, [1.0, 3.6], rng),
+               targets: Array.from({ length: BALL_GROUPS }, () => this.pick(c)), timers: Array.from({ length: BALL_GROUPS }, () => rng.uniform(1, 5)),
+               scare: pos.map(() => 0), push: pos.map(() => 0), depth: pos.map(() => 0) };
+    });
+  }
+
+  /** 영역 안의 바다 칸 하나 (못 찾으면 가운데). */
+  private pick(c: V2): V2 {
+    for (let k = 0; k < 20; k++) {
+      const a = this.rng.uniform(0, 2 * Math.PI), r = Math.sqrt(this.rng.uniform(0, 1)) * BALL_R * 0.8;
+      const x = c[0] + Math.cos(a) * r, y = c[1] + Math.sin(a) * r;
+      if (this.isWater(x, y)) return [x, y];
+    }
+    return [c[0], c[1]];
+  }
+
+  private isWater(x: number, y: number) {
+    return x >= 0 && x < this.W && y >= 0 && y < this.H && this.water[(y | 0) * this.W + (x | 0)] > 0;
+  }
+
+  /** mouse: 커서 (지도 칸). 가까운 물고기는 조금 밀려나다가 아래로 숨고 (흐려짐), 커서가 떠나고 잠시 뒤 다시 떠오른다. */
+  update(dt: number, mouse: V2 | null) {
+    const rng = this.rng;
+    for (const b of this.balls) {
+      const fl = b.flock;
+      for (let g = 0; g < BALL_GROUPS; g++) {
+        b.timers[g] -= dt;
+        if (b.timers[g] <= 0) { b.targets[g] = this.pick(b.c); b.timers[g] = rng.uniform(3, 7); }
+      }
+      const boid = fl.boidForces(2.6, 4.0, 7.0, 0.7, 0.12);                     // 떨어지기 강하게, 모이기 약하게 (덩어리가 되지 않게)
+      for (let i = 0; i < fl.pos.length; i++) {
+        const p = fl.pos[i];
+        const t = b.targets[fl.group[i]], tx = t[0] - p[0], ty = t[1] - p[1], tn = Math.hypot(tx, ty) + 1e-6;
+        let ax = boid[i][0] + (tx / tn) * 1.4 + rng.normal(0, 3.5);
+        let ay = boid[i][1] + (ty / tn) * 1.4 + rng.normal(0, 3.5);
+        const rx = p[0] - b.c[0], ry = p[1] - b.c[1], d = Math.hypot(rx, ry) + 1e-6;
+        if (d > BALL_R) { ax -= (rx / d) * (d - BALL_R) * 4.0; ay -= (ry / d) * (d - BALL_R) * 4.0; }   // 영역 밖: 되돌아온다
+        if (mouse && Math.hypot(p[0] - mouse[0], p[1] - mouse[1]) < SCARE_R) {
+          if (b.scare[i] <= 0) { b.scare[i] = rng.uniform(2.5, 4.0); b.push[i] = SCARE_PUSH; }   // 놀랐다: 밀려나기 → 숨기 → 잠시 뒤 떠오르기
+          else b.scare[i] = Math.max(b.scare[i], 2.0);                          // 커서가 머물면 더 숨어 있는다
+          const f = flee(p, mouse, SCARE_R, 160.0);
+          ax += f[0]; ay += f[1];
+        }
+        const pushing = b.push[i] > 0;                                          // 밀려나는 동안은 그대로 보이고, 그 뒤 아래로
+        if (pushing) b.push[i] = Math.max(b.push[i] - dt, 0);
+        else b.scare[i] = Math.max(b.scare[i] - dt, 0);
+        b.depth[i] = Math.min(Math.max(b.depth[i] + (pushing ? 0 : b.scare[i] > 0 ? dt * 2.2 : -dt * 0.7), 0), 1);
+        const v = limit([fl.vel[i][0] + ax * dt, fl.vel[i][1] + ay * dt], fl.speed[0], fl.speed[1] * (pushing ? 3.5 : 1));
+        const nx = p[0] + v[0] * dt, ny = p[1] + v[1] * dt;
+        if (this.isWater(nx, ny)) { fl.pos[i] = [nx, ny]; fl.vel[i] = v; }        // 땅으로는 못 간다
+        else fl.vel[i] = [-v[0] * 0.5 + rng.normal(0, 1), -v[1] * 0.5 + rng.normal(0, 1)];
+      }
+    }
+  }
+
+  draw(ops: LifeOps, visible: number) {
+    if (visible <= 0) return;
+    for (const b of this.balls) {
+      const fl = b.flock;
+      fl.pos.forEach((p, i) => {
+        const vis = visible * (1 - b.depth[i]);                                 // 숨을수록 흐려진다
+        if (vis <= 0.04) return;
+        const head = 1.0 - 0.42 * vis, body = 1.0 - 0.36 * vis, tail = 1.0 - 0.2 * vis;
+        const v = fl.vel[i], n = Math.hypot(v[0], v[1]) + 1e-6, ux = v[0] / n, uy = v[1] / n;
+        const cells: [number, number, number][] = [[p[0] + ux * 0.6, p[1] + uy * 0.6, head], [p[0] - ux * 0.4, p[1] - uy * 0.4, body],
+                                                   [p[0] - ux * 1.4, p[1] - uy * 1.4, tail]];
+        const seen = new Set<number>();
+        for (const [x0, y0, k] of cells) {
+          const x = Math.trunc(x0), y = Math.trunc(y0), key = y * this.W + x;
+          if (seen.has(key) || !this.isWater(x, y)) continue;
+          seen.add(key);
+          ops.mul.push(x, y, k);
+        }
+      });
+    }
+  }
+}
+
 export class Life {
   readonly birds: SeaBirds;
   readonly fish: FishSchools;
+  readonly balls: BaitBalls;
   private water: Uint8Array;
   private W: number;
   private H: number;
@@ -295,13 +396,18 @@ export class Life {
     this.foam = m.shader.foam_color;
     this.birds = new SeaBirds(this.water, this.W, this.H, new Rng(seed + 101));
     this.fish = new FishSchools(this.water, this.W, this.H, new Rng(seed + 202));
+    this.balls = new BaitBalls(this.water, this.W, this.H, new Rng(seed + 303));
   }
+
+  /** 물고기 자원지의 무리 자리 (지도 칸 [x, y]...). 게임이 판을 열 때 넘긴다. */
+  setBaitBalls(centers: V2[]) { this.balls.set(centers); }
 
   update(dt: number, mouse: V2 | null, click: V2 | null) {
     const onWater = !!click && click[0] >= 0 && click[0] < this.W && click[1] >= 0 && click[1] < this.H &&
       this.water[Math.trunc(click[1]) * this.W + Math.trunc(click[0])] > 0;
     this.birds.update(dt, mouse, !!click);
     this.fish.update(dt, mouse, onWater ? click : null);
+    this.balls.update(dt, mouse);
   }
 
   /** 그릴 것: [물고기(곱하기 → 물보라 → 파문), 새(그림자 → 몸)] 순서. */
@@ -311,6 +417,7 @@ export class Life {
     const fishVisible = Math.min(Math.max((sun + 4.0) / 8.0, 0), 1);      // 밤에는 안 보인다
     const fish: LifeOps = { mul: [], set: [], brighten: [] };
     const birds: LifeOps = { mul: [], set: [], brighten: [] };
+    this.balls.draw(fish, fishVisible);
     this.fish.draw(fish, this.foam, light, fishVisible);
     this.birds.draw(birds, light, birdsAlive);
     return [fish, birds];

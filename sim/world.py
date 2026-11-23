@@ -521,7 +521,7 @@ class World:
             elif k in R.YIELD:
                 s = self.sites[b.site[i]]
                 res, base = R.YIELD[k]
-                sf = float(np.dot(R.SEASON_YIELD[res], w))
+                sf = float(np.dot(R.FISH_SEASON if k == R.FISHERY else R.SEASON_YIELD[res], w))
                 nat.rate[res] += base * s.rich * (1 + s.cold * (sf - 1))
         for nat in self.nations:                       # 난이도: AI의 자원 수입 배율
             if nat.bonus != 1.0:

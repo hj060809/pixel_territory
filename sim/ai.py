@@ -461,7 +461,7 @@ class Bot:
     def _hall_spot(self, w, halls):
         """새 거점 자리: 거점에서 가장 먼 내 자원지 곁 (20칸 넘게 떨어졌으면), 아니면 거점에서 16~24칸 떨어진 빈 땅."""
         b = w.builds
-        camps = [c for c in w.building_ids(self.id, done=True) if b.kind[c] in (R.FARM, R.LUMBER, R.QUARRY, R.SULFUR_PIT)]
+        camps = [c for c in w.building_ids(self.id, done=True) if b.kind[c] in (R.FARM, R.LUMBER, R.QUARRY, R.SULFUR_PIT, R.FISHERY)]
         if not len(halls):
             src = camps or list(w.building_ids(self.id, done=True))
             if not src:
@@ -798,11 +798,11 @@ class Bot:
             if far and not harbor:                   # 바다 건너는 항구가 있어야
                 continue
             cost = R.BUILD_STATS[R.SITE_BUILDING[s.kind]]['cost']      # (유황 채취장도 목재만)
-            if not (self._spare(w, cost) or (need[s.kind] >= 1 and w.can_afford(self.id, cost))):   # 남겨 둔 몫은 모자란 자원지에만
+            if not (self._spare(w, cost) or (need[R.SITE_RES[s.kind]] >= 1 and w.can_afford(self.id, cost))):   # 남겨 둔 몫은 모자란 자원지에만
                 continue
             if len(foes) and np.min(np.hypot(u.x[foes] - s.x, u.y[foes] - s.y)) < 18:
                 continue
-            d = np.hypot(s.y - home[0], s.x - home[1]) / (s.rich * (1 + need[s.kind])) * (1.8 if far else 1.0)
+            d = np.hypot(s.y - home[0], s.x - home[1]) / (s.rich * (1 + need[R.SITE_RES[s.kind]])) * (1.8 if far else 1.0)
             if d < bs:
                 best, bs = s, d
         return best

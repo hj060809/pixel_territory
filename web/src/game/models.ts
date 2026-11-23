@@ -238,6 +238,31 @@ function harbor(): Vol {
 }
 
 
+/** 낚시터: 해안의 작은 판잣집, 바다 쪽(+y)으로 뻗은 나무 잔교와 매어 둔 쪽배, 생선 말리는 덕장과 그물. */
+function fishery(): Vol {
+  const v = new Vol(18, 22, 11);
+  timberWalls(v, 2, 2, 9, 7, 0, 3);                                      // 판잣집
+  v.box(5, 7, 0, 6, 7, 2, Mat.DARK);
+  v.gable(1, 1, 10, 8, 4, Mat.THATCH, true);
+  for (let y = 8; y <= 21; y++) for (let x = 6; x <= 8; x++) v.set(x, y, 1, Mat.WOOD, (y + x) % 3 ? 0 : -1);   // 잔교 (기둥 위)
+  for (const y of [10, 14, 18, 21]) { v.box(6, y, 0, 6, y, 1, Mat.WOOD_D, 1); v.box(8, y, 0, 8, y, 1, Mat.WOOD_D, 1); }
+  v.box(8, 21, 2, 8, 21, 3, Mat.WOOD_D);                                 // 계류 말뚝과 밧줄
+  for (let y = 15; y <= 19; y++) for (let x = 10; x <= 12; x++) {         // 쪽배
+    if ((y === 15 || y === 19) && x !== 11) continue;
+    v.set(x, y, 0, Mat.WOOD_D, 0);
+    if (x !== 11 || y === 15 || y === 19) v.set(x, y, 1, Mat.WOOD, 1);
+  }
+  v.set(11, 17, 1, Mat.WOOD_D, 1); v.box(9, 18, 2, 9, 18, 2, Mat.DARK);
+  for (const x of [12, 16]) v.box(x, 3, 0, x, 3, 5, Mat.WOOD_D);         // 덕장: 기둥 둘, 가로대, 매단 생선
+  for (let x = 12; x <= 16; x++) v.set(x, 3, 5, Mat.WOOD, 1);
+  for (const x of [13, 14, 15]) { v.set(x, 3, 4, Mat.METAL, 1); v.set(x, 3, 3, Mat.METAL, x === 14 ? 0 : 2); }
+  for (let y = 9; y <= 12; y++) for (let x = 11; x <= 15; x++)            // 펼쳐 말리는 그물
+    if ((x + y) % 2 === 0 || hash(x, y, 31) < 0.3) v.set(x, y, 0, Mat.DARK, -1);
+  v.cyl(3.5, 10.5, 1.2, 0, 1, Mat.WOOD, -1);                              // 통
+  flag(v, 10, 7, 0, 8);
+  return v;
+}
+
 /** 유황 채취장: 노랗게 끓는 유황 웅덩이 위의 나무 도르래 틀, 둘레의 유황 결정, 쌓은 자루. */
 function sulfurPit(): Vol {
   const v = new Vol(20, 20, 13);
@@ -649,7 +674,7 @@ function tortoise(frame: number): Vol {
 }
 
 // ------------------------------------------------------------- 찾기
-const BUILD = [hall, farm, lumber, quarry, tower, harbor, sulfurPit, fireTower];
+const BUILD = [hall, farm, lumber, quarry, tower, harbor, sulfurPit, fireTower, fishery];
 const UNIT = [infantry, archer, lancer, horseArcher, dragonRider, dragon, tortoise];   // sim/rules.py 병종 번호 순서
 const cache = new Map<string, Vol>();
 

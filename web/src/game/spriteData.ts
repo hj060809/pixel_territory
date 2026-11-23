@@ -51,6 +51,11 @@ export const SPRITES = {
    168,
    188,
    206
+  ],
+  "b": [
+   70,
+   128,
+   178
   ]
  },
  "sites": {
@@ -81,6 +86,13 @@ export const SPRITES = {
    "rrRrr",
    "rRrrR",
    "RRRRR"
+  ],
+  "4": [
+   ".vvv.v",
+   "VbVVVV",
+   ".VVV.V",
+   "......",
+   "bb.bbb"
   ],
   "3": [
    "..y..",

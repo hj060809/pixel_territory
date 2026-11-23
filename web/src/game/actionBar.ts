@@ -8,7 +8,7 @@ import type { SpriteBank } from './sprites.ts';
 import type { GameState } from './state.ts';
 
 /** 숫자 키 1~ → 건물 종류 번호 (sim/rules.py: 거점 0, 농장 1, 벌목장 2, 채석장 3, 망루 4, 항구 5, 유황 채취장 6, 화염탑 7). */
-export const BUILD_KEYS = [0, 4, 5, 1, 2, 3, 7, 6];      // 7: 화염탑, 8: 유황 채취장 (사막의 유황 웅덩이에)
+export const BUILD_KEYS = [0, 4, 5, 1, 2, 3, 7, 6, 8];   // 7: 화염탑, 8: 유황 채취장 (사막의 유황 웅덩이에), 9: 낚시터 (해안의 물고기 떼에)
 /** Q W E (R T Y는 나중 병종용). 기병(창기병, 기마궁수)은 버튼이 없다: 병사로 야생말을 길들인다. */
 export const TRAIN_KEYS: [string, TrainKind][] = [['q', 'infantry'], ['w', 'archer'], ['e', 'warship']];
 const UNIT_OF: Record<string, number> = { infantry: 0, archer: 1 };

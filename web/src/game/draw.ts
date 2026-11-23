@@ -188,7 +188,8 @@ export class Overlay {
 
   /** 건물이 서는 방향 (4방향): 항구는 부두가 바다 쪽, 나머지는 자리마다 (뒤를 보는 일은 드물게). */
   private bdir(b: BuildRec): number {
-    if (b.kind === this.st.info.rules.kinds.HARBOR) {
+    const K = this.st.info.rules.kinds;
+    if (b.kind === K.HARBOR || b.kind === K.FISHERY) {                // 잔교가 바다 쪽을 본다
       const d = this.dock(b);
       if (d) return ((Math.round(Math.atan2(-(d[1] + 0.5 - b.x), d[0] + 0.5 - b.y) / (Math.PI / 2)) % 4) + 4) % 4;
     }
@@ -320,7 +321,8 @@ export class Overlay {
     const taken = st.siteTaken(), ks = Math.max(2, Math.round(z * 0.6));
     for (const s of st.info.sites) {
       if (taken.has(s.id)) continue;
-      const x = sx(s.x), y = sy(s.y);
+      const fs = s.kind === R.kinds.FISH ? this.ctl.fishSpot(s) : null;   // 물고기 떼: 앞바다 무리의 가운데에
+      const x = sx(fs ? fs.x + 0.5 : s.x), y = sy(fs ? fs.y + 0.5 : s.y);
       if (!vis(x, y)) continue;
       const img = this.bank.site(s.kind, ks, !!s.snow);
       g.drawImage(img, Math.round(x - img.width / 2), Math.round(y - img.height / 2));

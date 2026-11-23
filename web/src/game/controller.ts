@@ -4,7 +4,7 @@
 import type { Connection } from './net.ts';
 import type { GameState, Unit, Boat } from './state.ts';
 import type { BuildRec } from './protocol.ts';
-import type { TerrainRules } from './terrainRules.ts';
+import { F_OCEAN, type TerrainRules } from './terrainRules.ts';
 import { josa } from '../ui/device.ts';
 import { animalAt } from './wildlife.ts';
 
@@ -13,7 +13,7 @@ const FLY_CELLS = 18 / 2.4;           // 날고 있는 병종이 떠 있는 높�
 /** null / 'attack'(A 다음 클릭) / 숫자 = 놓을 건물 종류 (하단 버튼, 숫자 키) */
 export type Mode = null | 'attack' | number;
 /** 건물 버튼 (숫자 키 1~): 서버 이름 */
-export const BUILD_NAMES_EN = ['hall', 'farm', 'lumber', 'quarry', 'tower', 'harbor', 'sulfur', 'fire'];   // 건물 종류 번호 순서 (sim/rules.py)
+export const BUILD_NAMES_EN = ['hall', 'farm', 'lumber', 'quarry', 'tower', 'harbor', 'sulfur', 'fire', 'fishery'];   // 건물 종류 번호 순서 (sim/rules.py)
 export type TrainKind = 'infantry' | 'archer' | 'warship';
 export interface Ping { t0: number; x: number; y: number; col: string }
 
@@ -58,11 +58,41 @@ export class Controller {
 
   siteAt(x: number, y: number, r: number) {
     let best = null as StartSite | null, bd = r;
+    const FISH = this.R().kinds.FISH;
     for (const s of this.st.info.sites) {
-      const d = Math.hypot(s.x - x, s.y - y);
+      let d = Math.hypot(s.x - x, s.y - y);
+      if (s.kind === FISH) {                                     // 물고기 떼: 앞바다의 표시 자리를 눌러도
+        const f = this.fishSpot(s);
+        if (f) d = Math.min(d, Math.hypot(f.x + 0.5 - x, f.y + 0.5 - y));
+      }
       if (d < bd) { best = s; bd = d; }
     }
     return best;
+  }
+
+  private fishSpots = new Map<number, { x: number; y: number } | null>();
+
+  /** 물고기 떼의 자리: 낚시터(자원지 칸, 해안의 땅) 앞바다에서 물가 가까운 바다 칸들의 가운데 (표시를 여기에),
+   *  (물고기 떼도 이 앞바다를 헤엄친다: life.ts BaitBalls). 없으면 null. */
+  fishSpot(s: { id: number; x: number; y: number }) {
+    if (this.fishSpots.has(s.id)) return this.fishSpots.get(s.id)!;
+    const m = this.rules, r = 7;
+    const sea = (y: number, x: number) => y >= 0 && y < m.H && x >= 0 && x < m.W && !!(m.at(y, x) & F_OCEAN);
+    const near: [number, number][] = [];
+    for (let y = s.y - r; y <= s.y + r; y++) for (let x = s.x - r; x <= s.x + r; x++) {
+      if ((x - s.x) ** 2 + (y - s.y) ** 2 <= r * r && sea(y, x) && sea(y - 1, x) && sea(y + 1, x) && sea(y, x - 1) && sea(y, x + 1)) near.push([x, y]);
+    }
+    let out = null;
+    if (near.length) {
+      // 자원지에서 가까운 바다 칸 쪽으로 (가까운 절반의 가운데), 그 가운데에서 가장 가까운 바다 칸
+      near.sort((a, b) => Math.hypot(a[0] - s.x, a[1] - s.y) - Math.hypot(b[0] - s.x, b[1] - s.y));
+      const front = near.slice(0, Math.max(1, Math.ceil(near.length / 2)));
+      const mx = front.reduce((t, c) => t + c[0], 0) / front.length, my = front.reduce((t, c) => t + c[1], 0) / front.length;
+      const c = front.reduce((b, q) => (Math.hypot(q[0] - mx, q[1] - my) < Math.hypot(b[0] - mx, b[1] - my) ? q : b));
+      out = { x: c[0], y: c[1] };
+    }
+    this.fishSpots.set(s.id, out);
+    return out;
   }
 
   boatAt(x: number, y: number, r: number, own?: number): Boat | null {
