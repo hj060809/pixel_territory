@@ -388,3 +388,13 @@ body.touch .help-col:not(.mouse) .help-row { grid-template-columns: 160px 1fr; }
 /* 모바일: 메뉴가 화면에 맞춰 작게 줄어드므로 (ui-scale 0.5 근처) 커피 버튼을 키워 손가락으로 누르기 좋게 (실제 약 46px) */
 body.touch .coffee-btn { width: 92px; height: 92px; border-width: 3px; }
 body.touch .coffee-btn svg { width: 46px; height: 46px; }
+/* 로비 오른쪽 아래: 커피 버튼 왼쪽의 [피드백 하기] (같은 모양, 길고 둥글게) */
+.feedback-btn { position: absolute; right: 92px; bottom: 24px; height: 52px; padding: 0 20px 0 16px; border-radius: 26px; box-sizing: border-box;
+  display: flex; align-items: center; gap: 9px; text-decoration: none; cursor: pointer;
+  font: bold 16px 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; color: rgb(255, 236, 190); text-shadow: 1px 1px 0 #000;
+  background: rgb(58, 40, 28); border: 2px solid rgb(255, 214, 120);
+  box-shadow: 0 0 0 3px rgb(10, 10, 14), 0 4px 10px rgba(0, 0, 0, 0.5); transition: transform 0.12s; }
+.feedback-btn:hover { transform: scale(1.05); background: rgb(84, 58, 38); }
+.feedback-btn svg { image-rendering: pixelated; flex: none; }
+body.touch .feedback-btn { right: 136px; height: 92px; border-radius: 46px; padding: 0 34px 0 28px; gap: 14px; font-size: 30px; border-width: 3px; }
+body.touch .feedback-btn svg { width: 40px; height: 40px; }

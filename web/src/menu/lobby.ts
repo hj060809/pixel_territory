@@ -36,6 +36,16 @@ export const HOW_TO: [string, string[]][] = [
     '겨울엔 언 바다를 걸어서 건널 수 있지만, 녹으면 빠진다.']],
 ];
 
+const FEEDBACK_URL = 'https://forms.gle/T2pcd9yCjqrEZGep8';
+
+/** 말풍선 그림 (도트 느낌, 커피잔과 같은 결). */
+function bubbleIcon(): string {
+  return `<svg width="22" height="22" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
+    <path d="M2 2h12v1h1v7h-1v1H7l-3 3v-3H2v-1H1V3h1z" fill="rgb(250,244,228)"/>
+    <path d="M4 5h8v1H4zM4 8h6v1H4z" fill="rgb(120,72,40)"/>
+  </svg>`;
+}
+
 export class Lobby {
   readonly el = div('menu lobby');
   private help: HTMLDivElement | null = null;
@@ -58,6 +68,13 @@ export class Lobby {
     cb.innerHTML = cupIcon(26);
     cb.addEventListener('click', () => this.showCoffee());
     this.el.appendChild(cb);
+    const fb = document.createElement('a');                 // 커피 버튼 왼쪽: 피드백 (구글 폼, 새 탭)
+    fb.className = 'feedback-btn';
+    fb.href = FEEDBACK_URL;
+    fb.target = '_blank';
+    fb.rel = 'noopener noreferrer';
+    fb.innerHTML = `${bubbleIcon()}<span>피드백 하기</span>`;
+    this.el.appendChild(fb);
   }
 
   showCoffee() {
