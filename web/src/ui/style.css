@@ -377,3 +377,14 @@ body.touch .help-col:not(.mouse) .help-row { grid-template-columns: 160px 1fr; }
 .howto-head.howto-controls { margin-bottom: 4px; }
 .howto-body .help-cols { margin-bottom: 8px; }
 .howto-body .help-head { font-size: 15px; }
+/* 전체 화면·앱 설치 안내 창: 아이콘·제목·설명·버튼은 가운데로, 단계 목록만 왼쪽 정렬 */
+.install-gate .box { text-align: center; padding: 20px 22px 18px; }
+.install-gate .icon { float: none; display: block; margin: 0 auto 10px; }
+.install-gate .title { margin-bottom: 6px; }
+.install-gate .why { font-size: 14px; line-height: 1.6; word-break: keep-all; }
+.install-gate .steps, .install-gate .sub { text-align: left; }
+.install-gate .actions { justify-content: center; margin-top: 16px; }
+.install-gate .actions .t-btn { min-width: 140px; }
+/* 모바일: 메뉴가 화면에 맞춰 작게 줄어드므로 (ui-scale 0.5 근처) 커피 버튼을 키워 손가락으로 누르기 좋게 (실제 약 46px) */
+body.touch .coffee-btn { width: 92px; height: 92px; border-width: 3px; }
+body.touch .coffee-btn svg { width: 46px; height: 46px; }
