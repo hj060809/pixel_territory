@@ -117,6 +117,8 @@ class World:
         self.fire = FireTowers(self)
         from sim.wildlife import Wildlife
         self.wild = Wildlife(self, np.random.default_rng([abs(int(seed)) & 0xFFFFFFFF, 7]))   # 야생 동물 (거점이 선 다음에: 거점 곁엔 안 생기게)
+        from sim.diplomacy import Diplomacy
+        self.diplo = Diplomacy(self)                       # 외교: 동맹과 적개심
         from sim.ai import Bot
         self.bots = {i: Bot(i, self.rng, difficulty) for i in range(1, n)}
 
@@ -245,9 +247,30 @@ class World:
         u.tgt[ids] = u.tgb[ids] = u.bld[ids] = -1
         return True
 
+    def calm_between(self, a, b) -> None:
+        """동맹을 맺었다: 서로를 노리던 병사들은 그만둔다."""
+        u, bb = self.units, self.builds
+        n = u.n
+        for x, y in ((a, b), (b, a)):
+            mine = np.flatnonzero(u.alive[:n] & (u.own[:n] == x))
+            if not len(mine):
+                continue
+            t, tb = u.tgt[mine], u.tgb[mine]
+            bad = ((t >= 0) & (u.own[np.maximum(t, 0)] == y)) | ((tb >= 0) & (bb.own[np.maximum(tb, 0)] == y))
+            ids = mine[bad]
+            if len(ids):
+                u.tgt[ids] = u.tgb[ids] = -1
+                u.state[ids[u.state[ids] == ATTACK]] = IDLE
+
     def order_attack(self, ids, unit=-1, building=-1) -> None:
         ids = self._mine(ids)
         if len(ids) == 0:
+            return
+        own = int(self.units.own[ids[0]])
+        tgt_own = int(self.units.own[unit]) if unit >= 0 else int(self.builds.own[building])
+        if self.diplo.allied(own, tgt_own):                 # 동맹은 칠 수 없다 (먼저 동맹을 깨야)
+            if own == 0:
+                self.say('동맹은 공격할 수 없습니다 (먼저 동맹을 깨세요)')
             return
         self.wild.release(ids)
         u, b = self.units, self.builds
@@ -459,7 +482,8 @@ class World:
                             self.k_speed, self.k_range, self.k_dmg, self.k_cd, self.k_sight, self.k_ranged,
                             self.k_terrain, self.k_charge, self.k_vs, self.k_splash,
                             m.walk, m.speed_mul, m.cover, self.fields.fields, self.fields.ready, R.TOWER, R.TOWER_RANGE, R.TOWER_DMG,
-                            R.TOWER_CD, R.NEUTRAL, self.shots, self._builders)
+                            R.TOWER_CD, R.NEUTRAL, self.shots, self._builders,
+                            self.diplo.friend, self.diplo.hurt, self.diplo.hits)
         if self.n_shots:                                    # 화면에 잠깐 그릴 공격 (화살, 칼부림)
             for row in self.shots[:self.n_shots].tolist():
                 self.recent.append((self.time, *row))
@@ -479,6 +503,7 @@ class World:
                 if b.prog[i] >= 1 and b.own[i] == 0:
                     self.say(f'{R.BUILD_NAMES[int(b.kind[i])]} 완성')
         self.fleet.update(dt)
+        self.diplo.update(dt)                               # 외교: 관계, 동맹 기간, 배신자
         # 무너진 건물
         dead = np.flatnonzero(b.alive[:b.n] & (b.hp[:b.n] <= 0))
         for i in dead:
@@ -606,3 +631,6 @@ class World:
             self.phase, self.result = 'over', '패배'
         elif not any(n.alive for n in self.nations[1:]):
             self.phase, self.result = 'over', '승리'
+        elif all(self.diplo.allied(0, n.id) for n in self.nations[1:] if n.alive):   # 남은 나라가 모두 내 동맹: 함께 이긴다
+            self.phase, self.result = 'over', '승리'
+            self.say('남은 나라가 모두 동맹입니다: 함께 승리!')

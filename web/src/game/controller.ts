@@ -32,6 +32,10 @@ export class Controller {
   constructor(private st: GameState, private net: Connection, readonly rules: TerrainRules) {}
 
   get me() { return this.st.info.me; }
+  onForeignHall: ((b: BuildRec) => void) | null = null;     // 다른 나라의 거점을 눌렀다 (외교 말풍선)
+  rules_kinds() { return this.R().kinds; }
+  /** 내 동맹인가 (외교 상태). */
+  isAlly(nid: number) { return !!this.st.diplo && String(nid) in this.st.diplo.allies; }
   private R() { return this.st.info.rules; }
 
   // ------------------------------------------------------------- 찾기 (서버 sim/world.py와 같은 규칙)
@@ -155,6 +159,11 @@ export class Controller {
     if (b) {
       if (!add) { this.sel.clear(); this.selShips.clear(); }
       this.selB = [b.slot, b.gen];
+      return;
+    }
+    const fb = this.buildingAt(x, y);                        // 다른 나라의 거점: 외교 말풍선 (고른 병사는 그대로)
+    if (fb && fb.own !== this.me && fb.kind === this.R().kinds.HALL && this.onForeignHall) {
+      this.onForeignHall(fb);
       return;
     }
     if (!add) { this.sel.clear(); this.selB = null; this.selShips.clear(); }

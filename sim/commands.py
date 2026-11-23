@@ -59,7 +59,7 @@ class PlayerCommands:
             shown = 'ship' if not (w.map.land[int(y), int(x)] if 0 <= int(y) < w.map.H and 0 <= int(x) < w.map.W else False) else 'move'
         if ships:
             foe = w.fleet.boat_at(y, x, max(3.0, r * 1.25))
-            if foe is not None and foe.own != self.nid:
+            if foe is not None and w.diplo.foe(self.nid, foe.own):
                 w.fleet.hunt(ships, foe)
                 shown = 'attack'
             elif w.fleet.order_ships(ships, y, x):
@@ -69,7 +69,7 @@ class PlayerCommands:
         if len(sel) == 0:
             return shown
         foe = w.unit_at(y, x, max(2.0, r))
-        if foe >= 0 and w.units.own[foe] != self.nid:
+        if foe >= 0 and w.diplo.foe(self.nid, int(w.units.own[foe])):
             w.order_attack(sel, unit=foe)
             return 'attack'
         a = self._animal_at(y, x, max(1.8, r))
@@ -80,7 +80,7 @@ class PlayerCommands:
         if an is not None and not attack:
             return 'tame' if w.wild.order_tame(self.nid, sel, a) else None
         b = w.building_at(y, x)
-        if b >= 0 and w.builds.own[b] != self.nid:
+        if b >= 0 and w.diplo.foe(self.nid, int(w.builds.own[b])):
             w.order_attack(sel, building=b)
             return 'attack'
         if b >= 0 and w.builds.prog[b] < 1:

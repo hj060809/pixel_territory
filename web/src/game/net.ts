@@ -15,6 +15,7 @@ export interface Handlers {
   state(m: StateMsg, bytes: number): void;
   msg(items: string[]): void;
   over(result: string): void;
+  diplo(m: any): void;
   status(text: string): void;
   error(text: string, fatal: boolean): void;
   closed(): void;
@@ -48,6 +49,7 @@ export class Connection {
         case 'start': this.h.start(m); break;
         case 'msg': this.h.msg(m.items); break;
         case 'over': this.h.over(m.result); break;
+        case 'diplo': this.h.diplo(m); break;
         case 'map_status': this.h.status(m.progress ?? m.state); break;
         case 'error': this.h.error(m.error, Boolean(m.fatal)); break;
       }

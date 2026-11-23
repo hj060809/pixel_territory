@@ -378,6 +378,23 @@ export class Overlay {
     items.sort((p, q) => p.y - q.y);
     for (const it of items) it.f();
     for (const b of yards) this.shipyard(b, sx, sy, z, now);    // 항구 앞바다의 전함 건조 (건물에 가리지 않게 나중에)
+    // 공격 요청 (나와 내 동맹이 함께 치자고 한 나라): 그 나라의 거점들 위에 붉은 과녁
+    const marked = new Set((st.diplo?.targets ?? []).map((t) => t[1]));
+    if (marked.size) {
+      const pulse = 0.6 + 0.4 * Math.sin(now / 250);
+      for (const b of st.builds.values()) {
+        if (b.kind !== R.kinds.HALL || !marked.has(b.own)) continue;
+        const x = sx(b.x), y = sy(b.y);
+        if (!vis(x, y, 80)) continue;
+        const r = Math.max(10, (R.build[b.kind].r + 1.5) * z);
+        g.strokeStyle = `rgba(255,90,70,${pulse.toFixed(2)})`; g.lineWidth = 2;
+        g.beginPath(); g.arc(Math.round(x), Math.round(y), r, 0, 7); g.stroke();
+        for (const [ax, ay] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          g.beginPath(); g.moveTo(x + ax * r * 0.7, y + ay * r * 0.7); g.lineTo(x + ax * r * 1.25, y + ay * r * 1.25); g.stroke();
+        }
+        this.text('공격 요청', x, y - r - 8, 12, 'rgb(255,150,130)', true, 'center');
+      }
+    }
     // 배
     for (const b of st.boats.values()) {
       if (b.bits & 1) continue;                                     // 아직 항구에서 출발 전

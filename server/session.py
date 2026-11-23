@@ -79,6 +79,7 @@ class GameSession:
         self.encoder = StateEncoder(self.world) if first else (self.encoder.reset(self.world) or self.encoder)
         self._msg_seen = 0.0
         self._over_sent = False
+        self._diplo_v, self._diplo_at = -1, -1e9
         self.send({'t': 'start', **self.info()})
 
     def info(self) -> dict:
@@ -175,6 +176,11 @@ class GameSession:
         if w.phase == 'over' and not self._over_sent:
             self._over_sent = True
             self.send({'t': 'over', 'result': w.result})
+        d = w.diplo                                    # 외교: 바뀌었거나 1초 지났으면 (남은 시간·관계가 흐르니)
+        now = time.perf_counter()
+        if d.version != self._diplo_v or now - self._diplo_at >= 1.0:
+            self._diplo_v, self._diplo_at = d.version, now
+            self.send({'t': 'diplo', **d.state_for(0)})
 
     # ------------------------------------------------------------- 명령
     def _apply_commands(self):
@@ -195,6 +201,7 @@ class GameSession:
             self.send({'t': 'start', **self.info()})
             self._resumed = False
             self._msg_seen = self.world.time
+            self._diplo_v = -1                          # 외교 상태도 다시
             if self.world.phase == 'over':
                 self.send({'t': 'over', 'result': self.world.result})
             return
@@ -215,6 +222,28 @@ class GameSession:
             self.speed = float(m['value']) if float(m['value']) in (1.0, 2.0, 4.0) else 1.0
         elif t == 'restart':
             self._new_world()
+        elif t == 'diplo':                               # 외교: 상대 나라 번호 to
+            d, w, to = self.world.diplo, self.world, int(m.get('to', -1))
+            act = m.get('act')
+            if not (0 < to < len(w.nations)):
+                raise ValueError('나라 번호')
+            if act == 'request':
+                d.request(0, to)
+            elif act == 'reply':
+                d.reply(0, to, bool(m.get('accept')))
+            elif act == 'extend':
+                d.extend(0, to)
+            elif act == 'break':
+                d.end(0, to, betray=True)
+            elif act == 'give':                          # 자원마다 보낼 비율 (0~1): 식량, 목재, 석재, 유황
+                d.give_res(0, to, [float(v) for v in m.get('pct', [0, 0, 0, 0])][:4])
+            elif act == 'units':                         # 고른 병사
+                d.give_units(0, to, c.units(m.get('units', [])))
+            elif act == 'target':
+                d.target(0, to)
+            else:
+                raise ValueError(f'모르는 외교 {act}')
+            self._diplo_v = -1
         elif t == 'dev' and self.cfg.dev:                # 개발용 (서버를 --dev로 켰을 때만)
             if m.get('cmd') == 'res':
                 add = [float(min(max(v, -1e6), 1e6)) for v in (list(m.get('add', [])) + [0, 0, 0, 0])[:4]]

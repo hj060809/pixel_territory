@@ -4,6 +4,7 @@
 // 순간 이동(배에서 내림, 새로 생김)은 섞지 않는다.
 
 import type { AnimalRec, BoatRec, BuildRec, NationRec, ShotRec, StateMsg, UnitRec } from './protocol.ts';
+import type { DiploState } from './diplomacy.ts';
 
 export interface Unit extends UnitRec { px: number; py: number }
 export interface Boat extends BoatRec { px: number; py: number }
@@ -45,6 +46,7 @@ export class GameState {
   private segStart = 0;         // 지금 보간 구간의 시작 시각
   private segSpan = 50;         // 지금 보간 구간의 길이 (다음 상태가 올 때쯤까지)
   over: string | null = null;
+  diplo: DiploState | null = null;   // 외교 (서버가 바뀔 때마다 보낸다)
 
   constructor(info: StartInfo) {
     this.info = info;

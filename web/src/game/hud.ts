@@ -1,6 +1,7 @@
 // 게임 HUD (HTML): 데스크톱 game/app.py의 _draw_panels / _selection_lines / _hover_info와 같은 내용과 자리.
 
 import type { Camera } from '../sim/camera.ts';
+import { LEVELS, LEVEL_COLORS } from './diplomacy.ts';
 import type { TerrainScene } from '../terrain/scene.ts';
 import type { Controller } from './controller.ts';
 import type { GameState } from './state.ts';
@@ -17,8 +18,8 @@ export function unitCounts(st: GameState, slots: Iterable<number>, sep = '   '):
 
 export const HELP = [
   '왼쪽: 고르기 · 드래그    오른쪽: 이동 · 공격 · 자원지에 짓기    A: 공격 이동    S: 정지',
-  '숫자 키: 건물 짓기 (Shift: 여러 개)    Q: 보병    W: 궁수    E: 전함',
   '야생 동물을 오른쪽 클릭하면 병사가 다가가 길들인다 (드래곤은 먼저 쓰러뜨려야 한다)',
+  '다른 나라의 거점을 누르면 외교: 동맹 요청 · 동맹끼리 지원 · 공격 요청',
   'Ctrl+숫자: 부대 지정    Shift+숫자: 부대 부르기    Space: 내 거점으로',
   '휠: 확대    P: 일시정지    . : 속도    F1: 도움말 끄기',
 ];
@@ -78,6 +79,23 @@ export class Hud {
       sw.className = 'swatch';
       sw.style.background = `rgb(${n.color.join(',')})`;
       row.append(sw, `${n.name}  병사 ${s?.nUnits ?? 0}  건물 ${s?.nBuildings ?? 0}`);
+      const d = st.diplo, me = st.info.me;
+      if (d) {
+        const tag = (text: string, color: string) => {
+          const t = document.createElement('span');
+          t.textContent = '  ' + text;
+          t.style.color = color;
+          row.appendChild(t);
+        };
+        if (i !== me) {
+          if (String(i) in d.allies) tag(`동맹 ${Math.floor(d.allies[String(i)] / 60)}분`, LEVEL_COLORS[3]);
+          else tag(LEVELS[d.theirs[i] ?? 2], LEVEL_COLORS[d.theirs[i] ?? 2]);
+          if (d.incoming.includes(i)) tag('동맹 요청!', 'rgb(255,230,140)');
+        }
+        if (String(i) in d.traitors) tag('배신자', LEVEL_COLORS[0]);
+        const with_ = d.pairs.filter((p) => p.includes(i) && !p.includes(me)).map((p) => (p[0] === i ? p[1] : p[0]));
+        if (i !== me && with_.length) tag(`(${with_.map((k) => st.info.nations[k].name.split(' ').pop()).join('·')}와 동맹)`, 'rgb(180,200,220)');
+      }
     });
     // 아래 가운데: 고른 것
     const sl = this.selectionLines();

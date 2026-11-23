@@ -35,7 +35,7 @@ class Companions:
         w, u = self.w, self.w.units
         ids = w.unit_ids()
         o = u.own[i]
-        ids = ids[(u.own[ids] != o) & (u.own[ids] < R.NEUTRAL) & ~u.air[ids]]
+        ids = ids[(w.diplo.friend[o, u.own[ids]] == 0) & (u.own[ids] < R.NEUTRAL) & ~u.air[ids]]   # 동맹은 빼고
         if not len(ids):
             return ids
         return ids[np.hypot(u.x[ids] - u.x[i], u.y[ids] - u.y[i]) <= r]
@@ -82,7 +82,9 @@ class Companions:
                 if len(near):
                     s.spin = R.STOMP['cd']
                     for j in near:                                   # 둘레 땅의 적을 치고 밀어낸다
-                        u.hp[j] -= R.STOMP['dmg']
+                        d = R.STOMP['dmg'] * w.diplo.hurt[u.own[j]]
+                        u.hp[j] -= d
+                        w.diplo.hits[u.own[i], u.own[j]] += d
                         if u.hp[j] <= 0:
                             u.alive[j] = False
                         d = max(float(np.hypot(u.x[j] - u.x[i], u.y[j] - u.y[i])), 0.3)

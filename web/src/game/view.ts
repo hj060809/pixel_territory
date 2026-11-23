@@ -19,6 +19,7 @@ import { fadeCovered } from './occlude.ts';
 import { TouchInput } from './touch.ts';
 import { TouchUi } from './touchUi.ts';
 import { DevConsole } from './devConsole.ts';
+import { DiploUi } from './diplomacy.ts';
 import { setTouchMode, touchMode } from '../ui/device.ts';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -63,6 +64,7 @@ export class GameView {
   private hud: Hud | null = null;
   private bar: ActionBar | null = null;
   private dev: DevConsole | null = null;          // 개발용 숨은 콘솔 (서버 --dev)
+  private diplo: DiploUi | null = null;           // 외교 말풍선과 동맹 요청 알림
   private tui: TouchUi | null = null;
   private raf = 0;
   private disposed = false;
@@ -93,6 +95,7 @@ export class GameView {
     this.hud?.dispose();
     this.bar?.dispose();
     this.dev?.dispose();
+    this.diplo?.dispose();
     this.tui?.dispose();
     this.loading.dispose();
     this.gl?.getExtension('WEBGL_lose_context')?.loseContext();     // GPU 메모리를 바로 돌려준다
@@ -173,6 +176,10 @@ export class GameView {
         life.setBaitBalls(balls);
         const bank = new SpriteBank(info.nations.map((n) => n.color));
         draw = new Overlay(g, bank, st, ctl, scene);
+        if (!this.diplo) this.diplo = new DiploUi(st, ctl, net);
+        else this.diplo.reset(st, ctl);
+        const dui = this.diplo;
+        ctl.onForeignHall = (b) => dui.openFor(b);
         this.bar?.dispose();
         this.bar = new ActionBar(st, ctl, bank);          // 하단 버튼 (건물 1~, 병종 QWE)
         if (!this.hud) this.hud = new Hud(st, ctl, scene, rules);
@@ -187,6 +194,7 @@ export class GameView {
       },
       msg(items) { for (const t of items) st?.say(t); hudWait = 1; },
       over(result) { if (st) st.over = result; hudWait = 1; },
+      diplo: (m) => { if (st) { st.diplo = m; this.diplo?.render(); } },
       status(text) { loading.set(text); },
       error(text, fatal) {
         if (fatal) {                          // 판을 이어 갈 수 없다: 다시 접속하지 않는다
@@ -352,7 +360,10 @@ export class GameView {
       const train = TRAIN_KEYS.find(([key]) => key === k);
       if (train && !e.ctrlKey) { ctl.train(train[1]); this.bar?.update(); return; }   // Q 보병, W 궁수, E 전함
       switch (k) {
-        case 'escape': if (ctl.mode !== null) ctl.mode = null; else { ctl.sel.clear(); ctl.selB = null; ctl.selShips.clear(); } break;
+        case 'escape':
+          if (this.diplo?.isOpen) this.diplo.close();
+          else if (ctl.mode !== null) ctl.mode = null; else { ctl.sel.clear(); ctl.selB = null; ctl.selShips.clear(); }
+          break;
         case 'a': if (ctl.sel.size) ctl.mode = 'attack'; break;
         case 's': ctl.stop(); break;
         case ' ': centerHome(); break;
@@ -398,11 +409,13 @@ export class GameView {
         pointer = touch.ghost ? [(touch.ghost[0] - cam.x) * cam.zoom, (touch.ghost[1] - cam.y) * cam.zoom] : null;
       }
       if (st && draw) draw.draw(cam, now, pointer, box);
+      this.diplo?.frame(cam);
       this.tui?.frame();
       hudWait += dt;
       if (this.hud && hudWait >= 0.25) {
         hudWait = 0;
         this.hud.update(cam, touchMode() ? null : mouse);
+        this.diplo?.render();
         this.bar?.update();
         this.tui?.update();
         if (st) fadeCovered([...this.hud.panels(), ...(this.bar ? [this.bar.el] : []), ...(this.tui?.panels() ?? [])],

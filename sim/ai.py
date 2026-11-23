@@ -23,6 +23,15 @@
    그 병력에 드는 식량은 모자라도 채워 준다 (자원지·시간이 모자라도). 퍼 주는 양은 의지 한 번에 DRIVE_FUND까지,
    사냥이 끝나면 (성공이든 실패든) 다시 채운다. 채워 준 식량으로 뽑은 병사는 '드래곤 몫' (self.reserved):
    막기·쳐들어가기·짓기·길들이기에 쓰지 않고 집에서 기다리다 사냥대에 먼저 든다. 용을 하나 길들이면 풀린다.
+12. 외교 (_diplomacy, sim/diplomacy.py): 몇 초마다
+   - 동맹 요청에 답한다: 배신자는 거의 거절, 관계가 경계 아래면 거절, 우호면 받는다, 상대가 훨씬 강하면 (겁나서) 받기 쉽다,
+     동맹이 이미 많으면 (성향에 따라 1~2) 거절. 동맹을 맺기 좋아하는 정도는 나라마다 (self.social).
+   - 가끔 동맹을 청한다: 관계가 좋거나 (보통 이상), 같은 적과 싸우는 (둘 다 미워하는 나라가 있는) 나라에게. 사람에게도.
+   - 기간이 끝나 가면 관계가 경계 이상일 때 연장한다.
+   - 배신: 동맹이 같은 땅의 이웃이고 내 병력이 훨씬 많으면 (공격성에 따라) 가끔 깬다. 배신자인 동맹도 깬다.
+   - 공격을 받으면 그 나라를 동맹들에게 공격 요청한다. 동맹이 공격을 요청하면 (관계가 경계 이상이면) 한동안 그 나라를 먼저 친다.
+   - 넉넉하면 가끔 동맹에게 자원을 보낸다 (관계가 우호일 때).
+   - 칠 곳을 고를 때 관계가 나쁜 나라를 먼저, 공격 요청받은 나라는 더 먼저.
 11. 거북 의지 (_tort_drive): 거북 부족(tortoise_tribes: 시작 거점이 있는 섬에 사막(거북이 사는 땅)이 있는 나라 중,
    시작 거점이 사막인 나라와 그 사막에 가장 가까운 나라 하나)이 어느 정도 자라면 (TORT_TIME초, 건물 TORT_BUILDS개)
    거북을 TORT_MAX마리까지 길들이려 한다: TORT_EVERY초마다 하나, 같은 섬의 가장 가까운 거북을, 먹이가 모자라면
@@ -175,6 +184,10 @@ class Bot:
         self.riders_had = 0
         self.tort_next = 0.0                        # 거북 의지: 다음 거북을 길들이러 보낼 수 있는 시각
         self.tort_given = 0.0                       # 거북 먹이로 채워 준 식량 (게임 내내)
+        self.social = rng.uniform(0.2, 1.0)         # 동맹을 맺기 좋아하는 정도
+        self.diplo_at = rng.uniform(5, 15)          # 다음 외교 판단 시각
+        self.ask_at = rng.uniform(60, 150)          # 다음 동맹 요청 시각
+        self.focus = None                           # 동맹이 요청한 공격: (칠 나라, 끝나는 시각)
 
     def maybe_think(self, w, dt: float) -> None:
         self.wait -= dt
@@ -191,6 +204,9 @@ class Bot:
         idle = mine[u.state[mine] == IDLE]
         halls = w.building_ids(self.id, R.HALL, done=True)
         intel = self.intel = self._intel(w)
+        if w.time >= self.diplo_at:
+            self.diplo_at = w.time + self.rng.uniform(3, 6)
+            self._diplomacy(w, nat, mine)
         idle = self._track_reserved(w, mine, idle)
         if self.hunt:
             self._prune_hunters(w)
@@ -337,7 +353,7 @@ class Bot:
             w.train(self.id, int(harbors[0]), R.WARSHIP, quiet=True)
         for sh in ships:
             if sh.state == 'idle':
-                foes = [o for o in w.fleet.boats if o.own != self.id and np.hypot(o.y - sh.y, o.x - sh.x) < 45]
+                foes = [o for o in w.fleet.boats if w.diplo.foe(self.id, o.own) and np.hypot(o.y - sh.y, o.x - sh.x) < 45]
                 if foes:
                     w.fleet.hunt([sh], min(foes, key=lambda o: np.hypot(o.y - sh.y, o.x - sh.x)))
         # 6. 공격
@@ -503,7 +519,7 @@ class Bot:
     def _threat(self, w, halls_only: bool = False):
         u, b = w.units, w.builds
         own = w.building_ids(self.id, R.HALL) if halls_only else w.building_ids(self.id)
-        foes = np.flatnonzero(u.alive[:u.n] & (u.own[:u.n] != self.id))
+        foes = np.flatnonzero(u.alive[:u.n] & (w.diplo.friend[self.id, u.own[:u.n]] == 0))
         if len(own) == 0 or len(foes) == 0:
             return None
         d = np.hypot(u.x[foes][:, None] - b.x[own][None], u.y[foes][:, None] - b.y[own][None])
@@ -516,7 +532,7 @@ class Bot:
     def _intel(self, w) -> dict:
         """다른 나라의 용기사·바위거북 수와 내 건물 가까이(30칸)의 적 병사."""
         u, b = w.units, w.builds
-        foes = np.flatnonzero(u.alive[:u.n] & ~u.aboard[:u.n] & (u.own[:u.n] != self.id) & (u.own[:u.n] < R.NEUTRAL))
+        foes = np.flatnonzero(u.alive[:u.n] & ~u.aboard[:u.n] & (w.diplo.friend[self.id, u.own[:u.n]] == 0) & (u.own[:u.n] < R.NEUTRAL))
         riders = int((u.kind[foes] == R.DRAGON_RIDER).sum()) if len(foes) else 0
         torts = int((u.kind[foes] == R.TORTOISE).sum()) if len(foes) else 0
         own = w.building_ids(self.id)
@@ -536,8 +552,8 @@ class Bot:
         if not front:
             halls = own[b.kind[own] == R.HALL]
             return int(self.rng.choice(halls if len(halls) else own))
-        foes = np.flatnonzero(u.alive[:u.n] & (u.own[:u.n] != self.id) & (u.own[:u.n] < R.NEUTRAL))
-        fb = np.flatnonzero(b.alive[:b.n] & (b.own[:b.n] != self.id))
+        foes = np.flatnonzero(u.alive[:u.n] & (w.diplo.friend[self.id, u.own[:u.n]] == 0) & (u.own[:u.n] < R.NEUTRAL))
+        fb = np.flatnonzero(b.alive[:b.n] & (w.diplo.friend[self.id, b.own[:b.n]] == 0))
         pts = np.concatenate([np.stack([u.x[foes], u.y[foes]], 1), np.stack([b.x[fb], b.y[fb]], 1)]) if len(foes) + len(fb) else None
         if pts is None or self.rng.random() < 0.3:                   # 가끔은 아무 곳에나 (한쪽만 두껍지 않게)
             return int(self.rng.choice(own))
@@ -769,7 +785,7 @@ class Bot:
 
     def _pick_site(self, w, nat, home):
         u = w.units
-        foes = np.flatnonzero(u.alive[:u.n] & (u.own[:u.n] != self.id))
+        foes = np.flatnonzero(u.alive[:u.n] & (w.diplo.friend[self.id, u.own[:u.n]] == 0))
         pits = len(w.building_ids(self.id, R.SULFUR_PIT))
         fires = len(w.building_ids(self.id, R.FIRE_TOWER))
         sul = (1.2 if self.intel['riders'] else 0.8) if pits == 0 else (0.4 if self.intel['riders'] else 0.0)   # 화염탑 연료: 채취장 하나는 꼭
@@ -814,7 +830,7 @@ class Bot:
         if any(s.building < 0 and comp[s.y, s.x] != hc for s in w.sites):
             return True
         b = w.builds
-        foes = np.flatnonzero(b.alive[:b.n] & (b.own[:b.n] != self.id))
+        foes = np.flatnonzero(b.alive[:b.n] & (w.diplo.friend[self.id, b.own[:b.n]] == 0))
         wild = w.wild                                # 드래곤을 좋아하는 나라: 바다 건너 둥지도
         if self.lean[R.DRAGON] >= 0.5 and wild.riders(self.id, R.DRAGON) < R.WILDLIFE[R.DRAGON]['limit'] and any(
                 a.unit >= 0 and comp[int(a.hy), int(a.hx)] != hc for a in wild.animals.values()):
@@ -854,9 +870,91 @@ class Bot:
                     return y, x
         return None
 
+    # ------------------------------------------------------------- 외교
+    def _strength(self, w, nid) -> float:
+        u = w.units
+        m = u.alive[:u.n] & (u.own[:u.n] == nid)
+        return float(m.sum()) + 1.0
+
+    def _accepts(self, w, other) -> bool:
+        """other의 동맹 요청을 받을까."""
+        d, me = w.diplo, self.id
+        if d.traitor(other) and self.rng.random() < 0.9:                  # 배신자는 거의 거절
+            return False
+        if d.level(me, other) <= 1:                                        # 경계·적대
+            return self.rng.random() < 0.05
+        if len(d.allies_of(me)) >= (1 if self.social < 0.5 else 2):
+            return False
+        if d.level(me, other) == 3:                                        # 우호
+            return self.rng.random() < 0.9
+        afraid = self._strength(w, other) > self._strength(w, me) * 1.8    # 훨씬 강한 나라: 겁나서 받기 쉽다
+        return self.rng.random() < (0.35 + 0.4 * self.social + (0.3 if afraid else 0.0))
+
+    def _diplomacy(self, w, nat, mine) -> None:
+        d, me, rng = w.diplo, self.id, self.rng
+        # 1. 들어온 요청에 답한다
+        for (a, b) in list(d.requests):
+            if b == me and w.time - d.requests[(a, b)] > 2.0:
+                d.reply(me, a, self._accepts(w, a))
+        allies = d.allies_of(me)
+        # 2. 연장 · 배신
+        for o in allies:
+            al = d.allies[d.key(me, o)]
+            near_end = al['until'] - w.time <= 40.0
+            if d.traitor(o) and rng.random() < 0.5:                           # 배신자인 동맹은 깬다
+                d.end(me, o, betray=True)
+                continue
+            if near_end and me not in al['ext'] and d.level(me, o) >= 1:
+                d.extend(me, o)
+            home, oh = self._home(w), self._home_of(w, o)
+            same = home is not None and oh is not None and w.map.comp[int(home[0]), int(home[1])] == w.map.comp[int(oh[0]), int(oh[1])]
+            if same and self._strength(w, me) > self._strength(w, o) * 3.0 and rng.random() < 0.02 * self.aggression:
+                d.end(me, o, betray=True)                                       # 이웃 동맹이 훨씬 약하다: 가끔 배신
+        allies = d.allies_of(me)
+        # 3. 공격 받으면 그 나라를 동맹들에게 공격 요청한다
+        if allies and me not in d.targets and d.target_cd[me] <= w.time:
+            worst = int(np.argmin(d.rel[me]))
+            if worst != me and d.rel[me, worst] < -60 and not d.allied(me, worst) and w.nations[worst].alive and rng.random() < 0.3:
+                d.target(me, worst)
+        # 동맹이 공격을 요청했다: 관계가 경계 이상이면 한동안 그 나라를 먼저 친다
+        for o in allies:
+            tg = d.targets.get(o)
+            if tg and tg[0] != me and d.level(me, o) >= 1 and (self.focus is None or self.focus[1] <= w.time):
+                self.focus = (tg[0], tg[1])
+        # 4. 넉넉하면 우호인 동맹에게 자원을 조금
+        rich = [0.15 if nat.res[k] > 600 else 0.0 for k in range(3)]               # 넉넉한 자원만 15%
+        if allies and any(rich) and d.donate_cd[me] <= w.time and rng.random() < 0.15:
+            o = max(allies, key=lambda o: d.rel[me, o])
+            if d.level(me, o) == 3:
+                d.give_res(me, o, rich)
+        # 5. 가끔 동맹을 청한다: 관계가 좋거나 같은 적과 싸우는 나라에게 (사람에게도)
+        if w.time >= self.ask_at:
+            self.ask_at = w.time + rng.uniform(60, 140) / (0.5 + self.social)
+            if len(allies) < (1 if self.social < 0.5 else 2):
+                cands = []
+                for o in range(d.n):
+                    if o == me or not w.nations[o].alive or d.can_request(me, o) is not None:
+                        continue
+                    if d.level(me, o) <= 1 or d.traitor(o):
+                        continue
+                    common = bool(((d.rel[me] < -40) & (d.rel[o] < -40)).any())   # 둘 다 미워하는 나라가 있다
+                    score = d.rel[me, o] + (40 if common else 0) + rng.uniform(0, 30)
+                    cands.append((score, o))
+                if cands:
+                    score, o = max(cands)
+                    if score > 20 or rng.random() < 0.3 * self.social:
+                        d.request(me, o)
+
+    def _home_of(self, w, nid):
+        own = w.building_ids(nid)
+        if not len(own):
+            return None
+        b = w.builds
+        return float(b.y[own].mean()), float(b.x[own].mean())
+
     def _attack(self, w, ids) -> None:
         b = w.builds
-        foes = np.flatnonzero(b.alive[:b.n] & (b.own[:b.n] != self.id))
+        foes = np.flatnonzero(b.alive[:b.n] & (w.diplo.friend[self.id, b.own[:b.n]] == 0))
         if len(foes) == 0:
             return
         cy, cx = w.units.y[ids].mean(), w.units.x[ids].mean()
@@ -865,5 +963,11 @@ class Bot:
         if same.any():
             foes = foes[same]
         d = np.hypot(b.x[foes] - cx, b.y[foes] - cy) * np.where(b.kind[foes] == R.HALL, 0.75, 1.0)   # 거점을 잃으면 멸망: 조금 멀어도 거점을
+        dp, own = w.diplo, b.own[foes]
+        real = own < dp.n
+        rel = np.where(real, dp.rel[self.id, np.minimum(own, dp.n - 1)], 0.0)
+        d = d * np.where(rel < -50, 0.6, np.where(rel < 0, 0.85, 1.0))                  # 적대하는 나라를 먼저
+        if self.focus is not None and self.focus[1] > w.time:
+            d = d * np.where(own == self.focus[0], 0.4, 1.0)                           # 동맹이 공격을 요청한 나라는 더 먼저
         t = foes[int(np.argmin(d))]
         w.order_move(ids, float(b.y[t]), float(b.x[t]), attack=True)

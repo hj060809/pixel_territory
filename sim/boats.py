@@ -612,13 +612,14 @@ class Fleet:
                 foe, fd = s.target, d
         if foe is None:
             for o in self.boats:
-                if o.alive and o.own != s.own:
+                if o.alive and self.w.diplo.foe(s.own, o.own):
                     d = np.hypot(o.y - s.y, o.x - s.x)
                     if d < fd:
                         foe, fd = o, d
         if foe is not None and s.cd <= 0:
             s.cd = R.WARSHIP_CD
-            foe.hp -= R.WARSHIP_DMG
+            foe.hp -= R.WARSHIP_DMG * self.w.diplo.hurt[foe.own]
+            self.w.diplo.hits[s.own, foe.own] += R.WARSHIP_DMG
             self.w.recent.append((self.w.time, s.x, s.y - 2, foe.x, foe.y, 2))
             if foe.hp <= 0:
                 self._sink(foe)

@@ -142,7 +142,9 @@ export class TouchInput {
       const myBoat = ctl.boatAt(mx, my, Math.max(2.0, 12 / z), me);
       const pickBoat = myBoat && (myBoat.kind === 1 || myBoat.cargo > 0) && !ctl.selShips.has(myBoat.id);
       const myB = foeB && foeB.own === me && foeB.prog >= 1 ? foeB : null;
-      if (!target && ((mine && !ctl.sel.has(mine.slot)) || pickBoat)) ctl.selectPoint(mx, my, z, this.add, 10);
+      const allyHall = foeB && foeB.own !== me && foeB.kind === ctl.rules_kinds().HALL && ctl.isAlly(foeB.own);   // 동맹의 거점: 외교 말풍선 (병력 보내기)
+      if (allyHall) ctl.selectPoint(mx, my, z, this.add, 10);
+      else if (!target && ((mine && !ctl.sel.has(mine.slot)) || pickBoat)) ctl.selectPoint(mx, my, z, this.add, 10);
       else if (!target && myB && !mine) ctl.selectPoint(mx, my, z, this.add, 10);   // 다 지은 내 건물: 고르기
       else { ctl.command(mx, my, z, false, TOUCH_PX); this.h.commanded(mx, my); }
     } else {
@@ -150,7 +152,9 @@ export class TouchInput {
       const unit = ctl.unitAt(mx, my, Math.max(1.5, TOUCH_PX / z), me);
       const boat = ctl.boatAt(mx, my, Math.max(3.0, (TOUCH_PX + 2) / z), me);
       const bld = ctl.buildingAt(mx, my, me);
-      if (unit || (boat && (boat.kind === 1 || boat.cargo > 0)) || bld) ctl.selectPoint(mx, my, z, this.add, TOUCH_PX);
+      const other = ctl.buildingAt(mx, my);
+      const foreignHall = other && other.own !== me && other.kind === ctl.rules_kinds().HALL;     // 다른 나라의 거점: 외교 말풍선
+      if (unit || (boat && (boat.kind === 1 || boat.cargo > 0)) || bld || foreignHall) ctl.selectPoint(mx, my, z, this.add, TOUCH_PX);
       else { ctl.selB = null; this.h.info(sx, sy); }
     }
     this.h.changed();

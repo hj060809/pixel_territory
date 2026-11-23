@@ -30,7 +30,7 @@ class FireTowers:
             if b.cd[t] > 0:
                 continue
             o = b.own[t]
-            foes = ids[(u.own[ids] != o) & (u.own[ids] != R.NEUTRAL)] if len(ids) else ids
+            foes = ids[(w.diplo.friend[o, u.own[ids]] == 0) & (u.own[ids] != R.NEUTRAL)] if len(ids) else ids   # 동맹은 빼고
             if not len(foes):
                 b.cd[t] = 0.3
                 continue
@@ -50,7 +50,9 @@ class FireTowers:
             for j in near:
                 kind = int(u.kind[j])
                 mul = F['vs_dragon'] if kind in (R.DRAGON_RIDER, R.WILD_DRAGON) else F['vs_tortoise'] if kind == R.TORTOISE else 1.0
-                u.hp[j] -= dmg * mul * (1.0 if j == tgt else F['splash_mul'])
+                d = dmg * mul * (1.0 if j == tgt else F['splash_mul']) * w.diplo.hurt[u.own[j]]
+                u.hp[j] -= d
+                w.diplo.hits[o, u.own[j]] += d
                 if u.hp[j] <= 0:
                     u.alive[j] = False
             b.cd[t] = F['cd']
