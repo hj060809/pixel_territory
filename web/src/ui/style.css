@@ -522,3 +522,14 @@ body.touch .t-btn { min-width: 40px; height: 40px; font-size: 14px; }
 body.touch .t-selrow .t-btn { height: 36px; font-size: 12px; }
 body.touch .tut-dock { width: 48px; height: 48px; }
 body.touch .tut-dock .tut-q { font-size: 23px; }
+/* 모바일 로비의 커피·피드백 창 (메뉴가 화면에 맞춰 절반쯤 줄어드므로 키운다) */
+body.touch .modal.coffee { width: min(760px, calc((100vw - 40px) / var(--ui-scale, 1))); padding: 40px 48px 34px; }
+body.touch .modal.coffee .modal-title { font-size: 42px; margin-bottom: 16px; }
+body.touch .modal.coffee .coffee-text { font-size: 27px; margin-bottom: 30px; }
+body.touch .modal.coffee .coffee-icon { width: 128px; height: 128px; margin-bottom: 20px; border-width: 3px; }
+body.touch .modal.coffee .coffee-icon svg { width: 92px; height: 92px; }
+body.touch .modal.coffee .coffee-link { font-size: 32px; padding: 20px 46px; border-radius: 46px; gap: 16px; border-width: 3px; box-shadow: 0 6px 0 rgb(150, 120, 0); }
+body.touch .modal.coffee .coffee-link svg { width: 38px; height: 38px; }
+body.touch .modal.coffee .coffee-close { width: 200px !important; height: 66px !important; font-size: 27px; margin-top: 26px; }
+body.touch .modal.coffee .server-plea { font-size: 26px; gap: 16px; padding-top: 24px; margin-bottom: 26px; }
+body.touch .modal.coffee .busy-btns .btn { min-width: 180px; height: 64px; font-size: 26px; }
