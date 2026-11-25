@@ -11,6 +11,7 @@ import { SpriteBank } from '../game/sprites.ts';
 import { AdvancedDialog, AdvancedState } from './advanced.ts';
 import type { LobbyInfo } from './lobbyArt.ts';
 import { DIM, GOLD, INK, button, div, field, uiScale, previewReserve } from './widgets.ts';
+import { setVisPref, visPref } from '../game/visibility.ts';
 
 export const SEASONS = ['봄', '여름', '가을', '겨울'];
 
@@ -20,20 +21,20 @@ export interface Settings {
   spotMode: 'random' | 'pick'; spot: [number, number] | null;
   bots: number; difficulty: string; season: number;
   // 방 만들기 (멀티)
-  roomName: string; cap: number; password: string; roomStart: 'random' | 'pick';
+  roomName: string; cap: number; password: string; roomStart: 'random' | 'pick'; roomVis: boolean;
   multiName: string;            // 멀티에서 쓰는 내 이름 (처음엔 무작위 '형용사 명사', 싱글의 name과 따로)
 }
 
 export const defaultSettings = (): Settings => ({
   preset: null, size: 512, seed: '8767564', name: '나', color: 0, spotMode: 'random', spot: null,
   bots: 4, difficulty: '보통', season: 0,
-  roomName: '같이 해요', cap: 4, password: '', roomStart: 'random', multiName: randomName(),
+  roomName: '같이 해요', cap: 4, password: '', roomStart: 'random', multiName: randomName(), roomVis: true,
 });
 
 /** 방 만들기에 넘길 것 (server/app.py room_create). */
 export interface RoomRequest {
   name: string; password: string; cap: number; bots: number; start_mode: 'random' | 'pick';
-  setup: { map: string; difficulty: string; season: number };
+  setup: { map: string; difficulty: string; season: number; vis: boolean };
   player: { name: string; color: number };
 }
 
@@ -218,6 +219,14 @@ export class Setup {
     }
     r = row('시작 계절');
     SEASONS.forEach((name, i) => button(r, name, set(() => { s.season = i; }), { selected: s.season === i, size: 15, w: 64, h: 32 }));
+    div('gap', L);
+    head('보기');
+    r = row('시인성 강조');                                // 나라색 바닥 고리 + 밝은 테두리 (싱글: 다음에도 이 값, 멀티: 방 기본값)
+    const visNow = this.mode === 'room' ? s.roomVis : visPref();
+    for (const [v, label] of [[true, '켜기'], [false, '끄기']] as const) {
+      button(r, label, set(() => { if (this.mode === 'room') s.roomVis = v; else setVisPref(v); }), { selected: visNow === v, size: 15, w: 74, h: 32 });
+    }
+    div('note small', r, '내 것·남의 것을 나라색 고리와 테두리로 구분. 게임 중 메뉴에서도 바꿀 수 있다');
     this.refreshPreview();
   }
 
@@ -317,7 +326,7 @@ export class Setup {
     if (this.mode === 'room') {                                    // 방 만들기: 지도가 없으면 만들고 나서
       if (!this.mapReady) { this.startAfterBuild = true; void this.build(); return; }
       this.onRoom?.({ name: s.roomName.trim() || '같이 해요', password: s.password, cap: s.cap, bots: s.bots, start_mode: s.roomStart,
-        setup: { map: this.builtKey!, difficulty: s.difficulty, season: s.season },
+        setup: { map: this.builtKey!, difficulty: s.difficulty, season: s.season, vis: s.roomVis },
         player: { name: s.multiName.trim() || randomName(), color: s.color } });
       return;
     }

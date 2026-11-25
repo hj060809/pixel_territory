@@ -65,16 +65,17 @@ export function drawAnimals(g: CanvasRenderingContext2D, stack: StackRenderer, L
       const [ex, ey] = modelPoint(DRAGON_SIZE[0], DRAGON_SIZE[1], mx + BREATH_REACH, my, 0, dir, DIRS, k);   // 입 앞쪽의 땅
       mouths.set(`a${an.id}`, [x + dx, y - hop * k + dy, x + ex, y + ey]);
     }
-    const img = { width: rc.w, height: rc.h }, rx = rc.x, ry = rc.y;
+    const img = { width: Math.round(rc.w), height: Math.round(rc.h) }, rx = Math.round(rc.x), ry = Math.round(rc.y);
+    const kp = Math.max(1, Math.round(k));                   // 작은 표시(발밑·z·흙먼지)는 정수 점으로 (흐려지지 않게)
     if (an.state === A_HELD || an.state === A_TAMING) {      // 발밑 표시: 누군가 길들이는 동물
       g.fillStyle = 'rgba(255,236,170,0.75)';
-      g.fillRect(rx + k, Math.round(y + 2 * k), img.width - 2 * k, Math.max(1, k >> 1));
+      g.fillRect(rx + kp, Math.round(y + 2 * kp), img.width - 2 * kp, Math.max(1, kp >> 1));
     }
     if (hostile) {
       if (an.state === A_SLEEP && Math.floor(t * 0.8 + seed) % 2 === 0) {     // 잠: 머리 위로 떠오르는 작은 z
         g.fillStyle = 'rgba(220,236,255,0.8)';
-        const zx = Math.round(rx + img.width * 0.7), zy = Math.round(ry - 2 * k - ((t * 6) % 6) * k * 0.5);
-        g.fillRect(zx, zy, 3 * k, k); g.fillRect(zx + k, zy + k, k, k); g.fillRect(zx, zy + 2 * k, 3 * k, k);
+        const zx = Math.round(rx + img.width * 0.7), zy = Math.round(ry - 2 * kp - ((t * 6) % 6) * kp * 0.5);
+        g.fillRect(zx, zy, 3 * kp, kp); g.fillRect(zx + kp, zy + kp, kp, kp); g.fillRect(zx, zy + 2 * kp, 3 * kp, kp);
       }
       const w = Math.max(img.width * 0.7, 30), cx = rx + img.width / 2;
       if (an.state === A_FIGHT || (an.state === A_SLEEP && an.hp < 0.99)) bars.push({ x: cx, y: ry - 4, w, prog: an.hp, col: '' });
@@ -88,8 +89,8 @@ export function drawAnimals(g: CanvasRenderingContext2D, stack: StackRenderer, L
     if (an.state === A_TAMING) {
       if (frame === 0 && k > 1) {                              // 내려놓을 때 흙먼지
         g.fillStyle = 'rgba(214,196,150,0.85)';
-        const fx = an.dir < 0 ? rx + k : rx + img.width - 2 * k;
-        g.fillRect(fx - k, Math.round(y), k, k); g.fillRect(fx + k, Math.round(y) - k, k, k);
+        const fx = an.dir < 0 ? rx + kp : rx + img.width - 2 * kp;
+        g.fillRect(fx - kp, Math.round(y), kp, kp); g.fillRect(fx + kp, Math.round(y) - kp, kp, kp);
       }
       bars.push({ x: rx + img.width / 2, y: ry - 4, w: Math.max(img.width, 14), prog: an.prog, col: 'rgb(240,200,90)' });
     }

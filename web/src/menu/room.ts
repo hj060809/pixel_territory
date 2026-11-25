@@ -17,13 +17,13 @@ import { DIM, GOLD, INK, button, div, uiScale, previewReserve } from './widgets.
 interface Member { name: string; color: number; ready: boolean; spot: number[] | null }
 interface RoomState {
   id: string; code: string; name: string; host: number; me: number; cap: number; bots: number; start_mode: 'random' | 'pick';
-  setup: { map: string; difficulty?: string; season?: number }; locked: boolean; state: string; layout: number[][] | null;
+  setup: { map: string; difficulty?: string; season?: number; vis?: boolean }; locked: boolean; state: string; layout: number[][] | null;
   members: Member[]; map_status: { state?: string; progress?: string };
 }
 
 export interface RoomHooks {
   leave(msg?: string, busy?: boolean): void;         // 대기실을 나간다 (나감, 내보내짐, 들어가지 못함, 끊김). busy: 서버가 꽉 찼다
-  start(conn: Connection, mapKey: string): void;     // 판이 시작됐다: 연결을 게임 화면에
+  start(conn: Connection, mapKey: string, vis: boolean): void;   // 판이 시작됐다: 연결을 게임 화면에 (vis: 방의 시인성 강조 기본값)
 }
 
 export class RoomView {
@@ -63,7 +63,7 @@ export class RoomView {
       start: (info) => {                              // 판 시작: 연결을 넘긴다 (start와 그 뒤의 것은 게임 화면이 받는다)
         this.handed = true;
         this.conn.hold(info);
-        this.hooks.start(this.conn, this.room?.setup.map ?? (info as any).map);
+        this.hooks.start(this.conn, this.room?.setup.map ?? (info as any).map, this.room?.setup.vis ?? true);
       },
       state: () => {}, msg: () => {}, over: () => {}, diplo: () => {},
       status: (t) => this.say(t),
@@ -209,6 +209,12 @@ export class RoomView {
       const b = button(x, name, () => this.send({ t: 'room_setup', season: i }), { selected: (r.setup.season ?? 0) === i, size: 15, w: 64, h: 32 });
       b.disabled = !host;
     });
+    x = row('시인성 강조');
+    for (const [v, label] of [[true, '켜기'], [false, '끄기']] as const) {
+      const b = button(x, label, () => this.send({ t: 'room_setup', vis: v }), { selected: (r.setup.vis ?? true) === v, size: 15, w: 74, h: 32 });
+      b.disabled = !host;
+    }
+    div('note small', x, '게임 중 메뉴에서 각자 바꿀 수 있다');
     x = row('시작 자리');
     for (const [mode, label] of [['random', '무작위'], ['pick', '각자 고르기']] as const) {
       const b = button(x, label, () => this.send({ t: 'room_setup', start_mode: mode }), { selected: r.start_mode === mode, size: 15, w: 110, h: 32 });

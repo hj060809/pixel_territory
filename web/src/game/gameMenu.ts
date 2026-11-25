@@ -34,7 +34,23 @@ export function panel(cls: string): { box: HTMLDivElement; close: () => void } {
 }
 
 /** 제목, (설명), 버튼들. 버튼을 누르면 창을 닫고 할 일을 한다. */
-export function menuBox(title: string, items: MenuItem[], note = '', confirm = false) {
+/** 체크 칸 한 줄 (누르면 창은 그대로, 바로 바뀐다). */
+export function checkRow(parent: HTMLElement, label: string, checked: boolean, onChange: (on: boolean) => void) {
+  const row = el('label', 't-check', parent);
+  const box = el('input', '', row);
+  box.type = 'checkbox';
+  box.checked = checked;
+  box.addEventListener('change', () => onChange(box.checked));
+  el('span', '', row, label);
+  return row;
+}
+
+/** 시인성 강조 체크 칸 (게임 중 메뉴 아래, PC·터치 같은 모양). */
+export function visRow(parent: HTMLElement, on: boolean, toggle: () => void) {
+  return checkRow(parent, '시인성 강조', on, () => toggle());
+}
+
+export function menuBox(title: string, items: MenuItem[], note = '', confirm = false, after?: (box: HTMLDivElement) => void) {
   const { box, close } = panel('game-menu' + (confirm ? ' confirm' : ''));
   el('div', 't-menu-title', box, title);
   if (note) el('div', 't-help', box, note);
@@ -43,6 +59,7 @@ export function menuBox(title: string, items: MenuItem[], note = '', confirm = f
     const b = el('button', 't-btn wide' + (it.warm ? ' warm' : ''), row, it.label);
     b.addEventListener('click', () => { close(); it.fn(); });
   }
+  after?.(box);
 }
 
 /** 되돌릴 수 없는 일 확인: [yes] [취소]. */

@@ -1,7 +1,7 @@
 // 지도 위 물체 그리기 (Canvas 2D, 화면 픽셀). 위치는 상태 사이를 보간한 값.
 // 유닛·건물·배·동물은 스프라이트 스태킹 (stack.ts): 지형과 같은 해 방향·낮밤 색표로 칠하고, 유닛과 배는 가는 쪽으로 돈다.
 // 밤에는 건물 둘레에 횃불 (torches.ts): 빛은 지형 빛 단계와 유닛·건물 칠하기에 함께 들어간다.
-// 그림 한 점의 화면 크기는 모두 같다 (spriteK): 유닛과 건물의 점 크기가 섞이지 않게.
+// 그림 한 점의 화면 크기는 모두 같다 (spriteK): 유닛과 건물의 점 크기가 섞이지 않게. 줌에 따라 땅과 함께 매끄럽게 변한다.
 
 import type { Camera } from '../sim/camera.ts';
 import type { TerrainScene } from '../terrain/scene.ts';
@@ -14,8 +14,11 @@ import { type Light, lightFrom, modelPoint } from './stack.ts';
 import { BREATH_REACH, DRAGON_MOUTH, DRAGON_SIZE } from './models.ts';
 import { Torches, drawFlame, nightAmount } from './torches.ts';
 import { type GameState, lerp } from './state.ts';
+import { visOn } from './visibility.ts';
 
 const DIRS = 16;
+/** 건물 방향: 16방향 중 4방향마다 하나씩 + 한 칸(22.5°) 비스듬히 (정면만 보이면 납작해 보여서). */
+const BDIRS = 16, BTILT = 1;
 const TAU = Math.PI * 2;
 /** 날고 있는 병종을 땅에서 띄워 그리는 높이 (모델 점). 지도 칸으로는 FLY_LIFT / 2.4. */
 export const FLY_LIFT = 18;
@@ -25,8 +28,9 @@ const STOMP_MS = 500;                // 바위거북 발 구르기 그림 (앞�
 const TORTOISE = 6;                  // 병종 번호 (sim/rules.py)
 const SAND = ['rgb(236,214,170)', 'rgb(214,186,132)', 'rgb(184,150,98)'];
 const ICE = ['rgb(236,248,255)', 'rgb(190,228,246)', 'rgb(150,196,232)'];
-/** 그림 한 점의 화면 크기 (확대에 따라). 건물 모델 너비가 2r × 2.4 점이라 땅 넓이와 맞는다. */
-export const spriteK = (z: number) => Math.max(1, Math.round(z / 2.4));
+/** 그림 한 점의 화면 크기 (확대에 따라, 땅과 함께 매끄럽게). 건물 모델 너비가 2r × 2.4 점이라 땅 넓이와 맞는다.
+ *  정수가 아니면 stack.draw가 sharp bilinear로 그려 점이 자글거리지 않는다. */
+export const spriteK = (z: number) => Math.max(1, z / 2.4);
 /** 큰 물체(드래곤, 둥지)의 점 크기: 멀리서도 땅 넓이에 맞게 1보다 작아질 수 있다 (너무 작아지지는 않게). */
 export const bigK = (z: number) => (z >= 2.4 ? spriteK(z) : Math.max(z / 2.4, 0.3));
 /** 각도 → 방향 번호 (16방향). */
@@ -63,7 +67,7 @@ export class Overlay {
   /** 화염탑 불 (0.6초): 분사구에서 목표로 뻗는 불꽃 줄기 (안쪽은 노랗고 바깥은 붉다), 맞은 자리에 불길과 그을음.
    *  약한 불(유황이 없을 때)은 가늘고 짧다. */
   private drawFlames(sx: (x: number) => number, sy: (y: number) => number, K: number, z: number, now: number) {
-    const g = this.g, LIFE = 600, P = Math.max(K, 2);
+    const g = this.g, LIFE = 600, P = Math.max(Math.round(K), 2);
     this.flames = this.flames.filter((f) => now - f.at < LIFE);
     const dot = (x: number, y: number, s: number) => g.fillRect(Math.round(x / P) * P, Math.round(y / P) * P, s, s);
     const FIRE = ['rgb(255,236,150)', 'rgb(255,178,70)', 'rgb(232,96,40)', 'rgb(170,50,30)'];
@@ -98,7 +102,7 @@ export class Overlay {
 
   /** 바위거북: 발 구르기는 내리찍는 순간 흙먼지와 땅이 갈라지는 고리 (짧게), 포효는 낮게 퍼지는 두 겹 고리. */
   private drawRings(sx: (x: number) => number, sy: (y: number) => number, K: number, z: number, now: number, R: any) {
-    const g = this.g, P = Math.max(K, 2);
+    const g = this.g, P = Math.max(Math.round(K), 2);
     this.rings = this.rings.filter((r) => now - r.at < (r.kind === 4 ? 650 : 800));
     const dot = (x: number, y: number, s: number) => g.fillRect(Math.round(x / P) * P, Math.round(y / P) * P, s, s);
     for (const r of this.rings) {
@@ -138,7 +142,7 @@ export class Overlay {
   private drawFrost(sx: (x: number) => number, sy: (y: number) => number, K: number, z: number, now: number) {
     const g = this.g, LIFE = 900;
     this.frost = this.frost.filter((f) => now - f.at < LIFE);
-    const P = Math.max(K, 2);
+    const P = Math.max(Math.round(K), 2);
     const dot = (x: number, y: number, s: number) => g.fillRect(Math.round(x / P) * P, Math.round(y / P) * P, s, s);
     for (const f of this.frost) {
       const age = (now - f.at) / LIFE;                                  // 0~1
@@ -186,14 +190,16 @@ export class Overlay {
     return this.light;
   }
 
-  /** 건물이 서는 방향 (4방향): 항구는 부두가 바다 쪽, 나머지는 자리마다 (뒤를 보는 일은 드물게). */
+  /** 건물이 서는 방향 (BDIRS 중 하나): 4방향을 BTILT만큼 비스듬히 돌려 옆벽과 박공이 함께 보이게.
+   *  항구·낚시터는 잔교가 바다 칸에 똑바로 닿도록 돌리지 않는다. 나머지는 자리마다 (뒤를 보는 일은 드물게). */
   private bdir(b: BuildRec): number {
     const K = this.st.info.rules.kinds;
     if (b.kind === K.HARBOR || b.kind === K.FISHERY) {                // 잔교가 바다 쪽을 본다
       const d = this.dock(b);
-      if (d) return ((Math.round(Math.atan2(-(d[1] + 0.5 - b.x), d[0] + 0.5 - b.y) / (Math.PI / 2)) % 4) + 4) % 4;
+      if (d) return (((Math.round(Math.atan2(-(d[1] + 0.5 - b.x), d[0] + 0.5 - b.y) / (Math.PI / 2)) % 4) + 4) % 4) * 4;
     }
-    return [0, 0, 1, 3][(b.slot * 7 + b.gen * 3) % 4];
+    const d = [0, 0, 1, 3][(b.slot * 7 + b.gen * 3) % 4];
+    return (d * 4 + ((b.slot + b.gen) % 2 ? BTILT : BDIRS - BTILT)) % BDIRS;   // 가로·세로 모두 자리마다 22.5° 또는 반대로 -22.5°
   }
 
   private text(s: string, x: number, y: number, size: number, col: string, bold = false,
@@ -284,17 +290,32 @@ export class Overlay {
     const fs = Math.max(1, Math.round(p.bh * (0.15 + 0.85 * f)));   // 아래(배 밑)부터 차오른다
     g.drawImage(cv, p.bx, p.by + p.bh - fs, p.bw, fs, x, y + (p.bh - fs) * k, img.width, fs * k);
     const fill = fs * k;
+    const kp = Math.max(1, Math.round(k));                          // 비계·반짝임은 정수 점으로
     g.fillStyle = 'rgb(150,112,70)';                             // 비계: 양옆 기둥과 짓는 높이의 가로대
     const line = y + img.height - fill;
-    g.fillRect(x - k, line, k, img.height - (line - y));
-    g.fillRect(x + img.width, line, k, img.height - (line - y));
-    g.fillRect(x - k, line, img.width + 2 * k, k);
+    g.fillRect(x - kp, line, kp, img.height - (line - y));
+    g.fillRect(x + img.width, line, kp, img.height - (line - y));
+    g.fillRect(x - kp, line, img.width + 2 * kp, kp);
     if (Math.floor(now / 180) % 3 !== 0) {                       // 망치질 반짝임
-      const sxp = x + ((Math.floor(now / 540) * 7) % Math.max(1, img.width - k));
+      const sxp = x + ((Math.floor(now / 540) * 7) % Math.max(1, img.width - kp));
       g.fillStyle = 'rgb(255,236,170)';
-      g.fillRect(sxp, line - k, k, k);
+      g.fillRect(sxp, line - kp, kp, kp);
     }
     if (b.qlen > 1) this.text(`+${b.qlen - 1}`, x + img.width + 2 * k, y + 2, 11, 'rgb(255,240,200)');
+  }
+
+  /** 나라색 바닥 고리: 발밑 타원 (나라 색 반투명 + 밝은 나라 색 테두리). */
+  private groundRing(x: number, y: number, rx: number, ry: number, own: number, a: number) {
+    const g = this.g, n = this.st.info.nations[own];
+    if (!n || !visOn()) return;                                   // 시인성 강조를 끄면 고리 없음
+    const [r, gg, b] = n.color, [lr, lg, lb] = n.light;
+    g.beginPath();
+    g.ellipse(Math.round(x), Math.round(y), rx, ry, 0, 0, Math.PI * 2);
+    g.fillStyle = `rgba(${r},${gg},${b},${a})`;
+    g.fill();
+    g.lineWidth = Math.max(1, Math.min(2, rx / 9));
+    g.strokeStyle = `rgba(${lr},${lg},${lb},0.9)`;
+    g.stroke();
   }
 
   draw(cam: Camera, now: number, mouse: [number, number] | null, box: [number, number, number, number] | null) {
@@ -336,6 +357,21 @@ export class Overlay {
       stack.draw(g, 'lair', 0, L, x, y, kb, { dirs: 1, torch: tl(lx, ly) });
       g.imageSmoothingEnabled = false;
     }
+    // 나라색 바닥 고리 (건물): 소속을 한눈에 (지형 위에 먼저, 건물이 그 위에)
+    for (const b of st.builds.values()) {
+      const x = sx(b.x), y = sy(b.y);
+      if (b.own >= st.info.nations.length || !vis(x, y, 120)) continue;
+      const rx = (R.build[b.kind].r + 0.8) * z;
+      this.groundRing(x, y, rx, rx * 0.55, b.own, 0.34);
+    }
+    if (z >= UNIT_ZOOM) {                                         // 나라색 바닥 고리 (걷는 병사): 땅 위에 건물·병사보다 먼저
+      const ur = Math.max(3.5, K * 5.2);
+      for (const u of st.units.values()) {
+        if (u.bits & 2 || u.bits & 4 || u.own >= st.info.nations.length) continue;   // 배에 탄 병사, 나는 용기사는 빼고
+        const x = sx(lerp(u.px, u.x, a)), y = sy(lerp(u.py, u.y, a));
+        if (vis(x, y)) this.groundRing(x, y, ur, ur * 0.5, u.own, 0.45);
+      }
+    }
     // 건물
     const selB = this.ctl.selB;
     const bubbles: [BuildRec, number, number][] = [];       // 말풍선 (병사들 위에 그리려고 나중에)
@@ -345,14 +381,14 @@ export class Overlay {
       const x = sx(b.x), y = sy(b.y);
       if (!vis(x, y, 120)) continue;
       items.push({ y: b.y, f: () => {
-        const done = b.prog >= 1, name = `b${b.kind}`, dir = this.bdir(b);
+        const done = b.prog >= 1, name = `b${b.kind}`, dir = this.bdir(b), dirs = BDIRS;
         let box;
         if (!done) {                                           // 짓는 중: 흐린 다 지은 모습 위로 아래부터 쌓여 올라간다
           g.globalAlpha = 0.3;
-          box = stack.draw(g, name, b.own, L, x, y, K, { dir, dirs: 4, shadow: false });
+          box = stack.draw(g, name, b.own, L, x, y, K, { dir, dirs, shadow: false });
           g.globalAlpha = 1;
-          stack.draw(g, name, b.own, L, x, y, K, { dir, dirs: 4, cut: Math.max(b.prog, 0.06), shadow: false });
-        } else box = stack.draw(g, name, b.own, L, x, y, K, { dir, dirs: 4, torch: Math.max(tl(b.x, b.y), night * 0.45) });   // 제 횃불이 비춘다
+          stack.draw(g, name, b.own, L, x, y, K, { dir, dirs, cut: Math.max(b.prog, 0.06), shadow: false, rim: visOn() });
+        } else box = stack.draw(g, name, b.own, L, x, y, K, { dir, dirs, torch: Math.max(tl(b.x, b.y), night * 0.45), rim: visOn() });   // 제 횃불이 비춘다
         if (selB && selB[0] === b.slot) { g.strokeStyle = SEL; g.lineWidth = 1; g.strokeRect(box.x - 2.5, box.y - 2.5, box.w + 4, box.h + 4); }
         const bw = Math.max(box.w, 14);
         if (!done) this.bar(box.x + box.w / 2, box.y + box.h + 3, bw, b.prog, 'rgb(120,200,255)');
@@ -372,7 +408,7 @@ export class Overlay {
         g.globalAlpha = al;
         stack.draw(g, 'torch', 0, L, x, y, K, { dirs: 1, torch: 1 });
         g.globalAlpha = 1;
-        drawFlame(g, Math.round(x), Math.round(y - 5 * K), K, now / 1000, p.id, al);
+        drawFlame(g, Math.round(x), Math.round(y - 5 * K), Math.round(K), now / 1000, p.id, al);
       } });
     }
     items.sort((p, q) => p.y - q.y);
@@ -409,9 +445,9 @@ export class Overlay {
       if (MOVING_BOAT.has(b.state)) {                                // 지나간 물보라 (고물 쪽)
         g.fillStyle = WAKE;
         const c = Math.cos(ang), s = Math.sin(ang), back = (ferry ? 6 : 11) * K;
-        for (const k of [1, 2]) g.fillRect(Math.round(x - c * (back + k * 3 * K)), Math.round(y - s * (back + k * 3 * K)), K, K);
+        for (const k of [1, 2]) g.fillRect(Math.round(x - c * (back + k * 3 * K)), Math.round(y - s * (back + k * 3 * K)), Math.round(K), Math.round(K));
       }
-      const rc = stack.draw(g, ferry ? 'ferry' : 'warship', b.own, L, x, y + bob * K, K, { dir: dirOf(ang), torch: tl(bx, by) });
+      const rc = stack.draw(g, ferry ? 'ferry' : 'warship', b.own, L, x, y + bob * K, K, { dir: dirOf(ang), torch: tl(bx, by), rim: visOn() });
       if (this.ctl.selShips.has(b.id)) { g.strokeStyle = SEL; g.lineWidth = 1; g.strokeRect(rc.x - 2.5, rc.y - 2.5, rc.w + 4, rc.h + 4); }
       if (b.hp < 0.999) this.bar(rc.x + rc.w / 2, rc.y - 4, Math.max(rc.w, 12), b.hp);
       if (ferry && b.cargo) this.text(`${b.cargo}`, rc.x + rc.w + 2, rc.y + rc.h / 2, 12, 'white', true);
@@ -458,7 +494,7 @@ export class Overlay {
         if (Math.hypot(mx, my) > 0.01) ang = turn(ang, Math.atan2(my, mx), dt * 10);
         this.ang.set(u.slot, ang);
         const shake = pang && spun > STOMP_MS * 0.55 && spun < STOMP_MS ? (Math.floor(spun / 40) % 2 ? K : -K) : 0;   // 내리찍을 때 흔들림
-        const rc = stack.draw(g, `u${u.kind}`, u.own, L, x + shake, y, K, { frame, dir: dirOf(ang), torch: tl(lerp(u.px, u.x, a), lerp(u.py, u.y, a)), shadow: !fly });
+        const rc = stack.draw(g, `u${u.kind}`, u.own, L, x + shake, y, K, { frame, dir: dirOf(ang), torch: tl(lerp(u.px, u.x, a), lerp(u.py, u.y, a)), shadow: !fly, rim: visOn() && u.own < st.info.nations.length });
         if (dragon && DRAGON_MOUTH[frame]) {                            // 숨결이 나올 입 자리
           const [mx, my, mz] = DRAGON_MOUTH[frame], d = dirOf(ang);
           const [dx, dy] = modelPoint(DRAGON_SIZE[0], DRAGON_SIZE[1], mx, my, mz, d, 16, K);
@@ -546,7 +582,7 @@ export class Overlay {
       const ok = t.ok;
       const px = t.ok ? sx(t.x) : mouse[0], py = t.ok ? sy(t.y) : mouse[1];
       g.globalAlpha = 0.55;
-      const rc = stack.draw(g, `b${kind}`, me, L, px, py, K, { dirs: 4, shadow: false });
+      const rc = stack.draw(g, `b${kind}`, me, L, px, py, K, { dir: BTILT, dirs: BDIRS, shadow: false });
       g.globalAlpha = 1;
       g.strokeStyle = ok ? 'rgb(120,230,120)' : 'rgb(230,90,80)'; g.lineWidth = 1; g.strokeRect(rc.x - 2.5, rc.y - 2.5, rc.w + 4, rc.h + 4);
     }

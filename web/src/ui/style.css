@@ -304,6 +304,11 @@ body.touch .game-menu-btn { display: none; }
 .game-menu .t-menu-row { flex-direction: column; gap: 8px; margin-bottom: 0; }
 .game-menu .t-btn { width: 100%; }
 .t-menu.game-menu.confirm { width: 400px; }
+.t-check { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 14px; padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12); font-size: 15px; white-space: nowrap; color: rgb(232, 226, 210); cursor: pointer; user-select: none; }
+.t-check input { width: 18px; height: 18px; margin: 0; accent-color: rgb(240, 196, 96); cursor: pointer; }
+body.touch .t-check { font-size: 16px; }
+body.touch .t-check input { width: 22px; height: 22px; }
 .game-menu.confirm .t-menu-row { flex-direction: row; justify-content: center; }
 .game-menu.confirm .t-btn { flex: 1; width: auto; }
 

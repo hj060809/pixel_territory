@@ -22,12 +22,13 @@ import { TouchInput } from './touch.ts';
 import { TouchUi } from './touchUi.ts';
 import { DevConsole } from './devConsole.ts';
 import { DiploUi } from './diplomacy.ts';
-import { closeMenu, confirmBox, menuBox, menuOpen, type MenuItem } from './gameMenu.ts';
+import { closeMenu, confirmBox, menuBox, menuOpen, visRow, type MenuItem } from './gameMenu.ts';
 import { helpBox } from './help.ts';
 import { serverPlea } from '../ui/coffee.ts';
 import { Tutorial } from './tutorial.ts';
 import { Chat } from './chat.ts';
 import { setTouchMode, touchMode } from '../ui/device.ts';
+import { toggleVis, visOn } from './visibility.ts';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -319,7 +320,7 @@ export class GameView {
       if (fresh()) items.push({ label: '같은 지도로 새 판', fn: () => net.send({ t: 'restart' }) }, { label: '새 지도', fn: () => this.hooks.newMap(nextSeedKey(key)) });
       if (st?.ended && st.info.room) items.push({ label: '대기실로', fn: toRoom });
       items.push({ label: '로비로 나가기', fn: exit });
-      menuBox('메뉴', items);
+      menuBox('메뉴', items, '', false, (box) => visRow(box, visOn(), () => toggleVis(solo())));   // 버튼 아래: 시인성 강조 (사람마다 따로, 멀티도 각자)
     };
     const mb = (this.menuBtn = document.createElement('button'));
     mb.className = 'game-menu-btn';

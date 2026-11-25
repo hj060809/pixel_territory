@@ -13,6 +13,8 @@ import { unitCounts } from './hud.ts';
 import type { TouchInput } from './touch.ts';
 import { addToHomeHint, canFullscreen, enterFullscreen, isStandalone } from '../ui/device.ts';
 import { touchHelpBox } from './help.ts';
+import { toggleVis, visOn } from './visibility.ts';
+import { visRow } from './gameMenu.ts';
 
 export interface TouchUiHooks {
   st(): GameState | null;
@@ -141,6 +143,7 @@ export class TouchUi {
     item('로비로', () => this.h.lobby());
     if (canFullscreen() && !isStandalone() && !document.fullscreenElement) item('전체 화면', () => void enterFullscreen());
     item('닫기', () => {});
+    visRow(box, visOn(), () => toggleVis(solo));                 // 버튼 아래: 시인성 강조 (사람마다 따로)
     const hint = addToHomeHint();
     if (hint) el('div', 't-help', box, hint);
     back.addEventListener('click', (e) => { if (e.target === back) this.closeMenu(); });

@@ -13,6 +13,7 @@ import { RoomView } from '../menu/room.ts';
 import { applyUiScale, shadeLeft, uiScale } from '../menu/widgets.ts';
 import { enterFullscreen, isStandalone, isTouchDevice, setTouchMode, touchMode } from '../ui/device.ts';
 import { registerServiceWorker, showFullscreenNote } from '../ui/install.ts';
+import { startVis, visPref } from '../game/visibility.ts';
 
 type Screen = 'lobby' | 'setup' | 'multi' | 'roomsetup' | 'room' | 'game';
 
@@ -129,13 +130,14 @@ class App {
     const first = 'setup' in req ? { t: 'room_create', ...req } : { t: 'room_join', ...req };
     this.room = new RoomView(first, this.lobbyInfo, {
       leave: (msg, busy) => void this.show('multi', msg, busy),
-      start: (conn, key) => this.playRoom(conn, key),
+      start: (conn, key, vis) => this.playRoom(conn, key, vis),
     });
     this.room.attach();
   }
 
   /** 방장이 시작했다: 대기실의 연결을 그대로 게임 화면에. */
-  private playRoom(conn: Connection, key: string) {
+  private playRoom(conn: Connection, key: string, vis: boolean) {
+    startVis(vis);                                   // 방 기본값으로 시작 (게임 중 메뉴에서 각자 바꾼다)
     this.room?.dispose();                            // 연결은 넘겼으니 닫지 않는다
     this.room = null;
     void this.show('game');
@@ -157,7 +159,7 @@ class App {
     void this.show('room');                          // 게임 화면을 치운다 (연결은 넘겨받았으니 닫히지 않는다)
     this.room = new RoomView(conn, this.lobbyInfo, {
       leave: (msg, busy) => void this.show('multi', msg, busy),
-      start: (c, key) => this.playRoom(c, key),
+      start: (c, key, vis) => this.playRoom(c, key, vis),
     });
     this.room.attach();
   }
@@ -188,6 +190,7 @@ class App {
   }
 
   private play(req: PlayRequest) {
+    startVis(visPref());                             // 싱글: 설정 화면에서 고른 값
     void this.show('game');
     const start = (key: string, options: JoinOptions, overMenu: boolean) => {
       this.game?.dispose();

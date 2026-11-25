@@ -43,7 +43,7 @@ class Room:
         self.password = str(password or '')
         self.cap, self.bots = cap, bots
         self.start_mode = start_mode if start_mode in ('pick', 'random') else 'random'
-        self.setup = dict(setup)                 # map (지도 키), difficulty, season
+        self.setup = dict(setup)                 # map (지도 키), difficulty, season, vis (시인성 강조 기본값, 화면에만)
         self.members: list[Member] = []
         self.host = 0                            # 방장: members 번호
         self.state = 'wait'                      # wait | starting | play
@@ -184,7 +184,7 @@ class RoomManager:
         return None
 
     def set_setup(self, r: Room, changes: dict) -> str | None:
-        """방장이 설정을 바꾼다 (name, password, cap, bots, start_mode, map, difficulty, season)."""
+        """방장이 설정을 바꾼다 (name, password, cap, bots, start_mode, map, difficulty, season, vis)."""
         cap = int(changes.get('cap', r.cap))
         bots = int(changes.get('bots', r.bots))
         if not (2 <= cap <= MAX_NATIONS) or bots < 0 or cap + bots > MAX_NATIONS:
@@ -202,6 +202,10 @@ class RoomManager:
         for k in ('map', 'difficulty', 'season'):
             if k in changes:
                 r.setup[k] = changes[k]
+        if 'vis' in changes:                                 # 시인성 강조: 판을 시작할 때의 기본값 (게임 중엔 각자 바꾼다)
+            r.setup['vis'] = bool(changes['vis'])
+            if set(changes) == {'vis'}:                      # 화면에만 쓰는 값: 준비를 풀지 않는다
+                return None
         if map_changed or r.start_mode == 'random':          # 지도가 바뀌면 고른 자리는 무르고 다시
             for m in r.members:
                 m.spot = None

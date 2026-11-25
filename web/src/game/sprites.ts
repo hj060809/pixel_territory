@@ -61,7 +61,7 @@ export class SpriteBank {
   }
 
   building(kind: number, nid: number, k: number, ghost = false): Img {
-    const img = this.stack.icon(`b${kind}`, nid, k, { dirs: 4 });
+    const img = this.stack.icon(`b${kind}`, nid, k, { dir: 1, dirs: 16 });   // 지도 위 건물처럼 22.5° 비스듬히
     if (!ghost) return img;
     return this.get(`g${kind},${nid},${k}`, () => {
       const c = document.createElement('canvas');

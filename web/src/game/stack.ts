@@ -11,6 +11,7 @@ import { model } from './models.ts';
 import { Mat, RAMPS, Vol, nationRamp, roofRamp } from './voxel.ts';
 
 const OUTLINE = [22, 18, 26];
+const RIM = [238, 230, 206];          // 밝은 바깥 테두리 (유닛·배·건물만: 지형 위에서 형태가 살아나게)
 const WARM = [1.02, 0.78, 0.48];             // 횃불 빛 (낮 그림 × 이것, 너무 밝지 않게)
 const SHADOW_MAX = 1.5;                     // 그림자 길이 한도 (높이 × 이것)
 export const SQUASH = 0.7;                  // 바닥 깊이(화면 위아래)를 이만큼 눌러 비스듬히 내려다보는 느낌으로
@@ -119,7 +120,9 @@ function project(v: Vol, angle: number, cut: number): Proj {
     if (!at(u + 1, w, z)) nx += 0.6;
     if (!nx && !ny && !nz) { ny = 0.7; nz = 0.7; }
     const L = Math.hypot(nx, ny, nz);
-    p.mat[i] = m; p.bias[i] = rb[ri(u, w, z)];
+    // 처마 그늘: 앞을 보는 면 바로 앞 위에 무언가 덮여 있으면 (지붕 처마, 차양) 한 단계 어둡게
+    const eave = ny > 0 && !nz && (at(u, w + 1, z + 1) || at(u, w + 1, z + 2) || at(u, w + 2, z + 2));
+    p.mat[i] = m; p.bias[i] = rb[ri(u, w, z)] - (eave ? 2 : 0);
     p.nx[i] = nx / L; p.ny[i] = ny / L; p.nz[i] = nz / L;
     p.seed[i] = hash(u, w, z) - 0.5;
     const yy = w - z + oy, xx = u + ox;
@@ -155,7 +158,7 @@ export function modelPoint(W: number, D: number, mx: number, my: number, mz: num
 }
 
 // ------------------------------------------------------------- 칠하기
-function shade(p: Proj, ramps: Record<number, number[][]>, L: Light, torch: number, shadowOn: boolean): ImageData {
+function shade(p: Proj, ramps: Record<number, number[][]>, L: Light, torch: number, shadowOn: boolean, rim = false): ImageData {
   const img = new ImageData(p.w, p.h), d = img.data, T = L.table;
   // 그림자: 기둥마다 꼭대기까지의 점을 해 반대쪽 바닥에 (물체가 없는 곳에만)
   if (shadowOn && L.shadow) {
@@ -198,10 +201,20 @@ function shade(p: Proj, ramps: Record<number, number[][]>, L: Light, torch: numb
   }
   // 테두리: 물체 바로 바깥 한 점 (그림자 위에도)
   const solid = (x: number, y: number) => x >= 0 && y >= 0 && x < p.w && y < p.h && p.mat[y * p.w + x] !== 0;
+  const edge = rim ? new Uint8Array(p.w * p.h) : null;
   for (let y = 0; y < p.h; y++) for (let x = 0; x < p.w; x++) {
     const i = y * p.w + x;
     if (p.mat[i] || !(solid(x - 1, y) || solid(x + 1, y) || solid(x, y - 1) || solid(x, y + 1))) continue;
     d[i * 4] = OUTLINE[0]; d[i * 4 + 1] = OUTLINE[1]; d[i * 4 + 2] = OUTLINE[2]; d[i * 4 + 3] = 235;
+    if (edge) edge[i] = 1;
+  }
+  if (edge) {                                       // 밝은 테두리: 어두운 테두리 바로 바깥 한 점 (반투명)
+    const on = (x: number, y: number) => x >= 0 && y >= 0 && x < p.w && y < p.h && edge[y * p.w + x] === 1;
+    for (let y = 0; y < p.h; y++) for (let x = 0; x < p.w; x++) {
+      const i = y * p.w + x;
+      if (p.mat[i] || edge[i] || !(on(x - 1, y) || on(x + 1, y) || on(x, y - 1) || on(x, y + 1))) continue;
+      d[i * 4] = RIM[0]; d[i * 4 + 1] = RIM[1]; d[i * 4 + 2] = RIM[2]; d[i * 4 + 3] = 150;
+    }
   }
   return img;
 }
@@ -214,6 +227,7 @@ export interface StackOpts {
   cut?: number;              // 0~1: 이 높이까지만 (짓는 중)
   torch?: number;            // 0~1 횃불 빛
   shadow?: boolean;
+  rim?: boolean;             // 밝은 바깥 테두리 (유닛·배·건물)
 }
 
 export class StackRenderer {
@@ -237,14 +251,15 @@ export class StackRenderer {
   sprite(name: string, nid: number, L: Light, o: StackOpts = {}): { cv: HTMLCanvasElement; ax: number; ay: number; p: Proj } {
     const frame = o.frame ?? 0, dirs = o.dirs ?? 16, dir = (((o.dir ?? 0) % dirs) + dirs) % dirs;
     const cut = o.cut === undefined || o.cut >= 1 ? 1 : Math.round(o.cut * 8) / 8;
-    const torch = Math.round((o.torch ?? 0) * 4) / 4, sh = o.shadow ?? true;
-    const key = `${name}:${frame}:${dir}/${dirs}:${cut}|${nid}|${torch}|${sh ? 1 : 0}`;
+    const torch = Math.round((o.torch ?? 0) * 4) / 4, sh = o.shadow ?? true, rim = !!o.rim;
+    const key = `${name}:${frame}:${dir}/${dirs}:${cut}|${nid}|${torch}|${sh ? 1 : 0}|${rim ? 1 : 0}`;
     let e = this.shaded.get(key);
     if (!e || e.key !== L.key) {
       const p = e?.p ?? getProj(name, frame, dir, dirs, cut);
       const cv = e?.cv ?? document.createElement('canvas');
       cv.width = p.w; cv.height = p.h;
-      cv.getContext('2d')!.putImageData(shade(p, this.rampsFor(nid), L, torch, sh), 0, 0);
+      cv.getContext('2d')!.putImageData(shade(p, this.rampsFor(nid), L, torch, sh, rim), 0, 0);
+      this.ver.set(cv, (this.ver.get(cv) ?? 0) + 1);
       if (this.shaded.size > 4000) this.shaded.clear();
       e = { key: L.key, cv, p };
       this.shaded.set(key, e);
@@ -257,9 +272,37 @@ export class StackRenderer {
        o: StackOpts = {}): { x: number; y: number; w: number; h: number } {
     const { cv, ax, ay, p } = this.sprite(name, nid, L, o);
     const x = Math.round(sx - ax * k), y = Math.round(sy - ay * k);
-    g.drawImage(cv, x, y, cv.width * k, cv.height * k);
+    if (k < 1 || Number.isInteger(k)) g.drawImage(cv, x, y, cv.width * k, cv.height * k);
+    else {
+      // 정수 아닌 배율: 한 단계 위 정수배로 (점 그대로) 키운 그림을 부드럽게 줄여 그린다 (sharp bilinear).
+      // 점마다 굵기가 같고 점 사이 경계만 1픽셀 섞여, 확대·이동 때 점이 2칸·3칸으로 바뀌며 자글거리지 않는다.
+      const up = this.upscaled(cv, Math.ceil(k));
+      const sm = g.imageSmoothingEnabled, q = g.imageSmoothingQuality;
+      g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'medium';
+      g.drawImage(up, x, y, Math.round(cv.width * k), Math.round(cv.height * k));
+      g.imageSmoothingEnabled = sm; g.imageSmoothingQuality = q;
+    }
     return { x: x + p.bx * k, y: y + p.by * k, w: p.bw * k, h: p.bh * k };
   }
+
+  /** 칠한 그림을 n배로 (점 그대로) 키운 것. 칠한 그림이 다시 칠해지면 (낮밤 등) 새로 만든다. */
+  private upscaled(cv: HTMLCanvasElement, n: number): HTMLCanvasElement {
+    const ver = this.ver.get(cv) ?? 0;
+    let e = this.ups.get(cv);
+    if (!e || e.n !== n || e.ver !== ver) {
+      const c = e?.cv ?? document.createElement('canvas');
+      c.width = cv.width * n; c.height = cv.height * n;
+      const g = c.getContext('2d')!;
+      g.imageSmoothingEnabled = false;
+      g.clearRect(0, 0, c.width, c.height);
+      g.drawImage(cv, 0, 0, c.width, c.height);
+      e = { n, ver, cv: c };
+      this.ups.set(cv, e);
+    }
+    return e.cv;
+  }
+  private ups = new WeakMap<HTMLCanvasElement, { n: number; ver: number; cv: HTMLCanvasElement }>();
+  private ver = new WeakMap<HTMLCanvasElement, number>();
 
   /** 날고 있는 물체의 땅 그림자: 모양만 어둡게 (1배). 그릴 때 위아래로 눌러 쓴다. */
   silhouette(name: string, o: StackOpts = {}): { cv: HTMLCanvasElement; ax: number; ay: number } {

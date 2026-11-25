@@ -95,9 +95,8 @@ export class Vol {
       for (let dz = 0; dz <= up; dz++) {
         for (let t = alongX ? x0 : y0; t <= (alongX ? x1 : y1); t++) {
           const x = alongX ? t : x0 + s, y = alongX ? y0 + s : t;
-          const top = dz === up;
-          const end = t === (alongX ? x0 : y0) || t === (alongX ? x1 : y1);
-          if (top || end) this.set(x, y, z0 + dz, m, (edge ? -1 : 0) + (Math.abs(s - half) < 0.6 ? 1 : 0) + b);
+          // 속까지 채운다 (껍데기만이면 비스듬히 볼 때 계단 사이로 비쳐 검은 줄이 생긴다)
+          this.set(x, y, z0 + dz, m, (edge ? -1 : 0) + (Math.abs(s - half) < 0.6 ? 1 : 0) + b);
         }
       }
     }
