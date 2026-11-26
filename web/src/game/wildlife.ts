@@ -1,5 +1,5 @@
 // 야생 동물 그리기 (규칙과 움직임은 서버 sim/wildlife.py, 위치는 상태 사이를 보간).
-// 말: 풀 뜯기·거닐기·달아나기 그림, 길들이는 중에는 앞발을 들었다 놓으며 흙먼지가 일고, 머리 위에 진행 막대.
+// 말·순록: 풀 뜯기·거닐기·달아나기 그림 (순록은 길들이지 않는다: 목장에 들인다), 길들이는 중에는 앞발을 들었다 놓으며 흙먼지가 일고, 머리 위에 진행 막대.
 // 드래곤 (사나운 동물): 둥지에서 잠 → 깨어 싸움 (숨결을 뿜을 때 입을 벌린다, 체력 막대) → 쓰러짐 (남은 시간 막대,
 // 길들이는 중이면 진행 막대). 길들이러 오는 병사를 기다리는 동물은 발밑에 작은 표시.
 
@@ -9,7 +9,7 @@ import { type Animal, type GameState, lerp } from './state.ts';
 
 export const A_GRAZE = 0, A_WALK = 1, A_FLEE = 2, A_HELD = 3, A_TAMING = 4;     // 동물 상태 (서버와 같은 번호)
 export const A_SLEEP = 5, A_FIGHT = 6, A_SUBDUED = 7;                           // 사나운 동물
-const NAMES = ['horse', 'dragon', 'tortoise'] as const;                                      // 동물 종류 → 모델 (rules.WILDLIFE 순서)
+const NAMES = ['horse', 'dragon', 'tortoise', 'reindeer'] as const;                                      // 동물 종류 → 모델 (rules.WILDLIFE 순서)
 const ang = new Map<number, number>();                                           // 동물이 보는 방향 (라디안)
 const DIRS = 16, TAU = Math.PI * 2;
 

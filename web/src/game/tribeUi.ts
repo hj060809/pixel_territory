@@ -9,15 +9,15 @@ interface TribeText { title: string; role: string; good: string[]; bad: string[]
 
 /** 부족마다 설명 (sim/tribes.py 번호 순서: 온대, 설원, 사막). */
 const TEXT: TribeText[] = [
-  { title: '온대 부족', role: '무역에 강하다',
-    good: ['무역 행렬이 1.2배 더 자주 떠난다'],
-    bad: ['설원에서: 이동 ×0.85, 추위에 체력이 조금씩 깎인다', '사막에서: 이동 ×0.85, 더위에 체력이 조금씩 깎인다'] },
+  { title: '온대 부족', role: '병력을 빨리 모은다',
+    good: ['병사 훈련 시간 ×0.85 (15% 빠르게)'],
+    bad: ['설원에서: 이동 ×0.85, 추위에 체력이 조금씩 깎인다', '사막에서: 이동 ×0.85, 더위에 체력이 조금씩 깎이고, 갈증으로 먹는 식량 ×1.2'] },
   { title: '설원 부족', role: '지키기에 강하다',
-    good: ['사막이 아닌 곳에서 받는 피해 ×0.7', '설원에서 눈 때문에 느려지지 않는다'],
-    bad: ['사막에서: 이동 ×0.85, 더위에 체력이 조금씩 깎인다', '바위거북 길들이는 시간 ×1.5'] },
+    good: ['설원에서 받는 피해 ×0.85', '설원에서 눈 때문에 느려지지 않는다'],
+    bad: ['사막에서: 이동 ×0.85, 더위에 체력이 조금씩 깎이고, 갈증으로 먹는 식량 ×1.2', '바위거북 길들이는 시간 ×1.5'] },
   { title: '사막 부족', role: '빠른 공격에 강하다',
     good: ['설원이 아닌 곳에서 공격력 ×1.2', '사막의 더위를 받지 않는다'],
-    bad: ['설원에서: 이동 ×0.85, 추위에 체력이 조금씩 깎인다', '드래곤 길들이는 시간 ×1.25'] },
+    bad: ['설원에서: 이동 ×0.85, 추위에 체력이 조금씩 깎인다', '사막에서도 갈증으로 먹는 식량 ×1.2 (모든 부족 같다)', '드래곤 길들이는 시간 ×1.25'] },
 ];
 
 const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!));
@@ -77,7 +77,7 @@ export class TribeButton {
       `<div class="tribe-list ${cls}">${items.map((s) => `<div class="tribe-row"><span class="tribe-mark">${mark}</span><span>${esc(s)}</span></div>`).join('')}</div>`;
     this.bubble.innerHTML = `<div class="dhead tribe-title">${icon(TRIBE_ICONS[t] ?? 'leaf', 20)}<span>${x.title}</span>`
       + `<span class="tribe-role">${x.role}</span></div>`
-      + rows('good', '▲', x.good) + rows('bad', '▼', x.bad)
+      + (x.good.length ? rows('good', '▲', x.good) : '') + rows('bad', '▼', x.bad)
       + `<div class="tribe-note">시작 거점 둘레의 지형으로 정해진다. 병사(보병·궁수·창기병·기마궁수)만 받는다 (용기사·바위거북·배는 아니다). `
       + `추위·더위로는 체력이 30% 아래로 깎이지 않는다.</div>`;
     this.bubble.style.display = '';

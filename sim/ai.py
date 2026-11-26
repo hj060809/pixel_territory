@@ -136,16 +136,14 @@ LEAN_MIN = 0.6         # 가장 좋아하는 동물의 성향은 적어도 이�
 LEAN_KINDS = (R.DRAGON, R.TORTOISE_W, R.HORSE)
 DRIVE_TIME = 300.0     # 이만큼 지나고
 DRIVE_BUILDS = 6       # 건물(거점 포함)이 이만큼 있으면 '자랐다'
-RAID_CHANCE = 0.025     # 호위 없는 적대국 행렬을 약탈하러 가는 확률 (생각할 때마다, × 공격성). 약탈국이 아닐 때만
-TRADE_PEACE = 1.8      # 무역하는 나라의 건물은 이만큼 멀리 있는 것처럼 친다 (덜 고른다)
 # 부족 (sim/climate.py): 불리한 기후 지역에 있는 표적은 이만큼 멀리 있는 것처럼 친다 (설원은 사막을, 사막은 설원을, 온대는 둘 다 조금)
 CLIMATE_AVOID = {'snow': (1.0, 1.5), 'desert': (1.6, 1.0), 'temperate': (1.25, 1.25)}   # (설원 지역 표적, 사막 지역 표적)
 DESERT_RUSH = 0.8      # 사막 부족은 병력이 이만큼만 모여도 쳐들어간다 (빠른 공격)
-ESCORT_WANT = 2        # 무역소마다 호위병 (병력이 넉넉할 때)
-TRADE_TIME = 120.0     # 무역소: 이만큼 지난 뒤부터
-TRADE_TIME2 = 600.0    # 이 뒤로는 TRADE_MAX개까지
-TRADE_MAX = 2
-TRADE_GAP = 0.45       # 자원의 채움 비율이 이만큼 벌어지면
+# 목장 (sim/pasture.py): 식량 수입이 PEN_FOOD보다 적으면 (설원 부족은 늘) 같은 땅 PEN_DIST칸 안의 말·순록 떼에 목장을 짓는다
+PEN_TIME = 90.0        # 이만큼 지난 뒤부터
+PEN_FOOD = 2.5         # 식량 수입(1초)이 이보다 적으면
+PEN_DIST = 75.0        # 거점에서 이만큼 안의 떼
+PEN_MAX = (1, 2)       # 목장 수 한도 (처음 / 600초 뒤, 설원 부족은 +1)
 TORT_TIME = 240.0      # 거북 의지: 이만큼 지나고
 TORT_BUILDS = 5        # 건물이 이만큼 있으면
 TORT_MAX = 3           # 거북을 이만큼까지
@@ -208,9 +206,6 @@ class Bot:
     def think(self, w, nat) -> None:
         u, b = w.units, w.builds
         mine = w.unit_ids(self.id)
-        esc = w.trade.escort_ids(self.id)
-        if esc:
-            mine = np.setdiff1d(mine, esc)                           # 호위병은 무역소가 쓴다 (sim/trade.py)
         idle = mine[u.state[mine] == IDLE]
         halls = w.building_ids(self.id, R.HALL, done=True)
         intel = self.intel = self._intel(w)
@@ -329,7 +324,11 @@ class Bot:
         if (len(idle) >= 2 and threat is None and len(mine) >= 5
                 and beasts < 0.25 + 0.2 * self.beast + 0.1 * lean[R.HORSE]      # 초원 부족은 기병을 조금 더 둔다
                 and self.rng.random() < 0.35 + 0.35 * self.beast + 0.2 * top):
+            idle = self._ride_pen(w, idle)                   # 내 말 목장에 남는 말이 있으면 먼저 꺼내 탄다
             idle = self._tame(w, idle, home, nat)
+        # 7-2. 목장: 식량이 모자라면 가까운 말·순록 떼에 (설원 부족은 순록 먼저, 짓는 중인 목장이 없을 때 하나씩)
+        if threat is None and len(idle) >= 2 and w.time > PEN_TIME and self.rng.random() < 0.3:
+            idle = self._pasture(w, idle, home, nat)
         # 2. 확장
         if len(builders) < 4 and len(idle) >= (1 if len(mine) < 6 else 3) and self.rng.random() < max(self.greed, 0.8 if len(mine) < 6 else 0):
             site = self._pick_site(w, nat, home)
@@ -397,39 +396,7 @@ class Bot:
                 pick = self._nearest(w, idle, spot[0], spot[1], 2)
                 if w.place_building(self.id, R.TOWER, spot[0], spot[1], pick, quiet=True) >= 0:
                     idle = np.setdiff1d(idle, pick)
-        # 무역소: 자원이 한쪽으로 쏠렸고 (채움 비율 차이 TRADE_GAP 이상), 무역할 만한 나라가 있으면 (TRADE_MAX개까지, sim/trade.py)
-        posts = w.building_ids(self.id, R.TRADE_POST)
-        tcost = R.BUILD_STATS[R.TRADE_POST]['cost']
         nat = w.nations[self.id]
-        f = [v / max(nat.caps[k], 1.0) for k, v in enumerate(nat.res)]
-        first = len(posts) == 0                                     # 첫 무역소는 무역할 나라만 있으면 (상대도 지어야 오가니 일찍)
-        if (w.time > TRADE_TIME and len(posts) < (1 if w.time < TRADE_TIME2 else TRADE_MAX) and (first or max(f) - min(f) >= TRADE_GAP)
-                and len(idle) >= 2 and w.can_afford(self.id, tcost) and self.rng.random() < (0.6 if first else 0.3)
-                and any(w.trade.wants(self.id, o.id) for o in w.nations if o.id != self.id and o.alive)):
-            c = self._guard_site(w, front=False)
-            spot = w._open_spot(b.y[c], b.x[c], self.rng.uniform(9, 13), R.BUILD_STATS[R.TRADE_POST]['r']) if c >= 0 else None
-            if spot is not None:
-                pick = self._nearest(w, idle, spot[0], spot[1], 2)
-                if w.place_building(self.id, R.TRADE_POST, spot[0], spot[1], pick, quiet=True) >= 0:
-                    idle = np.setdiff1d(idle, pick)
-        # 호위: 무역소마다 ESCORT_WANT명 (쉬는 병사가 넉넉할 때). 약탈: 적대국 행렬이 가깝고 호위가 없으면 (약탈 단계 2 아래일 때)
-        if len(posts) and len(idle) >= 8 and self.rng.random() < 0.2:
-            for p in w.trade.posts(self.id):
-                have = len(w.trade.escorts.get(int(p), [])) + sum(len(c.escort) for c in w.trade.caravans if c.home == int(p))
-                if have < ESCORT_WANT:
-                    pick = self._nearest(w, idle, b.y[p], b.x[p], ESCORT_WANT - have)
-                    if w.trade.assign(pick, int(p)):
-                        idle = np.setdiff1d(idle, pick)
-        if len(idle) >= 3 and w.trade.raid_lv[self.id] < 1 and self.rng.random() < RAID_CHANCE * self.aggression:
-            for c in w.trade.caravans:
-                if c.at_sea or c.escort or not w.trade.hostile(self.id, c.own):
-                    continue
-                x, y, _ = c.at()
-                near = idle[np.hypot(u.x[idle] - x, u.y[idle] - y) < 30]
-                if len(near) >= 2:
-                    w.trade.raid(near[:4], c)
-                    idle = np.setdiff1d(idle, near[:4])
-                    break
         # 유황 채취장 (4-1-2): 유황 채취장: 아직 없으면 같은 땅(또는 항구로 갈 수 있는)의 가장 가까운 빈 유황 웅덩이에 곧장 일꾼을 보낸다
         if (len(idle) >= 2 and not len(w.building_ids(self.id, R.SULFUR_PIT)) and w.time > 60
                 and w.can_afford(self.id, R.BUILD_STATS[R.SULFUR_PIT]['cost']) and self.rng.random() < 0.5):
@@ -753,6 +720,52 @@ class Bot:
         self.trip = (aid, ids, until)
         return np.setdiff1d(idle, ids)
 
+    def _pasture(self, w, idle, home, nat):
+        """식량이 모자라면 같은 땅의 가까운 말·순록 떼에 목장을 짓는다 (sim/pasture.py)."""
+        pens = [p for p in w.pastures.pens.values() if p.own == self.id]
+        snowy = nat.tribe == tribes.SNOW
+        limit = PEN_MAX[0 if w.time < 600 else 1] + (1 if snowy else 0)
+        if (len(pens) >= limit or any(not p.done for p in pens) or (nat.rate[R.FOOD] >= PEN_FOOD and not snowy)
+                or not w.can_afford(self.id, R.BUILD_STATS[R.PASTURE]['cost'])):
+            return idle
+        comp = w.map.comp
+        hc = comp[int(home[0]), int(home[1])]
+        P = R.PASTURE_RULES
+        best, bs = None, 1e9
+        for a in w.wild.animals.values():
+            if a.kind not in P['food'] or a.pen >= 0 or a.unit >= 0 or comp[int(a.y), int(a.x)] != hc:
+                continue
+            d = float(np.hypot(a.x - home[1], a.y - home[0]))
+            if d > PEN_DIST:
+                continue
+            s = d * (0.6 if a.kind == R.REINDEER else 1.0)            # 순록이 식량을 더 낸다
+            if s < bs:
+                best, bs = a, s
+        if best is None or len(w.pastures.herd_at(best.y, best.x)) < P['min_herd']:
+            return idle
+        pick = self._nearest(w, idle, best.y, best.x, 3)
+        if w.pastures.place(self.id, pick, best.y, best.x, quiet=True) >= 0:
+            idle = np.setdiff1d(idle, pick)
+        return idle
+
+    def _ride_pen(self, w, idle):
+        """내 말 목장의 남는 말(번식용 둘은 남기고)을 쉬는 보병·궁수가 꺼내 탄다 (한 번에 셋까지)."""
+        u = w.units
+        for p in w.pastures.pens.values():
+            if p.own != self.id or not p.done or not R.WILDLIFE[p.kind].get('mounts'):
+                continue
+            n = min(w.pastures.spare(p), 3)
+            if n <= 0:
+                continue
+            ok = idle[np.isin(u.kind[idle], list(R.WILDLIFE[p.kind]['mounts']))]
+            if not len(ok):
+                break
+            gy, gx = w.pastures.gate(p)
+            pick = self._nearest(w, ok, gy, gx, n)
+            if w.pastures.order_ride(self.id, pick, p.b, quiet=True):
+                idle = np.setdiff1d(idle, pick)
+        return idle
+
     def _tame(self, w, idle, home, nat):
         """말·바위거북 중 거점이나 내 병사에서 가장 가까운 것을 길들인다 (바다 건너는 항구가 있을 때, 조금 멀게 친다).
         먹이가 드는 동물(바위거북)이 가장 가까운데 식량이 모자라면 훈련을 줄여 모으면서, 그동안은 그다음 것을."""
@@ -763,7 +776,7 @@ class Bot:
         harbor = bool(w.fleet.harbors_on(self.id, hc))
         cands = []
         for a in wild.animals.values():
-            if a.unit >= 0 or wild.taming(a.id, self.id):
+            if a.unit >= 0 or a.pen >= 0 or wild.taming(a.id, self.id) or not R.tamers_of(R.WILDLIFE[a.kind]):   # 순록, 목장 몫은 빼고
                 continue
             far = comp[int(a.y), int(a.x)] != hc
             if far and (not harbor or w.time < self.trip_at):
@@ -1014,8 +1027,6 @@ class Bot:
         real = own < dp.n
         rel = np.where(real, dp.rel[self.id, np.minimum(own, dp.n - 1)], 0.0)
         d = d * np.where(rel < -50, 0.6, np.where(rel < 0, 0.85, 1.0))                  # 적대하는 나라를 먼저
-        trading = np.array([w.trade.status(self.id, int(o)) == 'on' if o < dp.n else False for o in own])
-        d = d * np.where(trading, TRADE_PEACE, 1.0)                                     # 무역하는 나라는 덜 친다
         snow, sand = tribes.zones(w.map)                                                # 불리한 기후 지역의 표적은 덜 고른다
         tname = ('temperate', 'snow', 'desert')[w.nations[self.id].tribe]
         fy, fx = b.y[foes].astype(int), b.x[foes].astype(int)

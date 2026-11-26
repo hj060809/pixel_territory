@@ -16,8 +16,7 @@ from sim import rules as R
 
 PLACE_KINDS = {'tower': R.TOWER, 'hall': R.HALL, 'harbor': R.HARBOR,
                'farm': R.FARM, 'lumber': R.LUMBER, 'quarry': R.QUARRY, 'sulfur': R.SULFUR_PIT,   # 농장~유황은 빈 자원지에
-               'fire': R.FIRE_TOWER,
-               'trade': R.TRADE_POST}
+               'fire': R.FIRE_TOWER, 'pasture': R.PASTURE}   # 목장은 말·순록 떼를 눌러 (sim/pasture.py)
 SITE_OF = {v: k for k, v in R.SITE_BUILDING.items()}                       # 건물 → 자원지 종류
 TRAIN_KINDS = {'infantry': R.INFANTRY, 'archer': R.ARCHER, 'warship': R.WARSHIP}     # 기병은 훈련하지 않는다 (길들인다)
 
@@ -31,10 +30,8 @@ class PlayerCommands:
     def units(self, refs) -> np.ndarray:
         """[(칸, 세대)] → 지금도 살아 있고 내 것이며 배에 타지 않은 병사 칸들."""
         u = self.w.units
-        busy = set(self.w.trade.escorting())                    # 행렬을 따라가는 호위병: 무역소에 돌아올 때까지 명령을 받지 않는다
         out = [int(i) for i, g in refs
-               if 0 <= int(i) < u.n and u.alive[i] and u.own[i] == self.nid and not u.aboard[i] and int(u.gen[i]) == int(g)
-               and int(i) not in busy]
+               if 0 <= int(i) < u.n and u.alive[i] and u.own[i] == self.nid and not u.aboard[i] and int(u.gen[i]) == int(g)]
         return np.array(out, np.int64)
 
     def building(self, ref, mine=True):
@@ -71,11 +68,6 @@ class PlayerCommands:
                 w.say('전함은 물 위로만 갈 수 있습니다', to=self.nid)
         if len(sel) == 0:
             return shown
-        w.trade.release(sel)                                      # 새 명령: 호위·약탈에서 뺀다
-        car = w.trade.caravan_at(y, x, max(2.5, r))
-        if car is not None and car.own != self.nid and not w.diplo.allied(self.nid, car.own):
-            if w.trade.raid(sel, car):                            # 다른 나라의 무역 행렬: 약탈하러 간다
-                return 'attack'
         foe = w.unit_at(y, x, max(2.0, r))
         if foe >= 0 and w.diplo.foe(self.nid, int(w.units.own[foe])):
             w.order_attack(sel, unit=foe)
@@ -85,7 +77,7 @@ class PlayerCommands:
         if an is not None and an.unit >= 0 and an.mode in (5, 6):     # 잠들었거나 싸우는 사나운 동물: 친다
             w.order_attack(sel, unit=an.unit)
             return 'attack'
-        if an is not None and not attack:
+        if an is not None and not attack and R.tamers_of(R.WILDLIFE[an.kind]):   # 길들이지 않는 동물(순록)이면 그냥 그 자리로 간다
             return 'tame' if w.wild.order_tame(self.nid, sel, a) else None
         b = w.building_at(y, x)
         if b >= 0 and w.diplo.foe(self.nid, int(w.builds.own[b])):
@@ -94,9 +86,9 @@ class PlayerCommands:
         if b >= 0 and w.builds.prog[b] < 1:
             w.order_build(sel, b)
             return 'build'
-        if b >= 0 and int(w.builds.own[b]) == self.nid and w.builds.kind[b] == R.TRADE_POST:
-            if w.trade.assign(sel, b):                            # 내 무역소: 호위병으로 배치
-                return 'move'
+        pen = w.pastures.pen_at(y, x)                             # 내 말 목장 (헛간이나 울타리 안): 말을 꺼내 탄다
+        if pen is not None and pen.own == self.nid and pen.done and not attack and R.WILDLIFE[pen.kind].get('mounts'):
+            return 'tame' if w.pastures.order_ride(self.nid, sel, pen.b) else None
         s = w.site_at(y, x, max(4.0, r * 1.25))
         if s >= 0 and w.sites[s].building < 0 and not attack:
             site = w.sites[s]
@@ -146,6 +138,8 @@ class PlayerCommands:
             w.say('지을 병사가 없습니다', to=self.nid)
             return False
         builders = self._builders(sel, y, x, 3)
+        if kind == R.PASTURE:                                     # 목장: 누른 자리의 말·순록 떼에 (자리와 울타리는 sim/pasture.py가 고른다)
+            return w.pastures.place(self.nid, builders, y, x) >= 0
         if site >= 0:
             return w.place_building(self.nid, kind, 0, 0, builders, site=site) >= 0
         return w.place_building(self.nid, kind, int(y), int(x), builders) >= 0
@@ -187,5 +181,4 @@ class PlayerCommands:
 
     def stop(self, unit_refs) -> None:
         sel = self.units(unit_refs)
-        self.w.trade.release(sel)
         self.w.order_stop(sel)

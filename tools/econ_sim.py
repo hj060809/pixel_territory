@@ -71,10 +71,6 @@ def play(seed: int, nations: int, at: list[int], size: int, cache_dir: str):
         m.update(1.0, cyc.weights())
         if t in at:
             shots[t] = snapshot(w)
-    trade = getattr(w, 'trade', None)
-    if trade is not None:
-        posts = sum(len(w.building_ids(n.id, R.TRADE_POST)) for n in w.nations)
-        print(f'  무역: 무역소 {posts}, 다녀온 행렬 {trade.log["trips"]}, 바꾼 양 {trade.log["moved"]:.0f}', flush=True)
     return kinds, shots, len(w.sites), {k: sum(1 for s in w.sites if s.kind == k) for k in range(5)}
 
 

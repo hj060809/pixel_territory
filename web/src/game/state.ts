@@ -3,12 +3,12 @@
 // 도착 시각은 걸음 간격에 맞춰 부드럽게 따라가므로 (sched), 상태가 들쭉날쭉 와도 끊기거나 튀지 않는다.
 // 순간 이동(배에서 내림, 새로 생김)은 섞지 않는다.
 
-import type { AnimalRec, BoatRec, BuildRec, CaravanRec, NationRec, ShotRec, StateMsg, UnitRec } from './protocol.ts';
+import type { FenceShape } from './fence.ts';
+import type { AnimalRec, BoatRec, BuildRec, NationRec, PenRec, ShotRec, StateMsg, UnitRec } from './protocol.ts';
 import type { DiploState } from './diplomacy.ts';
 
 export interface Unit extends UnitRec { px: number; py: number }
 export interface Boat extends BoatRec { px: number; py: number }
-export interface Caravan extends CaravanRec { px: number; py: number }
 export interface Animal extends AnimalRec { px: number; py: number }
 export interface Shot extends ShotRec { t0: number }
 
@@ -33,7 +33,8 @@ export class GameState {
   units = new Map<number, Unit>();
   builds = new Map<number, BuildRec>();
   boats = new Map<number, Boat>();
-  caravans = new Map<number, Caravan>();   // 무역 행렬의 구성원 (행렬 번호 × 8 + 구성원 번호 → 구성원, 걸음마다 모두 온다)
+  pens = new Map<number, PenRec>();       // 목장 (헛간 건물 번호 → 목장, sim/pasture.py)
+  fences: (FenceShape & { b: number })[] = [];   // 목장 울타리 모양 (pens에서)
   animals = new Map<number, Animal>();     // 야생 동물 (번호 → 동물)
   shots: Shot[] = [];
   nations: NationRec[] = [];
@@ -67,7 +68,6 @@ export class GameState {
     const a = this.alpha(now);                          // 지금 그리고 있는 위치에서 이어서
     for (const u of this.units.values()) { u.px += (u.x - u.px) * a; u.py += (u.y - u.py) * a; }
     for (const b of this.boats.values()) { b.px += (b.x - b.px) * a; b.py += (b.y - b.py) * a; }
-    for (const b of this.caravans.values()) { b.px += (b.x - b.px) * a; b.py += (b.y - b.py) * a; }
     for (const b of this.animals.values()) { b.px += (b.x - b.px) * a; b.py += (b.y - b.py) * a; }
     for (const r of m.units) {
       const old = this.units.get(r.slot);
@@ -85,15 +85,6 @@ export class GameState {
       this.boats.set(r.id, { ...r, px: keep ? old!.px : r.x, py: keep ? old!.py : r.y });
     }
     for (const id of [...this.boats.keys()]) if (!seen.has(id)) this.boats.delete(id);
-    const cseen = new Set<number>();
-    for (const r of m.caravans) {
-      const key = r.id * 8 + r.idx;
-      cseen.add(key);
-      const old = this.caravans.get(key);
-      const keep = old && old.sea === r.sea && Math.hypot(old.px - r.x, old.py - r.y) < SNAP;
-      this.caravans.set(key, { ...r, px: keep ? old!.px : r.x, py: keep ? old!.py : r.y });
-    }
-    for (const id of [...this.caravans.keys()]) if (!cseen.has(id)) this.caravans.delete(id);
     for (const r of m.animals) {
       const old = this.animals.get(r.id);
       const keep = old && Math.hypot(old.px - r.x, old.py - r.y) < SNAP;
@@ -103,6 +94,13 @@ export class GameState {
     for (const s of m.shots) this.shots.push({ ...s, t0: m.time });
     this.shots = this.shots.filter((s) => m.time - s.t0 <= 0.3);
     if (m.nations) this.nations = m.nations;
+    if (m.pens) {
+      this.pens = new Map(m.pens.map((p) => [p.b, p]));
+      this.fences = m.pens.map((p) => {                 // 문은 헛간 쪽
+        const s = this.builds.get(p.b);
+        return { b: p.b, x: p.cx, y: p.cy, radii: p.radii, gate: s ? Math.atan2(s.y - p.cy, s.x - p.cx) : undefined };
+      });
+    }
     this.time = m.time; this.hour = m.hour; this.year = m.year; this.flags = m.flags; this.speed = m.speed;
     this.simMs = m.simMs; this.tick = m.tick;
     this.lastAt = now;

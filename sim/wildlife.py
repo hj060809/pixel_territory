@@ -43,6 +43,7 @@ FEAR = 4.5            # 길들이러 오지 않는 병사가 이만큼 가까이
 SHOT_FEAR = 9.0       # 싸움(칼부림, 화살)이 이만큼 가까이서 나면 달아난다
 ROAM = 9.0            # 무리 자리에서 이만큼 안을 거닌다
 WALK_SPEED, RUN_SPEED = 0.9, 5.5
+PEN_WALK = 1.6       # 목장 몫인 동물이 울타리 안으로 걸어 들어가는 빠르기
 REACH = 1.7           # 병사가 이만큼 가까이 오면 길들이기 시작
 TAKEOVER = 7.0        # 길을 따라오던 병사가 이만큼 가까이 오면 곧장 동물에게 다가간다
 STUCK = 4.0           # 곧장 다가가다 이만큼(초) 못 닿으면 그만둔다
@@ -68,7 +69,17 @@ def _desert(gmap):
     return d & (ndimage.uniform_filter(d.astype(np.float32), 15) > 0.6)
 
 
-HABITATS = {'grass': _grass, 'desert': _desert}    # 사는 땅 이름 → 지도에서 그 땅 고르기
+def _snowfield(gmap):
+    """넓고 낮은 설원·툰드라 (눈·얼음 땅·툰드라·이끼, 높은 산은 빼고: 둘레 15칸의 50% 넘게 그런 칸). 순록이 산다."""
+    from engine.render import materials as S
+    low = 1.0 + np.clip(gmap.layers['alt'] - 0.35, 0, 1) * 0.8 <= 1.15        # 높을수록 비싸지는 배율 (sim/terrain.py)이 작은 곳
+    s = np.isin(gmap.layers['pre'], (S.SNOW, S.SNOW_OLD, S.ICE, S.TUNDRA, S.MOSS)) & gmap.land & gmap.walk_static & low
+    if s.sum() < 300:
+        return np.zeros_like(s)
+    return s & (ndimage.uniform_filter(s.astype(np.float32), 15) > 0.5)
+
+
+HABITATS = {'grass': _grass, 'desert': _desert, 'snow': _snowfield}    # 사는 땅 이름 → 지도에서 그 땅 고르기
 
 
 def lairs_for(gmap, cap: int = 3) -> list[tuple[int, int]]:
@@ -115,7 +126,7 @@ class Lair:
 
 
 class Animal:
-    __slots__ = ('id', 'kind', 'x', 'y', 'hx', 'hy', 'tx', 'ty', 'mode', 't', 'dir', 'prog', 'unit', 'hp', 'sub', 'lasthp')
+    __slots__ = ('id', 'kind', 'x', 'y', 'hx', 'hy', 'tx', 'ty', 'mode', 't', 'dir', 'prog', 'unit', 'hp', 'sub', 'lasthp', 'pen')
 
     def __init__(self, aid, kind, x, y, rng):
         self.id, self.kind = aid, kind
@@ -128,6 +139,7 @@ class Animal:
         self.hp = 1.0             # 체력 비율 (화면에)
         self.sub = 0.0            # 쓰러져 있는 남은 시간
         self.lasthp = 0.0
+        self.pen = -1             # 목장 몫 (짓는 중인 헛간 번호, sim/pasture.py): 울타리 안을 거닐고, 짓는 나라 병사에겐 놀라지 않는다
 
 
 class Tamer:
@@ -209,6 +221,9 @@ class Wildlife:
                 continue
             if len(ul) and np.min(np.hypot(u.x[ul] - x, u.y[ul] - y)) < SPAWN_CLEAR_U:
                 continue
+            pens = getattr(w, 'pastures', None)
+            if pens is not None and pens.covers(x, y, 6.0)[0]:      # 목장 울타리 안·곁에는 새 무리가 생기지 않는다
+                continue
             s = min(np.min(np.hypot(here[:, 0] - y, here[:, 1] - x)), 80.0) if len(here) else 80.0
             s += rng.uniform(0, 8)
             if s > bs:
@@ -246,6 +261,10 @@ class Wildlife:
         if a0 is None:
             return 0
         info = R.WILDLIFE[a0.kind]
+        if not R.tamers_of(info):                            # 길들이지 않는 동물 (순록)
+            if not quiet:
+                w.say(f'{R.josa(info["name"], "은", "는")} 길들일 수 없습니다', to=nid)
+            return 0
         hostile = self.hostile(a0)
         if hostile and a0.mode not in (SUBDUED, HELD, TAMING):
             if not quiet:
@@ -479,6 +498,13 @@ class Wildlife:
         ay = np.array([a.y for a in free], np.float32)
         if len(ids):
             d = np.hypot(u.x[ids][None] - ax[:, None], u.y[ids][None] - ay[:, None])
+            pens = getattr(w, 'pastures', None)
+            if pens is not None:                             # 목장 몫인 동물은 짓는 나라 병사를 보고는 놀라지 않는다
+                own = u.own[ids]
+                for j, a in enumerate(free):
+                    o = pens.owner_calm(a)
+                    if o >= 0:
+                        d[j, own == o] = np.inf
             near = d.argmin(1)
             for j, a in enumerate(free):
                 if d[j, near[j]] < FEAR:
@@ -501,9 +527,14 @@ class Wildlife:
         rng, walk = self.rng, self.w.map.walk
         a.t -= dt
         if a.t <= 0:
-            if a.mode == FLEE:                              # 다 달아났다: 여기가 새 무리 자리
+            pens = getattr(self.w, 'pastures', None)
+            inpen = pens.roam(a, rng) if (pens is not None and a.pen >= 0) else None   # 목장 몫: 울타리 안 자리로
+            if a.mode == FLEE and inpen is None:            # 다 달아났다: 여기가 새 무리 자리
                 a.hx, a.hy = a.x, a.y
-            if a.mode == GRAZE or a.mode == FLEE or rng.random() < 0.3:
+            if inpen is not None and (a.mode != GRAZE or rng.random() < 0.6):
+                a.tx, a.ty = inpen
+                a.mode, a.t = WALK, float(rng.uniform(4, 8))
+            elif a.mode == GRAZE or a.mode == FLEE or rng.random() < 0.3:
                 ang, r = rng.uniform(0, 2 * np.pi), rng.uniform(0, ROAM)
                 a.tx, a.ty = a.hx + np.cos(ang) * r, a.hy + np.sin(ang) * r
                 a.mode, a.t = WALK, float(rng.uniform(3, 6))
@@ -516,7 +547,7 @@ class Wildlife:
         if d < 0.2:
             a.mode, a.t = GRAZE, float(rng.uniform(2, 5))
             return
-        step = min((RUN_SPEED if a.mode == FLEE else WALK_SPEED) * dt, d)
+        step = min((RUN_SPEED if a.mode == FLEE else PEN_WALK if a.pen >= 0 else WALK_SPEED) * dt, d)
         nx, ny = a.x + dx / d * step, a.y + dy / d * step
         if 0 <= nx < walk.shape[1] and 0 <= ny < walk.shape[0] and walk[int(ny), int(nx)]:
             a.x, a.y = float(nx), float(ny)

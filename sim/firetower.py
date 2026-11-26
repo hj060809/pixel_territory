@@ -30,7 +30,7 @@ class FireTowers:
             if b.cd[t] > 0:
                 continue
             o = b.own[t]
-            foes = ids[(w.diplo.friend[o, u.own[ids]] == 0) & (u.own[ids] != R.NEUTRAL) & ~u.passive[ids]] if len(ids) else ids   # 동맹, 호위 중인 병사는 빼고
+            foes = ids[(w.diplo.friend[o, u.own[ids]] == 0) & (u.own[ids] != R.NEUTRAL)] if len(ids) else ids   # 동맹은 빼고
             if not len(foes):
                 b.cd[t] = 0.3
                 continue

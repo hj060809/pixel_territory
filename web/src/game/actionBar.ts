@@ -8,9 +8,9 @@ import type { SpriteBank } from './sprites.ts';
 import type { GameState } from './state.ts';
 
 /** 버튼 순서 = 숫자 키 1~9 → 건물 종류 번호 (sim/rules.py: 거점 0, 농장 1, 벌목장 2, 채석장 3, 망루 4, 항구 5, 유황 채취장 6,
- *  화염탑 7, 무역소 8). 거점·무역소, 자원 건물, 공격 건물, 항구 순:
- *  1 거점, 2 무역소, 3 농장, 4 벌목장, 5 채석장, 6 유황 채취장, 7 망루, 8 화염탑, 9 항구. */
-export const BUILD_KEYS = [0, 8, 1, 2, 3, 6, 4, 7, 5];
+ *  화염탑 7, 목장 8). 거점, 자원 건물, 공격 건물, 항구 순:
+ *  1 거점, 2 농장, 3 벌목장, 4 채석장, 5 유황 채취장, 6 목장, 7 망루, 8 화염탑, 9 항구. */
+export const BUILD_KEYS = [0, 1, 2, 3, 6, 8, 4, 7, 5];
 /** 건물 버튼 i번째의 키 글자 (1~9). */
 export const buildKeyLabel = (i: number) => String(i + 1);
 /** Q W E (R T Y는 나중 병종용). 기병(창기병, 기마궁수)은 버튼이 없다: 병사로 야생말을 길들인다. */

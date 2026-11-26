@@ -359,7 +359,7 @@ class GameSession:
         now = time.perf_counter()
         if d.version != s.diplo_v or now - s.diplo_at >= 1.0:
             s.diplo_v, s.diplo_at = d.version, now
-            s.send({'t': 'diplo', **d.state_for(nid), **self.world.trade.state_for(nid)})
+            s.send({'t': 'diplo', **d.state_for(nid)})
 
     # ------------------------------------------------------------- 명령
     def _apply_commands(self):
@@ -464,8 +464,6 @@ class GameSession:
                 d.give_res(nid, to, [float(v) for v in m.get('pct', [0, 0, 0, 0])][:4])
             elif act == 'units':                         # 고른 병사
                 d.give_units(nid, to, c.units(m.get('units', [])))
-            elif act == 'trade':                         # 그 나라와의 무역 켜기 (적대여도) / 끄기
-                self.world.trade.set_mode(nid, to, bool(m.get('on')))
             elif act == 'target':
                 d.target(nid, to)
             else:

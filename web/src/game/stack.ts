@@ -10,12 +10,12 @@
 import { model } from './models.ts';
 import { Mat, RAMPS, Vol, nationRamp, roofRamp } from './voxel.ts';
 
-const OUTLINE = [22, 18, 26];
-const RIM = [238, 230, 206];          // 밝은 바깥 테두리 (유닛·배·건물만: 지형 위에서 형태가 살아나게)
-const WARM = [1.02, 0.78, 0.48];             // 횃불 빛 (낮 그림 × 이것, 너무 밝지 않게)
+export const OUTLINE = [22, 18, 26];
+export const RIM = [238, 230, 206];          // 밝은 바깥 테두리 (유닛·배·건물만: 지형 위에서 형태가 살아나게)
+export const WARM = [1.02, 0.78, 0.48];             // 횃불 빛 (낮 그림 × 이것, 너무 밝지 않게)
 const SHADOW_MAX = 1.5;                     // 그림자 길이 한도 (높이 × 이것)
 export const SQUASH = 0.7;                  // 바닥 깊이(화면 위아래)를 이만큼 눌러 비스듬히 내려다보는 느낌으로
-const REF = (() => {                        // 낮 그림의 고정된 해 (왼쪽 위, 고도 40°)
+export const REF = (() => {                        // 낮 그림의 고정된 해 (왼쪽 위, 고도 40°)
   const a = (40 * Math.PI) / 180, l = Math.SQRT1_2;
   return [-l * Math.cos(a), -l * Math.cos(a), Math.sin(a)];
 })();

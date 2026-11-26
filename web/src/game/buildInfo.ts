@@ -104,34 +104,8 @@ export class BuildInfoUi {
     // 싸움
     const fight = this.combat(b);
     if (fight.length) parts.push(`<div class="bsec"><div class="bhead">공격</div>${fight.map((t) => `<div class="bstat">${icon('soldier')}<span>${t}</span></div>`).join('')}</div>`);
-    if (b.kind === K.TRADE_POST && done) parts.push(this.tradeHtml(b));
     if (b.kind === K.HALL && done && b.qlen) parts.push(`<div class="bnote">훈련 대기 ${b.qlen} (${Math.round(b.qtime)}초)</div>`);
     return parts.join('');
-  }
-
-  /** 무역소: 행렬이 어디로 무엇을 싣고 가는지, 아니면 다음 출발까지 (내 무역소만 자세히). */
-  private tradeHtml(b: BuildRec): string {
-    const st = this.st, R = st.info.rules, me = st.info.me;
-    const T = R.trade;
-    if (b.own !== me) return `<div class="bsec"><div class="bhead">무역</div><div class="bnote">행렬이 오가며 남는 자원을 모자란 자원과 1:1로 바꾼다</div></div>`;
-    const p = st.diplo?.posts?.[String(b.slot)];
-    const names = [...R.res_names, '유황'];
-    let body = '';
-    if (!p) body = `<div class="bnote">곧 행렬을 보낸다</div>`;
-    else if (p.to === undefined) {
-      const any = (st.diplo?.trade ?? []).some((s) => s === 'on');
-      body = `<div class="bnote">${any ? `다음 행렬까지 ${p.rest}초 (바꿀 것이 있으면 떠난다)` : '무역할 나라가 없다 (그 나라에도 무역소가 있어야 한다)'}</div>`;
-    } else {
-      const to = st.info.nations[p.to];
-      const cargo = (p.cargo ?? []).map((v, k) => (v > 0 ? `${icon(RES_ICONS[k])}<b>${v}</b>` : '')).join('');
-      body = `<div class="bstat"><span>${p.back ? '돌아오는 중' : '가는 중'} · ${to ? esc(to.name) : ''}${p.sea ? ' · 상선으로 바다를 건너는 중' : ''}</span></div>`
-        + `<div class="bstat">${cargo || '<span>빈 수레</span>'}</div>`
-        + `<div class="bnote">${names[p.give!]} → ${names[p.want!]} 바꾸기</div>`;
-    }
-    if (p && p.to !== undefined && p.hp !== undefined && p.hp < 1) body += bar('행렬 체력', `${Math.round(p.hp * 100)}%`, p.hp, p.hp < 0.35 ? 'low' : '');
-    const esc2 = `<div class="bnote">호위병: ${p?.escort ? `따라가는 ${p.escort}명 · ` : ''}기다리는 ${p?.wait ?? 0}명 `
-      + `(병사를 고르고 무역소를 오른쪽 클릭하면 배치, 행렬마다 ${T.escort}명까지)</div>`;
-    return `<div class="bsec"><div class="bhead">무역 행렬 (한 번에 자원 한도의 ${Math.round(T.load * 100)}%까지)</div>${body}${esc2}</div>`;
   }
 
   /** 이 건물이 늘리는 한도 (자원마다: 서버 sim/storage.py contrib와 같다). 거점은 모든 자원, 자원 건물은 그 자원. */
@@ -139,7 +113,7 @@ export class BuildInfoUi {
     const R = this.st.info.rules, K = R.kinds, st = R.store ?? { hall: 50, site: 25 };
     if (kind === K.HALL) return [st.hall, st.hall, st.hall, st.hall];
     const out = [0, 0, 0, 0];
-    const res = kind === K.SULFUR_PIT ? 3 : R.yield_res?.[kind];
+    const res = kind === K.SULFUR_PIT ? 3 : kind === K.PASTURE ? 0 : R.yield_res?.[kind];   // 목장은 식량
     if (res !== undefined) out[res] = st.site;
     return out;
   }
@@ -149,6 +123,15 @@ export class BuildInfoUi {
     const st = this.st, R = st.info.rules, K = R.kinds, w = this.weights();
     const dot = (a: number[]) => a.reduce((s, v, i) => s + v * w[i], 0);
     if (b.kind === K.HALL) return (R.hall_yield as number[]).map((v, k) => [k, v, ''] as [number, number, string]).filter((x) => x[1] > 0);
+    if (b.kind === K.PASTURE) {                                 // 목장: 든 동물마다 (겨울엔 덜), 서버 sim/pasture.py food와 같다
+      const p = st.pens.get(b.slot), P = R.pasture;
+      if (!p) return [];
+      const n = p.spots.length, name = R.wildlife[p.kind]?.name ?? '';
+      const per = P.food[String(p.kind)] ?? 0, f = 1 - w[3] * (1 - (P.winter[String(p.kind)] ?? 1));
+      if (!p.done) return [[0, 0, `· 다 지으면 울타리 안의 ${name}이 든다`]];
+      return [[0, per * n * f, `· ${name} ${n}/${P.cap}마리` + (w[3] > 0.05 ? ` · 겨울 ×${f.toFixed(1)}` : '') + (n >= 2 && n < P.cap ? ' · 봄·여름에 새끼' : '')
+        + (Object.keys(R.wildlife[p.kind]?.mounts ?? {}).length && b.own === st.info.me ? ' · 보병·궁수를 고르고 오른쪽 클릭하면 말을 꺼내 탄다 (2마리는 남긴다)' : '')]];
+    }
     const site = b.site >= 0 ? st.info.sites[b.site] : null;
     if (!site) return [];
     if (b.kind === K.SULFUR_PIT) return [[3, R.sulfur_yield * site.rich, `· 풍부함 ${site.rich.toFixed(1)}`]];

@@ -62,10 +62,9 @@ class StateEncoder:
     BOAT_DT = np.dtype([('id', '<u4'), ('kind', 'u1'), ('own', 'u1'), ('x', '<u2'), ('y', '<u2'), ('hp', 'u1'),
                         ('dir', 'i1'), ('state', 'u1'), ('cargo', 'u1'), ('bits', 'u1')])
     SHOT_DT = np.dtype([('x0', '<u2'), ('y0', '<u2'), ('x1', '<u2'), ('y1', '<u2'), ('kind', 'u1')])
-    CARAVAN_DT = np.dtype([('id', '<u4'), ('idx', 'u1'), ('kind', 'u1'), ('own', 'u1'), ('x', '<u2'), ('y', '<u2'), ('dir', 'i1'),
-                           ('bits', 'u1'), ('give', 'u1'), ('want', 'u1'), ('load', '<u2'), ('hp', 'u1')])   # 무역 행렬의 구성원 (sim/trade.py)
     ANIMAL_DT = np.dtype([('id', '<u4'), ('kind', 'u1'), ('x', '<u2'), ('y', '<u2'), ('state', 'u1'), ('prog', 'u1'),
                           ('dir', 'i1'), ('hp', 'u1'), ('sub', 'u1')])
+    PEN = struct.Struct('<HHBBffBBB')             # 목장 하나의 머리 (sim/pasture.py Pen)
     NATION = struct.Struct('<12f2HBB')         # 자원 3, 수입 3, 유황, 유황 수입, 자원마다 한도 4 (sim/storage.py), 병사 수, 건물 수, 살아 있음, 굶주림
 
     def __init__(self, world):
@@ -75,6 +74,7 @@ class StateEncoder:
         self.prev_animals: dict = {}
         self.shot_time = -1.0
         self.tick = 0
+        self.pen_v = -1                                    # 보낸 목장 판 (sim/pasture.py Pastures.version)
 
     def reset(self, world=None):
         """처음부터 다시 (새 판, 다시 접속): 다음 메시지는 모든 병사/건물을 담는다."""
@@ -84,6 +84,7 @@ class StateEncoder:
         self.prev_builds = np.zeros(0, self.BUILD_DT)
         self.prev_animals = {}
         self.shot_time = -1.0
+        self.pen_v = -1
 
     # ------------------------------------------------------------- 지금 상태 → 배열
     def _units(self):
@@ -96,11 +97,7 @@ class StateEncoder:
         a['own'], a['kind'] = u.own[:n], u.kind[:n]
         a['hp'] = np.clip(np.rint(u.hp[:n] / _U_HP[u.kind[:n]] * 255), 0, 255)
         a['state'] = u.state[:n]
-        esc = np.zeros(n, np.uint8)                          # 행렬을 따라가는 호위병 (무역소에 돌아올 때까지 고를 수 없다)
-        ids = [e for e in self.w.trade.escorting() if e < n]
-        if ids:
-            esc[ids] = 1
-        a['bits'] = u.moving[:n].astype(np.uint8) | (u.aboard[:n].astype(np.uint8) << 1) | (u.air[:n].astype(np.uint8) << 2) | (esc << 3)
+        a['bits'] = u.moving[:n].astype(np.uint8) | (u.aboard[:n].astype(np.uint8) << 1) | (u.air[:n].astype(np.uint8) << 2)
         return a, u.alive[:n] & (u.own[:n] < R.NEUTRAL)       # 야생 동물(드래곤)은 동물 칸으로 간다
 
     def _builds(self):
@@ -161,24 +158,6 @@ class StateEncoder:
                     int(np.clip(round(b.hp / b.maxhp * 255), 0, 255)), int(np.sign(b.dir) or 1),
                     BOAT_STATES.get(b.state, 0), min(len(b.cargo) or len(b.assigned), 255), int(b.pos < 0))
         parts.append(struct.pack('<H', len(a)) + a.tobytes())
-        # 무역 행렬: 구성원마다 한 줄 (모두: 몇 안 된다). 바다 위면 상선 한 척 (구성원 0, kind 255).
-        # kind: rules.CARAVAN_MEMBERS 번호, dir: 가는 방향 (16방향), bits: 1 돌아오는 중, 2 바다 위, 4 걷는 중, load: 실은 짐 합, hp: 그 구성원 (상선은 모두)
-        rows = []
-        for c in w.trade.caravans:
-            if not c.alive:
-                continue
-            bits = int(c.back) | (2 if c.at_sea else 0) | (4 if c.moving else 0)
-            if c.at_sea:
-                x, y, ang = c.at()
-                rows.append((c.id, 0, 255, c.own, _q(x), _q(y), int(round(ang / (2 * np.pi) * 16)) % 16, bits, c.give, c.want,
-                             min(int(sum(c.cargo)), 65535), int(np.clip(round(c.hp / c.maxhp * 255), 0, 255))))
-                continue
-            for k in c.members():
-                x, y, ang = c.member_at(k)
-                rows.append((c.id, k, k, c.own, _q(x), _q(y), int(round(ang / (2 * np.pi) * 16)) % 16, bits, c.give, c.want,
-                             min(int(sum(c.cargo)), 65535), int(np.clip(round(c.hp_m[k] / R.CARAVAN_MEMBERS[k][1] * 255), 0, 255))))
-        a = np.array(rows, self.CARAVAN_DT) if rows else np.zeros(0, self.CARAVAN_DT)
-        parts.append(struct.pack('<H', len(a)) + a.tobytes())
         # 공격: 이번 걸음 동안 새로 난 것
         new = [r for r in w.recent if r[0] > self.shot_time]
         if w.recent:
@@ -204,6 +183,20 @@ class StateEncoder:
             parts.append(struct.pack('<BB', 1, len(w.nations)) + body)
         else:
             parts.append(b'\0')
+        # 목장: 바뀌었을 때만 모두 (헛간 번호·세대, 나라, 동물, 가운데, 다 지었나, 든 수, 울타리 방향마다 반지름 ×4, 든 동물 자리 ×4)
+        pens = getattr(w, 'pastures', None)
+        if pens is not None and pens.version != self.pen_v:
+            self.pen_v = pens.version
+            out = [struct.pack('<BB', 1, len(pens.pens))]
+            for p in pens.pens.values():
+                n = min(p.n, len(p.spots), 255)
+                out.append(self.PEN.pack(p.b, p.gen & 0xFFFF, p.own, p.kind, p.cx, p.cy, int(p.done), n, len(p.radii)))
+                out.append(bytes(int(np.clip(round(r * 4), 0, 255)) for r in p.radii))
+                out.append(np.array([[np.clip(round(dx * 4), -127, 127), np.clip(round(dy * 4), -127, 127)] for dx, dy in p.spots[:n]],
+                                    np.int8).reshape(-1).tobytes())
+            parts.append(b''.join(out))
+        else:
+            parts.append(b'\0')
         return b''.join(parts)
 
 
@@ -227,7 +220,6 @@ def decode(blob: bytes) -> dict:
     out['builds'] = arr(StateEncoder.BUILD_DT)
     out['builds_gone'] = arr(np.dtype('<u2'))
     out['boats'] = arr(StateEncoder.BOAT_DT)
-    out['caravans'] = arr(StateEncoder.CARAVAN_DT)
     out['shots'] = arr(StateEncoder.SHOT_DT)
     out['animals'] = arr(StateEncoder.ANIMAL_DT)
     out['animals_gone'] = arr(np.dtype('<u4'))
@@ -237,4 +229,21 @@ def decode(blob: bytes) -> dict:
         n = blob[off]
         off += 1
         out['nations'] = [StateEncoder.NATION.unpack_from(blob, off + i * StateEncoder.NATION.size) for i in range(n)]
+        off += n * StateEncoder.NATION.size
+    has = blob[off] if off < len(blob) else 0
+    off += 1
+    if has:
+        cnt = blob[off]
+        off += 1
+        pens = []
+        for _ in range(cnt):
+            b, gen, own, kind, cx, cy, done, n, nd = StateEncoder.PEN.unpack_from(blob, off)
+            off += StateEncoder.PEN.size
+            radii = [v / 4 for v in blob[off:off + nd]]
+            off += nd
+            sp = np.frombuffer(blob, np.int8, n * 2, off).reshape(-1, 2) / 4
+            off += n * 2
+            pens.append({'b': b, 'gen': gen, 'own': own, 'kind': kind, 'cx': cx, 'cy': cy, 'done': bool(done), 'n': n,
+                         'radii': radii, 'spots': sp.tolist()})
+        out['pens'] = pens
     return out

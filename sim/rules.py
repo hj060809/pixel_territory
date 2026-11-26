@@ -63,8 +63,8 @@ STARVE = 0.4               # 식량이 바닥나면 병사가 1초에 잃는 체
 HEAL_NEAR_HALL = 0.6       # 거점 가까이서 1초에 회복하는 체력
 
 # --- 건물
-HALL, FARM, LUMBER, QUARRY, TOWER, HARBOR, SULFUR_PIT, FIRE_TOWER, TRADE_POST = range(9)
-BUILD_NAMES = ('거점', '농장', '벌목장', '채석장', '망루', '항구', '유황 채취장', '화염탑', '무역소')
+HALL, FARM, LUMBER, QUARRY, TOWER, HARBOR, SULFUR_PIT, FIRE_TOWER, PASTURE = range(9)
+BUILD_NAMES = ('거점', '농장', '벌목장', '채석장', '망루', '항구', '유황 채취장', '화염탑', '목장')
 #             체력, 크기(반지름, 칸), 비용(식량, 목재, 석재), 짓는 데 드는 일(병사×초), sulfur: 유황 비용
 BUILD_STATS = {
 #   비용은 목재와 석재로 나눈다 (목재를 조금 더: 건물 전체로 목재 : 석재 ≈ 1.45 : 1). 채석장만 목재로 (석재가 바닥나도 캘 수 있게)
@@ -76,7 +76,7 @@ BUILD_STATS = {
     HARBOR: dict(hp=260.0, r=4, cost=(0, 70, 50), work=30.0),     # 해안에만. 이 땅의 병사가 여기 모여 배로 건너고, 전함을 만든다
     SULFUR_PIT: dict(hp=160.0, r=4, cost=(0, 40, 25), work=22.0),  # 사막의 유황 웅덩이에만
     FIRE_TOWER: dict(hp=520.0, r=2, cost=(0, 50, 70), work=35.0, sulfur=40),
-    TRADE_POST: dict(hp=240.0, r=3, cost=(0, 70, 50), work=24.0),  # 어디서나. 다른 나라의 무역소로 무역 행렬을 보낸다 (sim/trade.py)
+    PASTURE: dict(hp=200.0, r=3, cost=(0, 55, 20), work=24.0),   # 목장 헛간 (자원 건물의 0.75배). 말·순록 떼에 짓는다 (sim/pasture.py)
 }
 # 화염탑: cd초마다 range칸 안의 가장 가까운 적에게 dmg (둘레 splash칸의 적에게는 splash_mul배). 유황이 없으면 weak배.
 #   드래곤(용기사, 야생 드래곤)은 vs_dragon배 (얼음은 불에 약하다), 바위거북은 vs_tortoise배 (껍질이 견딘다).
@@ -118,7 +118,7 @@ SULFUR_YIELD = 0.25        # 유황 채취장이 1초에 모으는 유황 (× �
 #   그동안만 길들일 수 있고 맞지 않는다), regrow: 길들여진 뒤 둥지에 새로 나는 시간, limit: 나라마다 탈 수 있는 수
 #   함께 싸우는 동물 (companion): 길들여도 병사는 그대로이고, 동물이 그 나라의 병사(companion 병종)가 된다.
 #   food: 길들일 때 주는 먹이 (식량), tamers: 길들일 수 있는 병사, calm: 사람이 와도 달아나지 않는다
-HORSE, DRAGON, TORTOISE_W = range(3)
+HORSE, DRAGON, TORTOISE_W, REINDEER = range(4)
 _ANY = (INFANTRY, ARCHER, LANCER, HORSE_ARCHER)
 WILDLIFE = {
     HORSE: dict(name='말', habitat='grass', group=(7, 12), spread=22.0, herd_r=26.0, per_area=700, cap=60, regrow=25.0, tame=11.0,
@@ -128,8 +128,18 @@ WILDLIFE = {
                  mounts={k: DRAGON_RIDER for k in _ANY}),
     TORTOISE_W: dict(name='바위거북', habitat='desert', group=(1, 2), per_area=2500, cap=8, regrow=360.0, tame=4.0,
                      food=240, companion=TORTOISE, tamers=_ANY, calm=True),   # 먹이는 처음 한도(STORE_BASE + STORE_HALL) 안에서
+    # 순록: 설원·툰드라의 평평한 곳에 촘촘한 무리로. 길들이지 않는다 (병사로 탈 수 없다: 목장에 들인다, docs/PASTURE_PLAN.md)
+    REINDEER: dict(name='순록', habitat='snow', group=(4, 7), spread=5.0, herd_r=12.0, per_area=900, cap=40, regrow=200.0),
 }
 MOUNTED = {v for a in WILDLIFE.values() for v in a.get('mounts', {}).values()}     # 동물을 탄 병종
+
+# 목장 (sim/pasture.py, docs/PASTURE_PLAN.md): 목장을 고르고 말·순록 떼를 누르면 그 떼를 울타리 안에 들여 식량을 낸다
+#   radius: 울타리 반지름 한도 (용 둥지쯤), find_r: 누른 자리에서 떼를 찾는 거리, herd_r: 한 떼로 치는 거리, min_herd: 이보다 작은 떼엔 못 짓는다,
+#   search: 떼 가운데에서 헛간 자리를 고르는 거리, min_fill: 울타리 평균 반지름이 radius의 이만큼은 돼야 (너무 작거나 파인 울타리 막기),
+#   cap: 목장마다 최대 마리, breed: 봄·여름에 새끼 한 마리까지 (초), keep: 말을 꺼내 탈 때 남기는 마리 (새끼를 치려면 둘),
+#   food: 마리마다 1초에 내는 식량, winter: 겨울 배율 (순록은 이끼를 먹어 겨울에도 꽤 낸다)
+PASTURE_RULES = dict(radius=15.0, find_r=8.0, herd_r=20.0, min_herd=3, search=12.0, cap=10, breed=120.0, min_fill=0.55, keep=2,
+                     food={HORSE: 0.07, REINDEER: 0.12}, winter={HORSE: 0.4, REINDEER: 0.7})
 
 
 def tamers_of(info: dict) -> set:
@@ -159,27 +169,13 @@ STORE_BASE = 200.0
 STORE_HALL = 50.0
 STORE_SITE = 25.0
 
-# 무역 (sim/trade.py): 무역소마다 행렬 하나가 다른 나라의 무역소를 오가며 남는 자원을 모자란 자원과 1:1로 바꾼다
-#   load: 한 번에 싣는 양 = 내주는 나라의 그 자원 한도 × load (한도가 늘면 행렬 규모도 는다), every: 행렬이 돌아온 뒤 다음 출발까지 (초), speed: 걷는 빠르기 (칸/초, 지형을 탄다),
-#   wait: 상대 무역소에서 짐을 바꾸는 시간, keep: 내주지 않고 남겨 두는 양 (한도의 비율), least: 이보다 적게 바꿀 거면 안 간다
-#   (행렬의 체력은 구성원마다: CARAVAN_MEMBERS)
-#   board: 항구에서 상선에 타고 내리는 시간 (바다 건너 무역: 내 항구와 무역이 끊기지 않은 나라의 항구를 쓴다, 빠른 길로)
-#   escort: 행렬 하나를 따라가는 호위병 최대 (남으면 무역소에서 다음 행렬을 기다린다), escort_r: 호위병이 행렬 곁에 머무는 거리
-#   raid_mul: 약탈 단계마다 그 나라와의 행렬 간격 배율,
-#   raid_stop: 이 단계면 모든 나라가 그 나라와의 무역을 멈춘다, raid_forget: 약탈 단계가 하나 내려가는 시간 (초),
-#   rel: 행렬이 무사히 다녀오면 두 나라의 관계가 이만큼 오른다 (무역하는 나라끼리는 덜 싸운다)
-# 행렬 구성 (sim/trade.py): 앞에서 뒤로 (이름, 체력). 상인이 낙타 둘을 끌고 간다. 짐은 살아 있는 구성원이 고르게 나눠 진다
-CARAVAN_MEMBERS = (('trader', 50.0), ('camel', 70.0), ('camel', 70.0))
-CARAVAN_GAP = 4.0          # 구성원 사이 (길 위 칸, 화면 draw.ts와 같다)
-TRADE = dict(load=0.16, every=10.0, speed=3.5, wait=3.0, keep=0.15, least=10.0, board=4.0,
-             escort=6, escort_r=6.0, raid_mul=1.5, raid_stop=3, raid_forget=180.0, rel=5.0)
-
 # 기후 효과 (sim/climate.py, 부족은 sim/tribes.py): 병사만 받는다
 #   slow: 불리한 기후 지역에서 이동 배율, chance·every·dmg: 확률 피해 (every초에 한 번꼴로 chance 확률, 최대 체력의 dmg),
-#   floor: 기후 피해로는 최대 체력의 이 비율 아래로 떨어지지 않는다, snow_take: 설원 부족이 사막 밖에서 받는 피해 배율,
-#   desert_deal: 사막 부족이 설원 밖에서 주는 피해 배율, tame_*: 길들이는 시간 배율, temperate_trade: 온대 부족의 무역 빠르기
-CLIMATE = dict(slow=0.85, chance=0.5, every=3.0, dmg=0.02, floor=0.3, snow_take=0.7, desert_deal=1.2,
-               tame_snow_tortoise=1.5, tame_desert_dragon=1.25, temperate_trade=1.2)
+#   floor: 기후 피해로는 최대 체력의 이 비율 아래로 떨어지지 않는다, snow_take: 설원 부족이 설원 지역에서 받는 피해 배율,
+#   desert_deal: 사막 부족이 설원 밖에서 주는 피해 배율, tame_*: 길들이는 시간 배율, temperate_train: 온대 부족의 병사 훈련 시간 배율,
+#   thirst_upkeep: 사막 지역의 병사가 먹는 식량 배율 (갈증: 모든 부족, 겨울 배율은 그대로 곱한다)
+CLIMATE = dict(slow=0.85, chance=0.5, every=3.0, dmg=0.02, floor=0.3, snow_take=0.85, desert_deal=1.2,
+               tame_snow_tortoise=1.5, tame_desert_dragon=1.25, temperate_train=0.85, thirst_upkeep=1.2)
 
 START_RES = (160.0, 160.0, 120.0)      # 석재를 넉넉히: 석재 자원지가 먼 곳에서 시작해도 첫 건물들을 짓게
 START_UNITS = ((INFANTRY, 5), (ARCHER, 2))

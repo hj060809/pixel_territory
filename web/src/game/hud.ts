@@ -349,6 +349,7 @@ export class Hud {
         if (an.state === A_TAMING) return `먹이를 받아먹는 ${a.name} · ${Math.round(an.prog * 100)}%`;
         return `야생 ${a.name} · 병사를 고르고 ${act}하면 한 명이 가서 먹이를 준다 (식량 ${a.food}, ${Math.round(a.tame)}초) → 함께 싸우는 탱커 (발 구르기, 낮은 포효, 껍질 숨기)`;
       }
+      if (!a.tamers?.length) return `야생 ${a.name} · 설원에 무리 지어 산다 · 사람이 다가가면 달아난다 (길들일 수 없다) · 목장(6)을 골라 떼를 누르면 목장에 들인다`;
       if (an.state === A_TAMING) return `길들이는 중인 ${a.name} · ${Math.round(an.prog * 100)}%`;
       if (an.state === A_HELD) return `야생${a.name} · 병사가 길들이러 오는 중`;
       return `야생${a.name} · 병사를 고르고 ${touchMode() ? '탭' : '오른쪽 클릭'}하면 말마다 한 명씩 가서 길들인다 (${Math.round(a.tame)}초) · ${into}`;

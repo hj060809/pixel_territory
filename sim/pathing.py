@@ -50,11 +50,12 @@ class FieldCache:
         k = np.argmin((ys + y0 - y) ** 2 + (xs + x0 - x) ** 2)
         return int(ys[k] + y0), int(xs[k] + x0)
 
-    def get(self, ty: int, tx: int, sy, sx, busy) -> int:
+    def get(self, ty: int, tx: int, sy, sx, busy, cost=None, tag=0) -> int:
         """목표 (ty, tx)로 가는 거리 지도 슬롯. sy, sx: 출발 칸들. busy: 지금 병사들이 쓰는 슬롯 (bool).
+        cost: 걷는 비용 지도 (없으면 지도의 것), tag: 그 비용의 이름 (부족마다 다른 길: sim/climate.py path_cost).
         새로 계산해야 하면 보조 스레드에 맡기고 슬롯을 바로 돌려준다 (다음 update 때 준비된다)."""
         self.clock += 1
-        key = (ty, tx, self.map.walk_version)
+        key = (ty, tx, self.map.walk_version, tag)
         sy = np.asarray(sy, np.int64)
         sx = np.asarray(sx, np.int64)
         for s, k in enumerate(self.keys):
@@ -69,7 +70,7 @@ class FieldCache:
             if s in self._jobs:
                 self._jobs.pop(s).result()
         self.ready[s] = False
-        self._jobs[s] = _POOL.submit(_compute, self.map.walk, self.map.cost, ty, tx, sy, sx, self.fields[s])
+        self._jobs[s] = _POOL.submit(_compute, self.map.walk, self.map.cost if cost is None else cost, ty, tx, sy, sx, self.fields[s])
         self.keys[s] = key
         self.used[s] = self.clock
         return s

@@ -14,7 +14,7 @@ from __future__ import annotations
 from sim import rules as R
 
 NRES = 4                                     # 식량, 목재, 석재, 유황
-RES_OF = {R.FARM: R.FOOD, R.LUMBER: R.WOOD, R.QUARRY: R.STONE, R.SULFUR_PIT: 3}   # 자원 건물 → 그 건물이 늘리는 한도
+RES_OF = {R.FARM: R.FOOD, R.LUMBER: R.WOOD, R.QUARRY: R.STONE, R.SULFUR_PIT: 3, R.PASTURE: R.FOOD}   # 자원 건물 → 그 건물이 늘리는 한도 (목장은 식량)
 
 
 def contrib(kind: int) -> list[float]:

@@ -15,7 +15,6 @@ import numpy as np
 
 from sim import rules as R
 from sim import climate, storage, tribes
-from sim.trade import Trade
 from sim.boats import Fleet
 from sim.entities import AMOVE, ATTACK, BUILD, IDLE, MOVE, Buildings, Units
 from sim.kernels import rng as kernel_rng
@@ -123,11 +122,12 @@ class World:
         self.companions = Companions(self)
         from sim.firetower import FireTowers
         self.fire = FireTowers(self)
+        from sim.pasture import Pastures
+        self.pastures = Pastures(self)                     # 목장 (야생 동물보다 먼저: 새 무리가 울타리 안에 생기지 않게)
         from sim.wildlife import Wildlife
         self.wild = Wildlife(self, np.random.default_rng([abs(int(seed)) & 0xFFFFFFFF, 7]))   # 야생 동물 (거점이 선 다음에: 거점 곁엔 안 생기게)
         from sim.diplomacy import Diplomacy
         self.diplo = Diplomacy(self)                       # 외교: 동맹과 관계
-        self.trade = Trade(self)                           # 무역: 무역소와 행렬 (sim/trade.py)
 
     # ------------------------------------------------------------- 알림
     def say(self, text: str, to: int | None = None, skip=()) -> None:
@@ -169,6 +169,9 @@ class World:
             d = np.hypot(b.x[:b.n][alive] - x, b.y[:b.n][alive] - y) - b.r[:b.n][alive]
             if d.min() < r + 2:
                 return False
+        pens = getattr(self, 'pastures', None)
+        if pens is not None and pens.pens and pens.covers(x + 0.5, y + 0.5, r + 1.0)[0]:   # 목장 울타리 안에는 짓지 못한다
+            return False
         return True
 
     def _spawn_unit(self, nid, kind, y, x, ring):
@@ -195,6 +198,10 @@ class World:
             return -1
         u = self.units
         sy, sx = u.y[ids].astype(np.int64), u.x[ids].astype(np.int64)
+        own = int(u.own[ids[0]]) if len(ids) else -1
+        if 0 <= own < len(self.nations):                   # 부족마다 실제 걷는 빠르기로 (설원 부족은 눈길을 피하지 않는다, sim/climate.py)
+            t = self.nations[own].tribe
+            return self.fields.get(spot[0], spot[1], sy, sx, self._busy_slots(), climate.path_cost(self, t), t + 1)
         return self.fields.get(spot[0], spot[1], sy, sx, self._busy_slots())
 
     def _split(self, ids, y, x):
@@ -419,7 +426,8 @@ class World:
                 self.say(f'{name}: 자원이 모자랍니다 ({need})', to=nid)
             return False
         self._pay(nid, st['cost'])
-        b.queue[hall].append([kind, st['time']])
+        t = st['time'] * (R.CLIMATE['temperate_train'] if self.nations[nid].tribe == 0 and kind != R.WARSHIP else 1.0)   # 온대 부족: 병사만 (sim/tribes.py TEMPERATE)
+        b.queue[hall].append([kind, t])
         return True
 
     # ------------------------------------------------------------- 찾기
@@ -492,7 +500,7 @@ class World:
                             self.k_terrain, self.k_charge, self.k_vs, self.k_splash,
                             m.walk, m.speed_mul, m.cover, self.fields.fields, self.fields.ready, R.TOWER, R.TOWER_RANGE, R.TOWER_DMG,
                             R.TOWER_CD, R.NEUTRAL, self.shots, self._builders,
-                            self.diplo.friend, self.diplo.hurt, self.diplo.hits, b.last, u.passive, u.fx_speed, u.fx_take, u.fx_deal)
+                            self.diplo.friend, self.diplo.hurt, self.diplo.hits, b.last, u.fx_speed, u.fx_take, u.fx_deal)
         if self.n_shots:                                    # 화면에 잠깐 그릴 공격 (화살, 칼부림)
             for row in self.shots[:self.n_shots].tolist():
                 self.recent.append((self.time, *row))
@@ -509,10 +517,10 @@ class World:
                 add = dt * self._builders[i] / st['work']
                 b.prog[i] = min(b.prog[i] + add, 1.0)
                 b.hp[i] = min(b.hp[i] + add * b.maxhp[i], b.maxhp[i])
-                if b.prog[i] >= 1:
+                if b.prog[i] >= 1 and b.kind[i] != R.PASTURE:        # 목장은 들어온 동물 수와 함께 따로 알린다
                     self.say(f'{R.BUILD_NAMES[int(b.kind[i])]} 완성', to=int(b.own[i]))
         self.fleet.update(dt)
-        self.trade.update(dt)                               # 무역 행렬
+        self.pastures.update(dt)                            # 목장: 다 지으면 동물이 든다, 새끼, 무너지면 풀려난다
         self.diplo.update(dt)                               # 외교: 관계, 동맹 기간, 배신자
         # 무너진 건물
         dead = np.flatnonzero(b.alive[:b.n] & (b.hp[:b.n] <= 0))
@@ -553,14 +561,19 @@ class World:
                 res, base = R.YIELD[k]
                 sf = float(np.dot(R.SEASON_YIELD[res], w))
                 nat.rate[res] += base * s.rich * (1 + s.cold * (sf - 1))
+        if self.pastures.pens:                         # 목장: 든 동물마다 식량 (겨울엔 덜)
+            for nat in self.nations:
+                nat.rate[R.FOOD] += self.pastures.food(nat.id, w)
         for nat in self.nations:                       # 난이도: AI의 자원 수입 배율
             if nat.bonus != 1.0:
                 nat.rate = [r * nat.bonus for r in nat.rate]
         live = u.alive[:u.n]                           # 먹는 양: 병종마다 (기병은 말까지 먹어서 더)
         counts = np.bincount(u.own[:u.n][live], weights=self.k_upkeep[u.kind[:u.n][live]], minlength=len(self.nations))
         winter = 1 + 0.5 * w[3]
+        dry = climate.thirst(self)                     # 사막의 갈증: 사막 지역의 병사는 더 먹는다 (모든 부족)
         for nat in self.nations:
-            nat.rate[R.FOOD] -= counts[nat.id] * R.UPKEEP * winter
+            k = nat.id
+            nat.rate[R.FOOD] -= (counts[k] + dry[k] * (R.CLIMATE['thirst_upkeep'] - 1)) * winter * R.UPKEEP
             for r in range(3):
                 nat.res[r] += nat.rate[r] * dt
             nat.sulfur += nat.sulfur_rate * (nat.bonus if nat.bonus != 1.0 else 1.0) * dt

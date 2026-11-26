@@ -3,7 +3,7 @@
 // 나라 색 재질은 그 나라 색에서 같은 방식으로 단계를 만든다.
 
 export const Mat = {
-  EMPTY: 0, WOOD: 1, WOOD_D: 2, THATCH: 3, STONE: 4, PLASTER: 5, TILE: 6, SKIN: 7, METAL: 8, LEATHER: 9, HORSE: 10, HORSE_D: 11, CROP: 12, LEAF: 13, SAIL: 14, DARK: 15, CLOTH: 16, ROOF: 17, GOLD: 18, DRAGON: 19, MEMBRANE: 20, GLOW: 21, WING: 22, BASALT: 23, STRAW: 24, SHELL: 25, HIDE: 26, SULFUR: 27, CAMEL: 28,
+  EMPTY: 0, WOOD: 1, WOOD_D: 2, THATCH: 3, STONE: 4, PLASTER: 5, TILE: 6, SKIN: 7, METAL: 8, LEATHER: 9, HORSE: 10, HORSE_D: 11, CROP: 12, LEAF: 13, SAIL: 14, DARK: 15, CLOTH: 16, ROOF: 17, GOLD: 18, DRAGON: 19, MEMBRANE: 20, GLOW: 21, WING: 22, BASALT: 23, STRAW: 24, SHELL: 25, HIDE: 26, SULFUR: 27, REINDEER: 28, REINDEER_W: 29, ANTLER: 30,
 } as const;
 export type Mat = number;
 
@@ -37,7 +37,9 @@ export const RAMPS: Record<number, number[][]> = {
   [Mat.SHELL]: ramp('#2e2420', '#5a4634', '#8a6c4c', '#b49068', '#d6b88c'),      // 바위거북 등껍질 (사암빛 바위)
   [Mat.HIDE]: ramp('#24221e', '#46423a', '#6c6656', '#928a74', '#b8ae94'),      // 바위거북 살 (회갈색 가죽)
   [Mat.SULFUR]: ramp('#4a4018', '#7e6c1c', '#b8a024', '#dcc840', '#f4ec8c'),      // 유황 (웅덩이, 결정)
-  [Mat.CAMEL]: ramp('#33261f', '#664532', '#9a6c46', '#c49662', '#e2bd88'),       // 낙타 털 (모래빛 황갈색)
+  [Mat.REINDEER]: ramp('#1c1820', '#332a2a', '#4c3e36', '#695446', '#866d58'),    // 순록 털 (짙은 회갈색: 눈 위에서 흰 목털과 갈리게)
+  [Mat.REINDEER_W]: ramp('#3a3540', '#6c655f', '#a39a8b', '#cfc5b0', '#ebe4d1'),  // 순록 목털·엉덩이·발목 (크림빛 흰색)
+  [Mat.ANTLER]: ramp('#2e2724', '#56493c', '#86745a', '#b09c7a', '#d2c2a0'),      // 순록 뿔 (바랜 뼈빛)
 };
 
 const TONE = [42, 37, 53];                  // 지형 그늘과 같은 보랏빛

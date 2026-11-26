@@ -8,16 +8,17 @@ export interface BuildRec { slot: number; gen: number; x: number; y: number; kin
  *  prog: 길든 정도 0~1, hp: 체력 비율 (사나운 동물), sub: 쓰러져 있는 남은 초. */
 export interface AnimalRec { id: number; kind: number; x: number; y: number; state: number; prog: number; dir: number; hp: number; sub: number }
 export interface BoatRec { id: number; kind: number; own: number; x: number; y: number; hp: number; dir: number; state: number; cargo: number; bits: number }
-/** 무역 행렬의 구성원 (sim/trade.py): id 행렬 번호, idx 구성원 번호, kind rules.caravan_members 번호 (255 = 바다 위 상선),
- *  dir 16방향, back 돌아오는 중, sea 바다 위, moving 걷는 중, give·want 내줄·받을 자원 (3 유황), load 실은 짐 합, hp 0~1 (그 구성원). */
-export interface CaravanRec { id: number; idx: number; kind: number; own: number; x: number; y: number; dir: number; back: boolean; sea: boolean; moving: boolean; give: number; want: number; load: number; hp: number }
 export interface ShotRec { x0: number; y0: number; x1: number; y1: number; kind: number }
+/** 목장 (sim/pasture.py Pen): b 헛간 건물 번호, kind 동물 (rules.WILDLIFE 번호), cx·cy 가운데, radii 울타리 방향마다 반지름,
+ *  done 다 지었나, spots 든 동물 자리 (가운데에서, 칸). 바뀔 때만 모두 온다. */
+export interface PenRec { b: number; gen: number; own: number; kind: number; cx: number; cy: number; done: boolean; radii: number[]; spots: [number, number][] }
 export interface NationRec { res: number[]; rate: number[]; sulfur: number; sulfurRate: number; caps: number[]; nUnits: number; nBuildings: number; alive: boolean; starving: boolean }
 
 export interface StateMsg {
   tick: number; time: number; hour: number; year: number; flags: number; speed: number; simMs: number;
   units: UnitRec[]; unitsGone: number[]; builds: BuildRec[]; buildsGone: number[];
-  boats: BoatRec[]; caravans: CaravanRec[]; shots: ShotRec[]; animals: AnimalRec[]; animalsGone: number[]; nations: NationRec[] | null;
+  pens: PenRec[] | null;
+  boats: BoatRec[]; shots: ShotRec[]; animals: AnimalRec[]; animalsGone: number[]; nations: NationRec[] | null;
 }
 
 export const BOAT_STATES = ['idle', 'move', 'hunt', 'pickup', 'wait', 'cross', 'return', 'load', 'ahead', 'anchor'];
@@ -52,11 +53,6 @@ export function decodeState(buf: ArrayBuffer): StateMsg {
     boats.push({ id: u32(), kind: u8(), own: u8(), x: u16() / POS, y: u16() / POS, hp: u8() / 255, dir: i8(),
                  state: u8(), cargo: u8(), bits: u8() });
   }
-  const caravans: CaravanRec[] = [];
-  for (let n = u16(); n > 0; n--) {
-    const id = u32(), idx = u8(), kind = u8(), own = u8(), x = u16() / POS, y = u16() / POS, dir = i8(), bits = u8();
-    caravans.push({ id, idx, kind, own, x, y, dir, back: !!(bits & 1), sea: !!(bits & 2), moving: !!(bits & 4), give: u8(), want: u8(), load: u16(), hp: u8() / 255 });
-  }
   const shots: ShotRec[] = [];
   for (let n = u16(); n > 0; n--) shots.push({ x0: u16() / POS, y0: u16() / POS, x1: u16() / POS, y1: u16() / POS, kind: u8() });
   const animals: AnimalRec[] = [];
@@ -74,5 +70,17 @@ export function decodeState(buf: ArrayBuffer): StateMsg {
       nations.push({ res, rate, sulfur, sulfurRate, caps, nUnits: u16(), nBuildings: u16(), alive: !!u8(), starving: !!u8() });
     }
   }
-  return { tick, time, hour, year, flags, speed, simMs, units, unitsGone, builds, buildsGone, boats, caravans, shots, animals, animalsGone, nations };
+  let pens: PenRec[] | null = null;
+  if (o < v.byteLength && u8()) {                     // 목장 (바뀌었을 때만)
+    pens = [];
+    for (let n = u8(); n > 0; n--) {
+      const b = u16(), gen = u16(), own = u8(), kind = u8(), cx = f32(), cy = f32(), done = !!u8(), cnt = u8(), nd = u8();
+      const radii: number[] = [];
+      for (let i = 0; i < nd; i++) radii.push(u8() / 4);
+      const spots: [number, number][] = [];
+      for (let i = 0; i < cnt; i++) spots.push([i8() / 4, i8() / 4]);
+      pens.push({ b, gen, own, kind, cx, cy, done, radii, spots });
+    }
+  }
+  return { tick, time, hour, year, flags, speed, simMs, units, unitsGone, builds, buildsGone, boats, shots, animals, animalsGone, nations, pens };
 }

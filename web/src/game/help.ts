@@ -37,7 +37,7 @@ function others(parent: HTMLElement, solo: boolean, press: string) {
   const other = el('div', 'help-other', parent);
   for (const [k, v] of [
     ['외교', `다른 나라의 거점을 ${press} 동맹 요청 · 자원·병력 지원 · 공격 요청`],
-    ['길들이기', '야생 말 → 기병, 바위거북 → 함께 싸우는 탱커, 드래곤은 쓰러뜨린 뒤 → 용기사'],
+    ['길들이기', '야생 말 → 기병, 바위거북 → 함께 싸우는 탱커, 드래곤은 쓰러뜨린 뒤 → 용기사 (순록은 길들이지 못한다) · 목장을 골라 말·순록 떼를 누르면 목장에 들여 식량'],
     ['부족', '왼쪽 위 자원 표시 옆 동그란 버튼: 내 부족(온대·설원·사막)의 강점과, 맞지 않는 기후에서의 약점'],
     ['패배', `거점과 병사를 모두 잃으면 진다. 오른쪽 위 메뉴에서 ${solo ? '나가기' : '항복 · 나가기'}`],
   ]) {
@@ -74,7 +74,7 @@ export function fillHelp(parent: HTMLElement, solo: boolean, lobby = false) {
   el('div', 'help-head', right, '키보드');
   row(right, kbd('A'), '공격 이동 (가다가 만나는 적과 싸운다)');
   row(right, kbd('S'), '멈춤');
-  row(right, `${kbd('1')}<span class="help-plus">~</span>${kbd('9')}`, '건물 짓기: 1 거점 · 2 무역소 · 3~6 자원 건물 · 7 망루 · 8 화염탑 · 9 항구 (고른 병사가, 없으면 가까운 쉬는 병사가)');
+  row(right, `${kbd('1')}<span class="help-plus">~</span>${kbd('9')}`, '건물 짓기: 1 거점 · 2~5 자원 건물 · 6 목장 (말·순록 떼에) · 7 망루 · 8 화염탑 · 9 항구 (고른 병사가, 없으면 가까운 쉬는 병사가)');
   row(right, `${kbd('Q')}${kbd('W')}${kbd('E')}`, '보병 · 궁수 · 전함 만들기');
   row(right, `${kbd('Ctrl')}${plus}${kbd('1~9')}`, '고른 병사를 부대로 지정');
   row(right, `${kbd('Shift')}${plus}${kbd('1~9')}`, '그 부대를 부르기');
