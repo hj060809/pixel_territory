@@ -372,8 +372,24 @@ export class Overlay {
       if (taken.has(s.id)) continue;
       const x = sx(s.x), y = sy(s.y);
       if (!vis(x, y)) continue;
-      const img = this.bank.site(s.kind, ks, !!s.snow);
+      const img = this.bank.site(s.kind, ks, !!s.snow, visOn());   // 시인성 강조: 밝은 바깥 테두리
       g.drawImage(img, Math.round(x - img.width / 2), Math.round(y - img.height / 2));
+    }
+    // 목장을 지을 수 있는 동물 떼 (말·순록, min_herd마리부터): 멀리서는 (병사 무리 배지처럼) 떼마다 자원지 같은 그림 하나.
+    // 그보다 작은 떼는 동물을 그대로 그린다
+    const herdIds = new Set<number>();
+    if (z < UNIT_ZOOM && R.pasture) {
+      const kinds = new Set(Object.keys(R.pasture.food ?? {}).map(Number));
+      for (const h of herdGroups(st, a, kinds, R.pasture.herd_r)) {
+        if (h.n < R.pasture.min_herd) continue;
+        for (const id of h.ids) herdIds.add(id);
+        const x = sx(h.x), y = sy(h.y);
+        if (!vis(x, y, 40)) continue;
+        const img = this.bank.herd(h.kind, ks, visOn());
+        if (!img) continue;
+        const x0 = Math.round(x - img.width / 2), y0 = Math.round(y - img.height / 2);
+        g.drawImage(img, x0, y0);
+      }
     }
     // 드래곤 둥지 (땅의 장식: 건물·병사 아래)
     for (const [ly, lx] of st.info.lairs ?? []) {
@@ -491,7 +507,8 @@ export class Overlay {
     this.breaths = this.breaths.filter((b) => now - b.at < 900);      // 숨결을 뿜은 자리 (그 뒤 0.9초 동안 숨결 자세)
     for (const s of fresh) if (s.kind === 3) this.breaths.push({ x: s.x0, y: s.y0, at: now });
     const breathing = (x: number, y: number) => this.breaths.some((b) => Math.hypot(b.x - x, b.y - y) < 2.5);
-    const tameBars = z >= 1.2 ? drawAnimals(g, stack, L, animalSpots(st, a, sx, sy), K, bigK(z), t, W, H, dt, tl, breathing, R, this.mouths) : [];
+    const spots = animalSpots(st, a, sx, sy).filter((p) => !herdIds.has(p.an.id));   // 멀리서 떼 그림이 된 말·순록은 빼고
+    const tameBars = z >= 1.2 ? drawAnimals(g, stack, L, spots, K, bigK(z), t, W, H, dt, tl, breathing, R, this.mouths) : [];
     // 병사: 가까이서는 하나하나, 멀리서는 무리 배지
     const units = [...st.units.values()].filter((u) => !(u.bits & 2));
     if (z >= UNIT_ZOOM) {
@@ -632,6 +649,28 @@ export class Overlay {
       g.strokeStyle = ok ? 'rgb(120,230,120)' : 'rgb(230,90,80)'; g.lineWidth = 1; g.strokeRect(rc.x - 2.5, rc.y - 2.5, rc.w + 4, rc.h + 4);
     }
   }
+}
+
+/** 목장에 들일 수 있는 동물 떼 (화면): 같은 종류가 herdR칸 안이면 한 떼 (서버 sim/pasture.py herd_at과 같은 기준).
+ *  길들이는 중인 동물은 빼고. 반환: 떼마다 가운데 (보간한 자리), 종류, 마리 수, 동물 번호들. */
+function herdGroups(st: GameState, a: number, kinds: Set<number>, herdR: number) {
+  const left = [...st.animals.values()].filter((an) => kinds.has(an.kind) && an.state !== 3 && an.state !== 4);
+  const out: { x: number; y: number; kind: number; n: number; ids: number[] }[] = [];
+  while (left.length) {
+    const s0 = left.pop()!;
+    let x = lerp(s0.px, s0.x, a), y = lerp(s0.py, s0.y, a), n = 1;
+    const ids = [s0.id];
+    for (let i = left.length - 1; i >= 0; i--) {
+      const o = left[i];
+      if (o.kind === s0.kind && Math.hypot(o.x - s0.x, o.y - s0.y) < herdR) {
+        x += lerp(o.px, o.x, a); y += lerp(o.py, o.y, a); n++;
+        ids.push(o.id);
+        left.splice(i, 1);
+      }
+    }
+    out.push({ x: x / n, y: y / n, kind: s0.kind, n, ids });
+  }
+  return out;
 }
 
 function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {

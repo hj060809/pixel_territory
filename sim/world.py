@@ -15,11 +15,11 @@ import numpy as np
 
 from sim import rules as R
 from sim import climate, storage, tribes
-from sim.boats import Fleet
+from sim.boats import Fleet, _ferry_eval
 from sim.entities import AMOVE, ATTACK, BUILD, IDLE, MOVE, Buildings, Units
 from sim.kernels import rng as kernel_rng
 from sim.kernels.combat import step
-from sim.pathing import FieldCache, WalkCost
+from sim.pathing import _POOL, FieldCache
 
 FERRY_CHECK = 20.0         # 같은 땅에서 직선으로 이보다 멀리 보낼 때만 배가 더 빠른지 견준다 (칸).
                            # 좁은 물 건너편은 직선으로는 가까워도 걸어서는 멀 수 있어서 작게 둔다
@@ -70,7 +70,7 @@ class World:
         self.units = Units()
         self.builds = Buildings()
         self.fields = FieldCache(gmap, slots=32)
-        self.routes = WalkCost(gmap)              # 걷는 비용 재기 (배를 탈지 정할 때)
+        self._ferry_checks: list = []             # 보조 스레드에서 견주는 중인 걷기·배 (_split, _ferry_resolve)
         self.fleet = Fleet(self)
         self.shots = np.zeros((512, 5), np.float32)
         self.n_shots = 0
@@ -204,8 +204,10 @@ class World:
             return self.fields.get(spot[0], spot[1], sy, sx, self._busy_slots(), climate.path_cost(self, t), t + 1)
         return self.fields.get(spot[0], spot[1], sy, sx, self._busy_slots())
 
-    def _split(self, ids, y, x):
-        """걸어서 갈 수 있는 병사와 바다를 건너야 하는 병사. 반환: (걸어갈 병사, [(병사, 출발 땅)], 도착 땅)."""
+    def _split(self, ids, y, x, then=None):
+        """걸어서 갈 수 있는 병사와 바다를 건너야 하는 병사. 반환: (걸어갈 병사, [(병사, 출발 땅)], 도착 땅).
+        then: 도착해서 할 일 (배로 바꿀 때 나룻배에 넘긴다). 같은 땅이어도 멀면 걷기와 배를 견주는데, 그 계산은 보조 스레드에서 하고
+        병사들은 우선 걸어서 출발한다 (_ferry_checks: 다음 update 맨 앞에서 받아, 배가 더 빠르면 그때 배로)."""
         m, u = self.map, self.units
         spot = self.fields.snap(y, x, 12)
         if spot is None:
@@ -214,14 +216,42 @@ class World:
         comps = m.comp[u.y[ids].astype(int), u.x[ids].astype(int)]
         near = ids[comps == dst]
         far = [(ids[comps == c], int(c)) for c in np.unique(comps[comps != dst]) if c > 0]
-        # 같은 땅이어도 멀면 걷기와 배(그 땅의 항구에서)를 견주어 배가 10% 넘게 빠르면 배로 (어림 오차만큼 여유)
-        if len(near) and np.hypot(u.y[near].mean() - y, u.x[near].mean() - x) > FERRY_CHECK:
-            est = self.fleet.ferry_time(near, y, x, dst, self.routes)
-            if est is not None and est[0] < est[1] * 0.9:
-                self.say(f'배로 가는 길이 더 빠릅니다 (걸어서 {est[1]:.0f}초 → 배로 {est[0]:.0f}초)', to=int(u.own[near[0]]))
-                far.append((near, dst))
-                near = near[:0]
+        # 같은 땅이어도 멀면 걷기와 배(그 땅의 항구에서)를 견준다: 보조 스레드에 맡기고 우선 걷는다
+        if then is not None and len(near) and np.hypot(u.y[near].mean() - y, u.x[near].mean() - x) > FERRY_CHECK:
+            prep = self.fleet.ferry_prep(near, y, x, dst)
+            if prep is not None:
+                own = int(u.own[near[0]])
+                cost = climate.path_cost(self, self.nations[own].tribe) if own < len(self.nations) else m.cost
+                job = _POOL.submit(_ferry_eval, m.walk, cost, m.nav, prep['ty'], prep['tx'], prep['here'], prep['land'],
+                                   prep['landing'], prep['ports'], prep['n'], R.UNIT_STATS[R.INFANTRY]['speed'])
+                self._ferry_checks.append((job, near.copy(), u.gen[near].copy(), then, float(y), float(x), dst, spot))
         return near, far, dst
+
+    def _ferry_resolve(self) -> None:
+        """맡겨 둔 걷기·배 견주기를 받는다 (update 맨 앞, 길찾기처럼: 같은 시드면 같은 판).
+        배가 10% 넘게 빠르고 (어림 오차만큼 여유) 병사들이 아직 그 명령대로 가고 있으면 나룻배로 바꾼다."""
+        if not self._ferry_checks:
+            return
+        checks, self._ferry_checks = self._ferry_checks, []
+        u = self.units
+        for job, ids, gens, then, y, x, dst, spot in checks:
+            est = job.result()
+            if est is None or not est[0] < est[1] * 0.9:
+                continue
+            ok = u.alive[ids] & (u.gen[ids] == gens) & ~u.aboard[ids]
+            if then[0] == 'move':
+                keyed = np.array([s >= 0 and self.fields.keys[s] is not None and tuple(self.fields.keys[s][:2]) == tuple(spot)
+                                  for s in u.slot[ids]])
+                ok &= np.isin(u.state[ids], (MOVE, AMOVE)) & keyed
+            elif then[0] == 'attack':
+                ok &= (u.state[ids] == ATTACK) & (u.tgt[ids] == then[1]) & (u.tgb[ids] == then[2])
+            else:
+                ok &= (u.state[ids] == BUILD) & (u.bld[ids] == then[1])
+            group = ids[ok]
+            if not len(group):
+                continue
+            self.say(f'배로 가는 길이 더 빠릅니다 (걸어서 {est[1]:.0f}초 → 배로 {est[0]:.0f}초)', to=int(u.own[group[0]]))
+            self.fleet.ferry(group, y, x, then, dst, dst)
 
     def order_move(self, ids, y, x, attack: bool = False, ferry: bool = True) -> bool:
         """ferry: 바다 건너면 나룻배를 타게 한다 (나룻배가 병사를 항구로 부를 때는 False: 서로 부르며 끝없이 돌지 않게)."""
@@ -248,7 +278,7 @@ class World:
             ids = ids[~can]
             if len(ids) == 0:
                 return True
-        ids, far, dst = self._split(ids, y, x) if ferry else (ids, [], None)
+        ids, far, dst = self._split(ids, y, x, ('move', attack, y, x)) if ferry else (ids, [], None)
         ok = False
         for group, src in far:                       # 바다 건너: 나룻배를 타고 간다
             ok |= self.fleet.ferry(group, y, x, ('move', attack, y, x), src, dst)
@@ -307,7 +337,7 @@ class World:
             ids = ids[~can]
         if len(ids) == 0:
             return
-        ids, far, dst = self._split(ids, ty, tx)
+        ids, far, dst = self._split(ids, ty, tx, ('attack', unit, building))
         for group, src in far:
             self.fleet.ferry(group, ty, tx, ('attack', unit, building), src, dst)
         if len(ids) == 0:
@@ -391,7 +421,7 @@ class World:
         ids = ids[~self.k_fly[self.units.kind[ids]]]          # 용기사는 짓지 않는다
         if len(ids) == 0:
             return
-        ids, far, dst = self._split(ids, self.builds.y[b], self.builds.x[b])
+        ids, far, dst = self._split(ids, self.builds.y[b], self.builds.x[b], ('build', b))
         for group, src in far:
             self.fleet.ferry(group, self.builds.y[b], self.builds.x[b], ('build', b), src, dst)
         if len(ids) == 0:
@@ -480,6 +510,7 @@ class World:
         if season_w is not None:
             self.season_w = np.asarray(season_w, float)
         self.fields.wait()                          # 지난번에 맡긴 길찾기 계산을 받는다 (보통 이미 끝나 있다)
+        self._ferry_resolve()                       # 걷기·배 견주기도 (배가 더 빠르면 이제 나룻배로)
         if self.phase != 'play':
             return
         self._acc += dt

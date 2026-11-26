@@ -24,7 +24,7 @@ export function unitCounts(st: GameState, slots: Iterable<number>, sep = '   '):
 interface Chip { el: HTMLSpanElement; v: HTMLElement; r: HTMLElement; fill: HTMLElement; last: string }
 interface TopParts {
   res: Chip[]; sulfur: Chip; units: Chip; starve: HTMLSpanElement; mini: HTMLSpanElement;
-  season: Chip; time: Chip; speed: Chip; icons: string; capTip: string;
+  season: Chip; time: Chip; speed: Chip; fps: HTMLSpanElement; fpsMini: HTMLSpanElement; icons: string; capTip: string;
 }
 
 const BAR_H = 76;          // 하단 버튼 막대 높이 (그 위로 패널을 올린다)
@@ -94,11 +94,18 @@ export class Hud {
     const mini = document.createElement('span');                 // 터치: 계절·시각 아이콘만 (둘째 줄 대신)
     mini.className = 'env-mini';
     r1.appendChild(mini);
+    const fpsMini = document.createElement('span');               // 터치: 접힌 HUD에서도 보이는 FPS (첫 줄 끝)
+    fpsMini.className = 'fps-mini';
+    r1.appendChild(fpsMini);
     const season = chip(r2, 'spring', '계절 · 농사 배율: 가을에 많고, 추운 곳은 겨울에 멈춘다', false);
     const time = chip(r2, 'sun', '시각 (낮·밤)', false);
     const speed = chip(r2, 'play', '게임 속도', false);
+    const fps = document.createElement('span');                   // 화면 빠르기 (1초에 그리는 장 수)
+    fps.className = 'chip fps-chip';
+    fps.title = '화면 빠르기 (1초에 그리는 장 수). 30 아래면 붉게';
+    r2.appendChild(fps);
     r3.innerHTML = `<span class="kbd">F1</span><span>조작 설명</span>`;
-    return { res, sulfur, units, starve, mini, season, time, speed, icons: '', capTip: '' };
+    return { res, sulfur, units, starve, mini, season, time, speed, fps, fpsMini, icons: '', capTip: '' };
   }
 
   private updateTop() {
@@ -150,7 +157,21 @@ export class Hud {
     put(t.season, `${SEASON_NAMES[si]} ${season.month()}월 · 농사 ×${sf.toFixed(1)}`);
     put(t.time, cycle.label());
     put(t.speed, paused ? '일시정지' : `×${st.speed}`);
+    const now = performance.now(), span = now - this.fpsAt;          // 화면 빠르기: 0.5초마다 그동안 그린 장 수로
+    if (span >= 500) {
+      const f = Math.round((this.fpsN * 1000) / span);
+      this.fpsN = 0; this.fpsAt = now;
+      t.fps.innerHTML = `<i>FPS</i><b>${f}</b>`;
+      t.fps.className = 'chip fps-chip' + (f < 30 ? ' low' : f < 50 ? ' mid' : '');
+      t.fpsMini.innerHTML = `<i>FPS</i><b>${f}</b>`;
+      t.fpsMini.className = 'fps-mini' + (f < 30 ? ' low' : f < 50 ? ' mid' : '');
+    }
   }
+
+  private fpsN = 0;
+  private fpsAt = performance.now();
+  /** 화면을 한 장 그릴 때마다 (view.ts 프레임마다). */
+  countFrame() { this.fpsN++; }
 
   dispose() { for (const d of this.panels()) d.remove(); this.banner.remove(); }
 

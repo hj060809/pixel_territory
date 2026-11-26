@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from sim import rules as R
-from sim.kernels.flow import sea_path
+from sim.kernels.flow import INF, sea_path
 from sim.entities import IDLE, MOVE
 
 FERRY, WARSHIP = 'ferry', 'warship'
@@ -103,9 +103,44 @@ def _neighbors(mask):
     return out
 
 
+def _ferry_eval(walk, cost, nav, ty, tx, here, land, landing, ports, n, speed):
+    """(보조 스레드) 같은 땅에서 배로 가는 시간과 걸어가는 시간 (초): (배, 걷기) 또는 배로 갈 수 없으면 None.
+    배 = 항구까지 걷기 + 한 명씩 타기 + 바닷길 + 내린 곳에서 목표까지 걷기 + 여유. 걷기는 길찾기(_flow, GIL을 놓는다) 두 번:
+    목표에서 (병사 자리, 내릴 곳)까지, 병사 자리에서 모든 항구 모이는 곳까지 (걷는 비용은 오가는 쪽이 같다).
+    ports: [(모이는 곳 (y, x), 항구 앞 물 (y, x))]. 판의 상태는 읽지 않는다 (넘겨받은 것만: 걸음과 함께 돌아도 된다)."""
+    from sim.kernels.flow import _flow
+    H, W = walk.shape
+    nn = walk.size
+    out = np.empty((H, W), np.float32)
+
+    def costs(sy, sx, pts):
+        _flow(walk, cost, sy, sx, np.array([p[0] for p in pts], np.int64), np.array([p[1] for p in pts], np.int64), out,
+              np.zeros(nn, np.uint8), np.empty(nn * 3, np.float32), np.empty(nn * 3, np.int64))
+        return [float(out[p]) for p in pts]
+
+    walk_cost, after = costs(ty, tx, [here, land])
+    if walk_cost >= INF or after >= INF:
+        return None
+    to_port = costs(here[0], here[1], [g for g, _ in ports])
+    best = None
+    for (g, d), c in zip(ports, to_port):
+        if c >= INF:
+            continue
+        goal = np.zeros(nav.shape, np.bool_)
+        goal[d[0], d[1]] = True
+        route = sea_path(nav, goal & nav, landing[0], landing[1], 4 * max(H, W))
+        if not len(route):
+            continue
+        t = c / speed + n * BOARD_GAP + len(route) / R.FERRY_SPEED + after / speed + 6.0
+        best = t if best is None else min(best, t)
+    return None if best is None else (best, walk_cost / speed)
+
+
 class Fleet:
     def __init__(self, world):
         self.w = world
+        self._shores: dict = {}                    # (땅 모양 판, 땅 번호) → 그 땅의 해안 물 칸 (땅 모양이 바뀌면 버린다)
+        self._seas: dict = {}                      # (땅 모양 판, 시작, 목표) → 바닷길
         self.boats: list[Boat] = []
         self.convoys: list[Convoy] = []
         self.docks: dict[int, tuple] = {}
@@ -206,10 +241,64 @@ class Fleet:
         goal[max(y - r, 0):y + r + 1, max(x - r, 0):x + r + 1] = True
         return goal & m.nav
 
+    def _version(self) -> int:
+        """땅 모양 판 (바다가 얼고 녹아 걸을 수 있는 칸이 바뀌면 올라간다): 해안·바닷길 기억은 판이 같을 때만 쓴다."""
+        v = getattr(self.w.map, 'walk_version', 0)
+        if self._shores and next(iter(self._shores))[0] != v:
+            self._shores.clear()
+            self._seas.clear()
+        return v
+
     def _shore(self, comp_id):
-        """comp_id 땅(절벽 제외)에 맞닿은, 배가 다닐 수 있는 물 칸."""
+        """comp_id 땅(절벽 제외)에 맞닿은, 배가 다닐 수 있는 물 칸 (땅 모양이 바뀔 때까지 기억해 둔다)."""
+        key = (self._version(), int(comp_id))
+        got = self._shores.get(key)
+        if got is None:
+            m = self.w.map
+            got = self._shores[key] = m.nav & _neighbors((m.comp == comp_id) & m.land & ~m.cliff)
+        return got
+
+    def _sea(self, goal_key, goal_mask, sy, sx):
+        """(sy, sx)에서 goal까지 바닷길 (기억해 둔다, 돌려줄 때는 복사본). goal_key: goal을 가리키는 이름."""
         m = self.w.map
-        return m.nav & _neighbors((m.comp == comp_id) & m.land & ~m.cliff)
+        key = (self._version(), goal_key, int(sy), int(sx))
+        got = self._seas.get(key)
+        if got is None:
+            if len(self._seas) > 512:
+                self._seas.clear()
+            got = self._seas[key] = sea_path(m.nav, goal_mask() if callable(goal_mask) else goal_mask, int(sy), int(sx), 4 * max(m.H, m.W))
+        return got.copy()
+
+    def ferry_prep(self, ids, ty, tx, comp):
+        """같은 땅에서 배와 걷기를 견줄 준비 (가벼운 것만, 걸음 안에서): _ferry_eval에 넘길 것들 또는 배로 갈 수 없으면 None."""
+        w, m, u = self.w, self.w.map, self.w.units
+        own = int(u.own[ids[0]])
+        harbors = self.harbors_on(own, comp)
+        if not harbors:
+            return None
+        landing = self._landing(comp, ty, tx)
+        if landing is None:
+            return None
+        land = self._land_next_to(landing[0], landing[1], comp, near=(ty, tx))
+        if land is None:
+            return None
+        cy, cx = float(u.y[ids].mean()), float(u.x[ids].mean())
+        near = int(ids[np.argmin(np.hypot(u.y[ids] - cy, u.x[ids] - cx))])   # 무리 한가운데 병사 (가운데 점은 물일 수도)
+        here = w.fields.snap(float(u.y[near]), float(u.x[near]))
+        tgt = w.fields.snap(ty, tx)
+        if here is None or tgt is None:
+            return None
+        ports = []
+        for h in harbors:
+            d = self.dock_of(h)
+            if d is None:
+                continue
+            g = self._land_next_to(d[0], d[1], comp, near=(w.builds.y[h], w.builds.x[h]))
+            if g is not None:
+                ports.append((g, (int(d[0]), int(d[1]))))
+        if not ports:
+            return None
+        return dict(ty=tgt[0], tx=tgt[1], here=here, land=land, landing=landing, ports=ports, n=len(ids))
 
     def _land_next_to(self, wy, wx, comp_id, near=None):
         m = self.w.map
@@ -225,41 +314,6 @@ class Fleet:
         return best
 
     # ------------------------------------------------------------- 나룻길
-    def ferry_time(self, ids, ty, tx, comp, routes) -> tuple[float, float] | None:
-        """같은 땅 안에서: (배로 가는 시간, 걸어가는 시간) (초). 배로 갈 수 없으면 None.
-        배 = 항구까지 걷기 + 한 명씩 타기 + 바닷길 + 내린 곳에서 목표까지 걷기 + 여유.
-        걷기는 병사가 실제로 쓰는 길찾기로 잰다 (routes: sim.pathing.WalkCost)."""
-        w, m, u = self.w, self.w.map, self.w.units
-        own = int(u.own[ids[0]])
-        harbors = self.harbors_on(own, comp)
-        if not harbors:
-            return None
-        landing = self._landing(comp, ty, tx)
-        if landing is None:
-            return None
-        land = self._land_next_to(landing[0], landing[1], comp, near=(ty, tx))
-        if land is None:
-            return None
-        speed = R.UNIT_STATS[R.INFANTRY]['speed']
-        cy, cx = float(u.y[ids].mean()), float(u.x[ids].mean())
-        near = int(ids[np.argmin(np.hypot(u.y[ids] - cy, u.x[ids] - cx))])   # 무리 한가운데 병사 (가운데 점은 물일 수도)
-        here = (float(u.y[near]), float(u.x[near]))
-        walk_cost, after = routes.costs(ty, tx, [here, land])
-        walk_t = walk_cost / speed
-        best = None
-        for h in harbors:
-            d = self.dock_of(h)
-            if d is None:
-                continue
-            route = sea_path(m.nav, self._point_goal(d[0], d[1], 0), landing[0], landing[1], 4 * max(m.H, m.W))
-            gather = self._land_next_to(d[0], d[1], comp, near=(w.builds.y[h], w.builds.x[h])) if len(route) else None
-            if gather is None:
-                continue
-            to_harbor = routes.costs(gather[0], gather[1], [here])[0]
-            t = to_harbor / speed + len(ids) * BOARD_GAP + len(route) / R.FERRY_SPEED + after / speed + 6.0
-            best = t if best is None else min(best, t)
-        return None if best is None else (best, walk_t)
-
     def _landing(self, comp, ty, tx):
         """목표 가까이의, comp 땅(절벽 제외)에 맞닿은 배가 다닐 수 있는 물 칸."""
         m = self.w.map
@@ -303,7 +357,7 @@ class Fleet:
             d = self.dock_of(h)
             if d is None:
                 continue
-            route = sea_path(m.nav, self._point_goal(d[0], d[1], 0), landing[0], landing[1], big)   # 항구 앞 → 내릴 곳
+            route = self._sea(('dock', int(d[0]), int(d[1])), lambda: self._point_goal(d[0], d[1], 0), landing[0], landing[1])   # 항구 앞 → 내릴 곳 (기억)
             if len(route) == 0:
                 continue
             gather = self._land_next_to(d[0], d[1], src_comp, near=(w.builds.y[h], w.builds.x[h]))
@@ -314,7 +368,7 @@ class Fleet:
                 best = (cost, h, route, gather)
         if best is None:
             # AI가 참고할 해안: 내릴 곳에서 바닷길이 가장 짧은 우리 쪽 해안
-            cross = sea_path(m.nav, self._shore(src_comp), landing[0], landing[1], big)
+            cross = self._sea(('shore', int(src_comp)), lambda: self._shore(src_comp), landing[0], landing[1])
             if len(cross):
                 embark = self._land_next_to(int(cross[0, 0]), int(cross[0, 1]), src_comp, near=(cy, cx))
                 if embark is not None:

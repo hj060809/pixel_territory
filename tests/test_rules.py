@@ -1,6 +1,7 @@
 """web_game에서 바꾼 판 규칙.
 - 나룻배: 병사들이 있는 땅의 항구로 모여, 항구 앞 배에 한 명씩 차례로 타고, 다 타면 모든 배가 함께 출발해 상륙한다.
   그 땅에 항구가 없으면 건너지 않고 알려 준다.
+- 같은 땅의 먼 곳: 걷기와 배를 보조 스레드에서 견주고 (병사는 우선 걷는다), 다음 update에 배가 더 빠르고 그 명령대로 가고 있으면 배로.
 - 시작 자리: 넓고 식량 자원지가 있는 섬이면 어디서든 (가장 큰 땅만이 아니라).
 """
 import numpy as np
@@ -18,6 +19,7 @@ def run(report, cache_dir='.cache'):
     scene = TerrainScene.load(load_preset('island_arc', default_config(512, 42)), cache_dir, progress=lambda s: None)
     _convoy(report, scene)
     _no_harbor(report, scene)
+    _same_land_ferry(report, scene)
     _islands(report, scene)
 
 
@@ -100,3 +102,39 @@ def _islands(report, scene):
         many += len(comps) >= 2
     report(f'시작 자리: 시작할 수 있는 섬 {len(isl)}개, 20판 중 {many}판이 여러 섬에서 시작, 모두 시작할 수 있는 섬 위',
            len(isl) >= 2 and many >= 5 and on_ok)
+
+def _same_land_ferry(report, scene):
+    """같은 땅의 먼 곳: 견주기는 보조 스레드에서, 병사는 우선 걷고 다음 update에 배가 빠르면 배로 (다른 명령을 받았으면 그대로)."""
+    import sim.world as SW
+    from sim.entities import MOVE
+    w, ids, src, other, _ = _setup(scene)
+    m, u = w.map, w.units
+    cy, cx = float(u.y[ids].mean()), float(u.x[ids].mean())
+    ys, xs = np.nonzero((m.comp == src) & m.walk)
+    k = int(np.argmax(np.hypot(ys - cy, xs - cx)))
+    ty, tx = float(ys[k]), float(xs[k])                         # 같은 땅에서 가장 먼 칸
+    prep = w.fleet.ferry_prep(ids, ty, tx, src)
+    real = None if prep is None else SW._ferry_eval(m.walk, m.cost, m.nav, prep['ty'], prep['tx'], prep['here'], prep['land'],
+                                                    prep['landing'], prep['ports'], prep['n'], R.UNIT_STATS[R.INFANTRY]['speed'])
+    report('걷기·배 견주기 (보조 스레드용 계산)가 돈다', prep is not None and (real is None or (real[0] > 0 and real[1] > 0)), f'{real}')
+    orig = SW._ferry_eval
+    try:
+        SW._ferry_eval = lambda *a: (1.0, 100.0)                 # 배가 훨씬 빠르다고 치고
+        w.order_move(ids, ty, tx)
+        walking = bool((u.state[ids] == MOVE).all()) and not w.fleet.convoys
+        w.update(0.05)
+        switched = len(w.fleet.convoys) == 1 and set(w.fleet.convoys[0].assigned) == set(map(int, ids)) and w.fleet.convoys[0].then[0] == "move"
+        report('먼 같은 땅: 우선 걷고, 다음 update에 배가 빠르면 나룻배로', walking and switched,
+               f'처음 걷기 {walking}, 나룻배 {len(w.fleet.convoys)}')
+        w2, ids2, src2, _, _ = _setup(scene)
+        w2.order_move(ids2, ty, tx)
+        w2.order_move(ids2, float(w2.units.y[ids2].mean()) + 3, float(w2.units.x[ids2].mean()))   # 그새 다른 명령
+        w2.update(0.05)
+        report('견주는 사이 다른 명령을 받았으면 배로 바꾸지 않는다', not w2.fleet.convoys)
+        SW._ferry_eval = lambda *a: (100.0, 1.0)                 # 걷기가 빠르다
+        w3, ids3, _, _, _ = _setup(scene)
+        w3.order_move(ids3, ty, tx)
+        w3.update(0.05)
+        report('걷기가 빠르면 그대로 걷는다', not w3.fleet.convoys and bool((w3.units.state[ids3] == MOVE).all()))
+    finally:
+        SW._ferry_eval = orig

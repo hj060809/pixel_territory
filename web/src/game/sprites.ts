@@ -2,7 +2,7 @@
 // 게임 화면은 stack으로 지금 빛·방향에 맞춰 그리고, 버튼·로비·설정 화면은 아래 함수(아이콘)를 쓴다.
 
 import { SPRITES } from './spriteData.ts';
-import { StackRenderer } from './stack.ts';
+import { RIM, StackRenderer } from './stack.ts';
 import { model } from './models.ts';
 
 type Img = HTMLCanvasElement;
@@ -28,6 +28,26 @@ function make(rows: readonly string[], color: readonly number[], alpha = 255): I
     }
   }
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (filled(x, y)) put(x + 1, y + 1, pal[rows[y][x]]);
+  g.putImageData(img, 0, 0);
+  return c;
+}
+
+/** 밝은 바깥 테두리를 두른 그림 (시인성 강조: 스프라이트의 rim과 같은 색·진하기). 테두리(어두운 줄) 바로 바깥 한 점. */
+function rimmed(src: Img): Img {
+  const w = src.width, h = src.height;
+  const s = src.getContext('2d')!.getImageData(0, 0, w, h).data;
+  const c = document.createElement('canvas');
+  c.width = w + 2; c.height = h + 2;
+  const g = c.getContext('2d')!;
+  const img = g.createImageData(w + 2, h + 2), d = img.data;
+  const solid = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h && s[(y * w + x) * 4 + 3] > 0;
+  for (let y = -1; y <= h; y++) for (let x = -1; x <= w; x++) {
+    const i = ((y + 1) * (w + 2) + x + 1) * 4;
+    if (solid(x, y)) { const j = (y * w + x) * 4; d[i] = s[j]; d[i + 1] = s[j + 1]; d[i + 2] = s[j + 2]; d[i + 3] = s[j + 3]; continue; }
+    if (solid(x - 1, y) || solid(x + 1, y) || solid(x, y - 1) || solid(x, y + 1)) {
+      d[i] = RIM[0]; d[i + 1] = RIM[1]; d[i + 2] = RIM[2]; d[i + 3] = 150;
+    }
+  }
   g.putImageData(img, 0, 0);
   return c;
 }
@@ -82,10 +102,23 @@ export class SpriteBank {
     return this.stack.icon(name, 0, k, { frame, dir: flip ? 7 : 1 });
   }
 
-  /** 자원지 표시. snow: 눈 덮인 숲 (하얀 나무). */
-  site(kind: number, k: number, snow = false): Img {
+  /** 자원지 표시. snow: 눈 덮인 숲 (하얀 나무), rim: 시인성 강조 (밝은 바깥 테두리). */
+  site(kind: number, k: number, snow = false, rim = false): Img {
     const key = snow ? `${kind}s` : `${kind}`;
-    return this.get(`t${key},${k}`, () => scaled(make((SPRITES.sites as any)[key], [0, 0, 0], 200), k));
+    return this.get(`t${key},${k}${rim ? 'r' : ''}`, () => {
+      const base = make((SPRITES.sites as any)[key], [0, 0, 0], 200);
+      return scaled(rim ? rimmed(base) : base, k);
+    });
+  }
+
+  /** 목장에 들일 수 있는 동물 떼 표시 (자원지 표시와 같은 납작한 픽셀 그림). kind: rules.WILDLIFE 번호 (말 0, 순록 3). */
+  herd(kind: number, k: number, rim = false): Img | null {
+    const rows = (SPRITES.herds as any)[String(kind)];
+    if (!rows) return null;
+    return this.get(`h${kind},${k}${rim ? 'r' : ''}`, () => {
+      const base = make(rows, [0, 0, 0], 225);
+      return scaled(rim ? rimmed(base) : base, k);
+    });
   }
 
   static buildingWidth(kind: number): number { return model(`b${kind}`).W; }

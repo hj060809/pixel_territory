@@ -21,6 +21,9 @@ canvas#view { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 .hud-top .chip i { font-style: normal; font-size: 11px; margin-left: -1px; }
 .hud-top .chip i.up { color: rgb(150, 222, 110); }
 .hud-top .chip i.down { color: rgb(255, 122, 100); }
+.hud-top .fps-chip i { font-size: 11px; color: rgb(190, 184, 168); margin-right: 3px; }
+.hud-top .fps-chip.mid b { color: rgb(255, 196, 110); }
+.hud-top .fps-chip.low b { color: rgb(255, 122, 100); }
 .hud-top .chip i.zero { color: rgb(150, 148, 140); }
 .hud-top .chip { position: relative; }
 .hud-top .chip .gauge { position: absolute; left: 21px; right: 0; bottom: -3px; height: 2px; background: rgba(255, 255, 255, 0.13); }
@@ -48,6 +51,12 @@ body.touch .hud-top .chip i { font-size: 9px; }
 body.touch .hud-top .chip .gauge { left: 19px; bottom: -2px; }
 body.touch .hud-env, body.touch .hud-keys { display: none; }
 body.touch .env-mini { display: inline-flex; }
+.fps-mini { display: none; align-items: baseline; gap: 2px; }
+body.touch .fps-mini { display: inline-flex; }
+.fps-mini i { font-style: normal; font-size: 9px; color: rgb(190, 184, 168); }
+.fps-mini b { font-size: 11px; color: rgb(246, 240, 222); }
+.fps-mini.mid b { color: rgb(255, 196, 110); }
+.fps-mini.low b { color: rgb(255, 122, 100); }
 .loading {
   position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
   background: rgba(8, 10, 16, 0.92); gap: 10px; pointer-events: none; z-index: 10; transition: opacity 0.25s;

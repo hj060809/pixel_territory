@@ -40,12 +40,59 @@ SMOOTH = 2           # 고르게 펼 때 양옆으로 보는 방향 수
 MIN_SHARE = 0.5      # 이 비율 넘는 방향이 최소 반지름보다 짧으면 지을 수 없다
 WOBBLE = ((2, 0.10), (3, 0.07), (5, 0.04))   # 바탕 모양의 물결: (한 바퀴에 몇 번, 세기). 합쳐 반지름의 약 ±20%
 PEN_MARGIN = 2.0     # 다른 목장 울타리와의 여유 (칸)
+SPOT_STEP = 3.0      # 목장 자리 후보 간격 (칸)
+SPOT_EVAL = 20       # 목장 자리를 고를 때 울타리 모양을 계산해 보는 후보 수 (걸음을 막지 않게)
 
 
-def fence_shape(world, cy: float, cx: float, radius: float, inner: float = 4.0, skip_building: int = -1):
+class Blocked:
+    """막힌 칸 표 (한 번 칠해 두고 울타리 계산마다 들여다본다): 물·절벽·걸을 수 없는 칸, 다른 건물(반지름 + MARGIN),
+    빈 자원지(SITE_R), 용 둥지(LAIR_R), 다른 목장 울타리 안(+PEN_MARGIN). 원 장애물은 칸 가운데가 원 + 반 칸 안이면 막힌 칸
+    (칸 안의 어느 점이든 장애물에 걸치지 않게). 표 밖과 지도 밖은 막힌 칸."""
+
+    def __init__(self, world, cy: float, cx: float, half: int, skip_building: int = -1):
+        m, b = world.map, world.builds
+        self.y0, self.x0 = int(cy) - half, int(cx) - half
+        n = 2 * half + 1
+        bad = np.ones((n, n), bool)
+        ya, yb = max(self.y0, 0), min(self.y0 + n, m.H)
+        xa, xb = max(self.x0, 0), min(self.x0 + n, m.W)
+        if ya < yb and xa < xb:
+            bad[ya - self.y0:yb - self.y0, xa - self.x0:xb - self.x0] = (
+                ~m.walk_static[ya:yb, xa:xb] | m.water[ya:yb, xa:xb] | m.cliff[ya:yb, xa:xb])
+        gy = (np.arange(n) + self.y0 + 0.5)[:, None]
+        gx = (np.arange(n) + self.x0 + 0.5)[None, :]
+        alive = np.flatnonzero(b.alive[:b.n])
+        obst = [(float(b.x[i]), float(b.y[i]), float(b.r[i]) + MARGIN) for i in alive if i != skip_building]
+        obst += [(float(s.x), float(s.y), SITE_R) for s in world.sites if s.building < 0]
+        obst += [(float(a.hx), float(a.hy), LAIR_R) for a in world.wild.animals.values() if a.unit >= 0]
+        cy0, cx0 = self.y0 + half + 0.5, self.x0 + half + 0.5
+        for ox, oy, orad in obst:
+            if abs(ox - cx0) - orad > half + 1 or abs(oy - cy0) - orad > half + 1:
+                continue
+            bad |= (gx - ox) ** 2 + (gy - oy) ** 2 < (orad + 0.5) ** 2
+        pens = getattr(world, 'pastures', None)
+        if pens is not None and pens.pens:
+            gxx, gyy = np.broadcast_arrays(gx, gy)
+            bad |= pens.covers(gxx.ravel(), gyy.ravel(), PEN_MARGIN).reshape(n, n)
+        self.bad = bad
+
+    def at(self, x, y) -> np.ndarray:
+        """이 점들의 칸이 막혔나 (표 밖이면 막힌 것으로)."""
+        ix = np.floor(np.asarray(x)).astype(np.int64) - self.x0
+        iy = np.floor(np.asarray(y)).astype(np.int64) - self.y0
+        n = self.bad.shape[0]
+        ok = (ix >= 0) & (iy >= 0) & (ix < n) & (iy < n)
+        out = np.ones(ix.shape, bool)
+        out[ok] = self.bad[iy[ok], ix[ok]]
+        return out
+
+
+def fence_shape(world, cy: float, cx: float, radius: float, inner: float = 4.0, skip_building: int = -1, grid: Blocked | None = None):
     """(cy, cx)를 가운데로 한 울타리의 방향마다 반지름 (DIRS개, 칸) 또는 지을 수 없으면 None.
-    inner: 이보다 짧은 방향은 '막혔다'로 친다 (헛간 둘레), skip_building: 이 건물은 장애물로 치지 않는다 (자기 헛간)."""
-    m, b = world.map, world.builds
+    inner: 이보다 짧은 방향은 '막혔다'로 친다, skip_building: 이 건물은 장애물로 치지 않는다,
+    grid: 미리 칠해 둔 막힌 칸 표 (자리 후보 여럿을 볼 때 한 번만 칠한다. 없으면 이 자리 둘레로 새로)."""
+    if grid is None:
+        grid = Blocked(world, cy, cx, int(radius) + 3, skip_building)
     ang = np.arange(DIRS) * (2 * np.pi / DIRS)
     rng = np.random.default_rng([int(round(cx)) & 0xFFFF, int(round(cy)) & 0xFFFF, 77])   # 자리로 정해지는 물결
     base = np.ones(DIRS)
@@ -55,21 +102,7 @@ def fence_shape(world, cy: float, cx: float, radius: float, inner: float = 4.0, 
     rs = np.arange(STEP, radius + 1e-6, STEP)
     xs = cx + np.cos(ang)[:, None] * rs[None]                     # (방향, 거리)
     ys = cy + np.sin(ang)[:, None] * rs[None]
-    inside = (xs >= 0) & (ys >= 0) & (xs < m.W) & (ys < m.H)
-    xi = np.clip(xs.astype(np.int64), 0, m.W - 1)
-    yi = np.clip(ys.astype(np.int64), 0, m.H - 1)
-    bad = ~inside | ~m.walk_static[yi, xi] | m.water[yi, xi] | m.cliff[yi, xi] | (rs[None] > lim[:, None])   # 바탕 모양 밖도 막힌 것으로
-    alive = np.flatnonzero(b.alive[:b.n])
-    obst = [(float(b.x[i]), float(b.y[i]), float(b.r[i]) + MARGIN) for i in alive if i != skip_building]
-    obst += [(float(s.x), float(s.y), SITE_R) for s in world.sites if s.building < 0]
-    obst += [(float(a.hx), float(a.hy), LAIR_R) for a in world.wild.animals.values() if a.unit >= 0]
-    for ox, oy, orad in obst:
-        if np.hypot(ox - cx, oy - cy) - orad > radius:
-            continue
-        bad |= np.hypot(xs - ox, ys - oy) < orad
-    pens = getattr(world, 'pastures', None)                       # 다른 목장의 울타리 안 (+ 여유)
-    if pens is not None and pens.pens:
-        bad |= pens.covers(xs.ravel(), ys.ravel(), PEN_MARGIN).reshape(xs.shape)
+    bad = grid.at(xs, ys) | (rs[None] > lim[:, None])             # 바탕 모양 밖도 막힌 것으로
     first = np.where(bad.any(1), bad.argmax(1), len(rs))           # 방향마다 처음 막힌 자리
     raw = np.where(first > 0, rs[np.maximum(first - 1, 0)], 0.0)   # 막히기 바로 앞까지
     raw[first == len(rs)] = radius
@@ -81,24 +114,14 @@ def fence_shape(world, cy: float, cx: float, radius: float, inner: float = 4.0, 
     smooth = np.convolve(pad, k, mode='valid')
     out = np.floor(np.minimum(raw, smooth) * 2) / 2                 # 0.5칸 단위 (화면으로 보내기 쉽게, 안쪽으로 내림)
     # 이웃 방향의 점 사이를 잇는 선도 막힌 칸(좁은 물줄기·장애물 귀퉁이)을 지나지 않게: 걸리면 두 끝을 안으로 당긴다
-    oxy = np.array([(ox, oy, orad) for ox, oy, orad in obst], float).reshape(-1, 3)
-
-    def blocked(x, y):
-        xi_, yi_ = np.clip(x.astype(np.int64), 0, m.W - 1), np.clip(y.astype(np.int64), 0, m.H - 1)
-        hit = (x < 0) | (y < 0) | (x >= m.W) | (y >= m.H) | ~m.walk_static[yi_, xi_] | m.water[yi_, xi_] | m.cliff[yi_, xi_]
-        if len(oxy):
-            hit |= (np.hypot(x[:, None] - oxy[:, 0], y[:, None] - oxy[:, 1]) < oxy[:, 2]).any(1)
-        if pens is not None and pens.pens:
-            hit |= pens.covers(x, y, PEN_MARGIN)
-        return hit
-
     ts = np.linspace(0, 1, 9)
+    ca, sa = np.cos(ang), np.sin(ang)
     for _ in range(int(radius / STEP) * 2):
-        px, py = cx + np.cos(ang) * out, cy + np.sin(ang) * out
+        px, py = cx + ca * out, cy + sa * out
         nx_, ny_ = np.roll(px, -1), np.roll(py, -1)
         sx = px[:, None] + (nx_ - px)[:, None] * ts[None]
         sy = py[:, None] + (ny_ - py)[:, None] * ts[None]
-        seg = blocked(sx.ravel(), sy.ravel()).reshape(DIRS, len(ts)).any(1)
+        seg = grid.at(sx, sy).any(1)
         if not seg.any():
             break
         shrink = seg | np.roll(seg, 1)                              # 막힌 선의 두 끝
@@ -190,28 +213,45 @@ class Pastures:
 
     def _best_spot(self, herd):
         """울타리 자리와 모양을 먼저 (떼 가운데 둘레에서 넓고 둥글게, 떼가 많이 들어가게), 그 다음 헛간을 울타리 바로 바깥 동·서쪽에.
-        반환 (울타리 가운데 y, x, 반지름들, 헛간 y, 헛간 x) 또는 None."""
+        반환 (울타리 가운데 y, x, 반지름들, 헛간 y, 헛간 x) 또는 None.
+        빠르게 (걸음을 막지 않게): 떼 둘레의 막힌 칸 표를 한 번만 칠하고, 후보(SPOT_STEP칸 간격)를 둘레가 트인 순서로 보며,
+        울타리 계산은 SPOT_EVAL번까지, 한도에 가까운 둥근 울타리에 떼가 다 드는 자리가 나오면 거기서 멈춘다."""
         P, w = R.PASTURE_RULES, self.w
         hx, hy = float(np.mean([a.x for a in herd])), float(np.mean([a.y for a in herd]))
+        span, radius = P['search'], P['radius']
+        grid = Blocked(w, hy, hx, int(span + radius) + 3)
+        half = int(span + radius) + 3
+        rr0 = 10                                                    # 트인 정도를 보는 둘레 (칸)
+        disc = np.hypot(*np.mgrid[-rr0:rr0 + 1, -rr0:rr0 + 1]) <= rr0
+        free = ~grid.bad
         cands = []
-        span = P['search']
-        for dy in np.arange(-span, span + 0.1, 2.0):
-            for dx in np.arange(-span, span + 0.1, 2.0):
+        for dy in np.arange(-span, span + 0.1, SPOT_STEP):
+            for dx in np.arange(-span, span + 0.1, SPOT_STEP):
                 if dx * dx + dy * dy > span * span:
                     continue
                 cy, cx = int(hy + dy) + 0.5, int(hx + dx) + 0.5
-                radii = fence_shape(w, cy, cx, P['radius'], inner=4.0)
-                if radii is None:
+                iy, ix = int(cy) - grid.y0, int(cx) - grid.x0
+                if not (rr0 <= iy < 2 * half + 1 - rr0 and rr0 <= ix < 2 * half + 1 - rr0) or not free[iy, ix]:
                     continue
-                rr = np.asarray(radii)
-                if rr.min() < 4.0 or rr.mean() < P['radius'] * P['min_fill']:   # 너무 작거나 깊게 파인 울타리는 안 된다
-                    continue
-                got = sum(1 for a in herd if self._in(cx, cy, rr, a.x, a.y, 1.0))
-                score = (float((rr ** 2).mean()) / P['radius'] ** 2 * 10 - float(rr.std()) / P['radius'] * 20
-                         + got * 1.5 - float(np.hypot(dx, dy)) * 0.15)
-                cands.append((score, cy, cx, radii))
+                open_ = float(free[iy - rr0:iy + rr0 + 1, ix - rr0:ix + rr0 + 1][disc].mean())
+                cands.append((open_ - float(np.hypot(dx, dy)) * 0.01, cy, cx, dx, dy))
         cands.sort(key=lambda c: -c[0])
-        for _, cy, cx, radii in cands[:12]:                       # 좋은 울타리부터: 헛간을 붙일 자리가 있는 것
+        scored = []
+        for _, cy, cx, dx, dy in cands[:SPOT_EVAL]:
+            radii = fence_shape(w, cy, cx, radius, inner=4.0, grid=grid)
+            if radii is None:
+                continue
+            rr = np.asarray(radii)
+            if rr.min() < 4.0 or rr.mean() < radius * P['min_fill']:   # 너무 작거나 깊게 파인 울타리는 안 된다
+                continue
+            got = sum(1 for a in herd if self._in(cx, cy, rr, a.x, a.y, 1.0))
+            score = (float((rr ** 2).mean()) / radius ** 2 * 10 - float(rr.std()) / radius * 20
+                     + got * 1.5 - float(np.hypot(dx, dy)) * 0.15)
+            scored.append((score, cy, cx, radii))
+            if got == len(herd) and rr.mean() >= radius * 0.8:          # 충분히 좋다: 그만 본다
+                break
+        scored.sort(key=lambda c: -c[0])
+        for _, cy, cx, radii in scored:                              # 좋은 울타리부터: 헛간을 붙일 자리가 있는 것
             shed = self._shed_spot(cy, cx, radii)
             if shed is not None:
                 return cy, cx, radii, shed[0], shed[1]

@@ -519,6 +519,7 @@ export class GameView {
       this.binfo?.frame(cam);
       this.tui?.frame();
       hudWait += dt;
+      this.hud?.countFrame();
       if (this.hud && hudWait >= 0.25) {
         hudWait = 0;
         this.hud.actions = { lobby: exit, restart: () => net.send({ t: 'restart' }),
