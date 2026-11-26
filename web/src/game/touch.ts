@@ -154,8 +154,9 @@ export class TouchInput {
       const bld = ctl.buildingAt(mx, my, me);
       const other = ctl.buildingAt(mx, my);
       const foreignHall = other && other.own !== me && other.kind === ctl.rules_kinds().HALL;     // 다른 나라의 거점: 외교 말풍선
-      if (unit || (boat && (boat.kind === 1 || boat.cargo > 0)) || bld || foreignHall) ctl.selectPoint(mx, my, z, this.add, TOUCH_PX);
-      else { ctl.selB = null; this.h.info(sx, sy); }
+      const foreign = other && other.own !== me;                // 다른 나라의 건물: 거점은 외교, 나머지는 살펴보기 말풍선
+      if (unit || (boat && (boat.kind === 1 || boat.cargo > 0)) || bld || foreignHall || foreign) ctl.selectPoint(mx, my, z, this.add, TOUCH_PX);
+      else { ctl.selB = null; ctl.inspect = null; ctl.onPickElse?.(); this.h.info(sx, sy); }   // 땅: 말풍선은 닫고 그 자리 설명
     }
     this.h.changed();
   }

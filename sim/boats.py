@@ -326,7 +326,7 @@ class Fleet:
         _, h, route, gather = best
         # 3. 병사들은 항구로 모이고, 첫 나룻배가 항구 앞에 댄다
         ids = np.asarray(ids)
-        if not w.order_move(ids, gather[0], gather[1]):
+        if not w.order_move(ids, gather[0], gather[1], ferry=False):   # 항구로 모인다 (다시 나룻배를 부르지 않는다)
             return False
         c = Convoy(own, h, gather, route.copy(), land, then, int(u.slot[ids[0]]), list(map(int, ids)),
                    planned=int(np.ceil(len(ids) / R.BOAT_CAPACITY)))

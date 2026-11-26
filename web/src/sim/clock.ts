@@ -97,9 +97,10 @@ export class SeasonCycle {
     return w;
   }
 
-  label(): string {
-    const month = (Math.floor(this.year * 12 + 2) % 12) + 1;
-    const name = SEASON_NAMES[Math.floor(((((month - 3) % 12) + 12) % 12) / 3)];
-    return `${name} (${month}월)`;
-  }
+  /** 지금 달 (1~12). */
+  month(): number { return (Math.floor(this.year * 12 + 2) % 12) + 1; }
+  /** 지금 계절 번호 (0 봄, 1 여름, 2 가을, 3 겨울: SEASON_NAMES 순서). */
+  index(): number { return Math.floor(((((this.month() - 3) % 12) + 12) % 12) / 3); }
+
+  label(): string { return `${SEASON_NAMES[this.index()]} (${this.month()}월)`; }
 }

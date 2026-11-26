@@ -149,6 +149,13 @@ DRIVE_R = 8            # 시작 거점 둘레 이만큼 안의
 DRIVE_COLD = 0.4       # 이만큼이 설원(봄·가을에도 눈)이나 툰드라면 드래곤 부족
 DRIVE_TIME = 300.0     # 이만큼 지나고
 DRIVE_BUILDS = 6       # 건물(거점 포함)이 이만큼 있으면 '자랐다'
+RAID_CHANCE = 0.025     # 호위 없는 적대국 행렬을 약탈하러 가는 확률 (생각할 때마다, × 공격성). 약탈국이 아닐 때만
+TRADE_PEACE = 1.8      # 무역하는 나라의 건물은 이만큼 멀리 있는 것처럼 친다 (덜 고른다)
+ESCORT_WANT = 2        # 무역소마다 호위병 (병력이 넉넉할 때)
+TRADE_TIME = 120.0     # 무역소: 이만큼 지난 뒤부터
+TRADE_TIME2 = 600.0    # 이 뒤로는 TRADE_MAX개까지
+TRADE_MAX = 2
+TRADE_GAP = 0.45       # 자원의 채움 비율이 이만큼 벌어지면
 TORT_TIME = 240.0      # 거북 의지: 이만큼 지나고
 TORT_BUILDS = 5        # 건물이 이만큼 있으면
 TORT_MAX = 3           # 거북을 이만큼까지
@@ -211,6 +218,9 @@ class Bot:
     def think(self, w, nat) -> None:
         u, b = w.units, w.builds
         mine = w.unit_ids(self.id)
+        esc = w.trade.escort_ids(self.id)
+        if esc:
+            mine = np.setdiff1d(mine, esc)                           # 호위병은 무역소가 쓴다 (sim/trade.py)
         idle = mine[u.state[mine] == IDLE]
         halls = w.building_ids(self.id, R.HALL, done=True)
         intel = self.intel = self._intel(w)
@@ -234,9 +244,9 @@ class Bot:
         # 1. 훈련 (적의 용기사엔 궁수를, 바위거북엔 보병을 더, 목재가 남으면 궁수를 더, 모자라면 덜)
         wood = nat.res[R.WOOD] - self.reserve[R.WOOD]
         arch = self.archers + (0.25 if intel['riders'] else 0) - (0.2 if intel['tortoises'] else 0)
-        arch += 0.2 if wood > 300 else -0.2 if wood < 60 and not intel['riders'] else 0.0
+        arch += 0.2 if wood > nat.caps[R.WOOD] * 0.6 else -0.2 if wood < 60 and not intel['riders'] else 0.0
         arch = float(np.clip(arch, 0.1, 0.9))
-        want_q = 5 if nat.res[R.FOOD] > 400 or self.drive else 2   # 넉넉하거나 드래곤 병력을 모을 때는 더 많이
+        want_q = 5 if nat.res[R.FOOD] > nat.caps[R.FOOD] * 0.8 or self.drive else 2   # 넉넉하거나 드래곤 병력을 모을 때는 더 많이
         floor = 40 if len(mine) < 4 else 45                     # 병사가 몇 남지 않았으면 먼저 뽑는다
         a_cost = R.UNIT_STATS[R.ARCHER]['cost'][R.WOOD]
         ranged = int(w.k_ranged[u.kind[mine]].sum()) if len(mine) else 0
@@ -377,6 +387,7 @@ class Bot:
     # ------------------------------------------------------------- 도움
     def _defenses(self, w, idle, intel, halls, home):
         """망루와 화염탑 (공격받는 중에도 먼저 짓는다)."""
+        u = w.units
         b = w.builds
         # 망루 (적이 가까이 보이거나 바위거북이 있으면 더, 적과 가까운 쪽에)
         towers = len(w.building_ids(self.id, R.TOWER))
@@ -393,6 +404,39 @@ class Bot:
                 pick = self._nearest(w, idle, spot[0], spot[1], 2)
                 if w.place_building(self.id, R.TOWER, spot[0], spot[1], pick, quiet=True) >= 0:
                     idle = np.setdiff1d(idle, pick)
+        # 무역소: 자원이 한쪽으로 쏠렸고 (채움 비율 차이 TRADE_GAP 이상), 무역할 만한 나라가 있으면 (TRADE_MAX개까지, sim/trade.py)
+        posts = w.building_ids(self.id, R.TRADE_POST)
+        tcost = R.BUILD_STATS[R.TRADE_POST]['cost']
+        nat = w.nations[self.id]
+        f = [v / max(nat.caps[k], 1.0) for k, v in enumerate(nat.res)]
+        first = len(posts) == 0                                     # 첫 무역소는 무역할 나라만 있으면 (상대도 지어야 오가니 일찍)
+        if (w.time > TRADE_TIME and len(posts) < (1 if w.time < TRADE_TIME2 else TRADE_MAX) and (first or max(f) - min(f) >= TRADE_GAP)
+                and len(idle) >= 2 and w.can_afford(self.id, tcost) and self.rng.random() < (0.6 if first else 0.3)
+                and any(w.trade.wants(self.id, o.id) for o in w.nations if o.id != self.id and o.alive)):
+            c = self._guard_site(w, front=False)
+            spot = w._open_spot(b.y[c], b.x[c], self.rng.uniform(9, 13), R.BUILD_STATS[R.TRADE_POST]['r']) if c >= 0 else None
+            if spot is not None:
+                pick = self._nearest(w, idle, spot[0], spot[1], 2)
+                if w.place_building(self.id, R.TRADE_POST, spot[0], spot[1], pick, quiet=True) >= 0:
+                    idle = np.setdiff1d(idle, pick)
+        # 호위: 무역소마다 ESCORT_WANT명 (쉬는 병사가 넉넉할 때). 약탈: 적대국 행렬이 가깝고 호위가 없으면 (약탈 단계 2 아래일 때)
+        if len(posts) and len(idle) >= 8 and self.rng.random() < 0.2:
+            for p in w.trade.posts(self.id):
+                have = len(w.trade.escorts.get(int(p), [])) + sum(len(c.escort) for c in w.trade.caravans if c.home == int(p))
+                if have < ESCORT_WANT:
+                    pick = self._nearest(w, idle, b.y[p], b.x[p], ESCORT_WANT - have)
+                    if w.trade.assign(pick, int(p)):
+                        idle = np.setdiff1d(idle, pick)
+        if len(idle) >= 3 and w.trade.raid_lv[self.id] < 1 and self.rng.random() < RAID_CHANCE * self.aggression:
+            for c in w.trade.caravans:
+                if c.at_sea or c.escort or not w.trade.hostile(self.id, c.own):
+                    continue
+                x, y, _ = c.at()
+                near = idle[np.hypot(u.x[idle] - x, u.y[idle] - y) < 30]
+                if len(near) >= 2:
+                    w.trade.raid(near[:4], c)
+                    idle = np.setdiff1d(idle, near[:4])
+                    break
         # 유황 채취장 (4-1-2): 유황 채취장: 아직 없으면 같은 땅(또는 항구로 갈 수 있는)의 가장 가까운 빈 유황 웅덩이에 곧장 일꾼을 보낸다
         if (len(idle) >= 2 and not len(w.building_ids(self.id, R.SULFUR_PIT)) and w.time > 60
                 and w.can_afford(self.id, R.BUILD_STATS[R.SULFUR_PIT]['cost']) and self.rng.random() < 0.5):
@@ -482,12 +526,12 @@ class Bot:
         if n > len(halls) or n >= 3 or w.time < 150:
             return False
         per_hall = R.UNIT_STATS[R.INFANTRY]['cost'][R.FOOD] / R.UNIT_STATS[R.INFANTRY]['time']   # 거점 하나가 쓰는 식량 (초당)
-        return nat.res[R.FOOD] > 300 or nat.rate[R.FOOD] > per_hall * n * 0.8
+        return nat.res[R.FOOD] > nat.caps[R.FOOD] * 0.7 or nat.rate[R.FOOD] > per_hall * n * 0.8
 
     def _hall_spot(self, w, halls):
         """새 거점 자리: 거점에서 가장 먼 내 자원지 곁 (20칸 넘게 떨어졌으면), 아니면 거점에서 16~24칸 떨어진 빈 땅."""
         b = w.builds
-        camps = [c for c in w.building_ids(self.id, done=True) if b.kind[c] in (R.FARM, R.LUMBER, R.QUARRY, R.SULFUR_PIT, R.FISHERY)]
+        camps = [c for c in w.building_ids(self.id, done=True) if b.kind[c] in (R.FARM, R.LUMBER, R.QUARRY, R.SULFUR_PIT)]
         if not len(halls):
             src = camps or list(w.building_ids(self.id, done=True))
             if not src:
@@ -803,13 +847,13 @@ class Bot:
         need = np.array([nat.rate[R.FOOD] < 0.5, res[R.WOOD] < 120 + self.reserve[R.WOOD],
                          res[R.STONE] < 60 + self.reserve[R.STONE] or ((self.intel['riders'] or fires == 0) and res[R.STONE] < 120), sul], float)
         for k, o in ((R.WOOD, R.STONE), (R.STONE, R.WOOD)):        # 하나만 쌓이고 다른 하나가 모자라면
-            if res[o] > 300 and res[k] < res[o] * 0.3:
+            if res[o] > nat.caps[o] * 0.6 and res[k] < res[o] * 0.3:
                 need[k] += 1.0
-            if res[k] > 600:
+            if res[k] > nat.caps[k] * 0.9:
                 need[k] -= 0.75                                      # 쌓여 있으면 그 자원지는 훨씬 덜 (거리 4배로 친다)
-        if res[R.FOOD] > 600:
+        if res[R.FOOD] > nat.caps[R.FOOD] * 0.9:
             need[R.FOOD] -= 0.75
-        elif res[R.FOOD] < 150 and nat.rate[R.FOOD] < 3.0 and max(res[R.WOOD], res[R.STONE]) > 300:
+        elif res[R.FOOD] < 150 and nat.rate[R.FOOD] < 3.0 and (res[R.WOOD] > nat.caps[R.WOOD] * 0.6 or res[R.STONE] > nat.caps[R.STONE] * 0.6):
             need[R.FOOD] += 1.0                                      # 목재·석재는 남는데 식량이 모자라다
         if not len(w.building_ids(self.id, R.FARM)):                # 농장이 없으면 농장부터
             need[R.FOOD] += 2.0
@@ -932,7 +976,7 @@ class Bot:
             if tg and tg[0] != me and d.level(me, o) >= 1 and (self.focus is None or self.focus[1] <= w.time):
                 self.focus = (tg[0], tg[1])
         # 4. 넉넉하면 우호인 동맹에게 자원을 조금
-        rich = [0.15 if nat.res[k] > 600 else 0.0 for k in range(3)]               # 넉넉한 자원만 15%
+        rich = [0.15 if nat.res[k] > nat.caps[k] * 0.9 else 0.0 for k in range(3)]               # 넉넉한 자원만 15%
         if allies and any(rich) and d.donate_cd[me] <= w.time and rng.random() < 0.15:
             o = max(allies, key=lambda o: d.rel[me, o])
             if d.level(me, o) == 3:
@@ -977,6 +1021,8 @@ class Bot:
         real = own < dp.n
         rel = np.where(real, dp.rel[self.id, np.minimum(own, dp.n - 1)], 0.0)
         d = d * np.where(rel < -50, 0.6, np.where(rel < 0, 0.85, 1.0))                  # 적대하는 나라를 먼저
+        trading = np.array([w.trade.status(self.id, int(o)) == 'on' if o < dp.n else False for o in own])
+        d = d * np.where(trading, TRADE_PEACE, 1.0)                                     # 무역하는 나라는 덜 친다
         if self.focus is not None and self.focus[1] > w.time:
             d = d * np.where(own == self.focus[0], 0.4, 1.0)                           # 동맹이 공격을 요청한 나라는 더 먼저
         t = foes[int(np.argmin(d))]

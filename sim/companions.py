@@ -35,7 +35,7 @@ class Companions:
         w, u = self.w, self.w.units
         ids = w.unit_ids()
         o = u.own[i]
-        ids = ids[(w.diplo.friend[o, u.own[ids]] == 0) & (u.own[ids] < R.NEUTRAL) & ~u.air[ids]]   # 동맹은 빼고
+        ids = ids[(w.diplo.friend[o, u.own[ids]] == 0) & (u.own[ids] < R.NEUTRAL) & ~u.air[ids] & ~u.passive[ids]]   # 동맹, 호위 중인 병사는 빼고
         if not len(ids):
             return ids
         return ids[np.hypot(u.x[ids] - u.x[i], u.y[ids] - u.y[i]) <= r]

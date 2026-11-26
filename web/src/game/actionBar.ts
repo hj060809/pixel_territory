@@ -7,8 +7,12 @@ import type { Controller, TrainKind } from './controller.ts';
 import type { SpriteBank } from './sprites.ts';
 import type { GameState } from './state.ts';
 
-/** 숫자 키 1~ → 건물 종류 번호 (sim/rules.py: 거점 0, 농장 1, 벌목장 2, 채석장 3, 망루 4, 항구 5, 유황 채취장 6, 화염탑 7). */
-export const BUILD_KEYS = [0, 4, 5, 1, 2, 3, 7, 6, 8];   // 7: 화염탑, 8: 유황 채취장 (사막의 유황 웅덩이에), 9: 낚시터 (해안의 물고기 떼에)
+/** 버튼 순서 = 숫자 키 1~9 → 건물 종류 번호 (sim/rules.py: 거점 0, 농장 1, 벌목장 2, 채석장 3, 망루 4, 항구 5, 유황 채취장 6,
+ *  화염탑 7, 무역소 8). 거점·무역소, 자원 건물, 공격 건물, 항구 순:
+ *  1 거점, 2 무역소, 3 농장, 4 벌목장, 5 채석장, 6 유황 채취장, 7 망루, 8 화염탑, 9 항구. */
+export const BUILD_KEYS = [0, 8, 1, 2, 3, 6, 4, 7, 5];
+/** 건물 버튼 i번째의 키 글자 (1~9). */
+export const buildKeyLabel = (i: number) => String(i + 1);
 /** Q W E (R T Y는 나중 병종용). 기병(창기병, 기마궁수)은 버튼이 없다: 병사로 야생말을 길들인다. */
 export const TRAIN_KEYS: [string, TrainKind][] = [['q', 'infantry'], ['w', 'archer'], ['e', 'warship']];
 const UNIT_OF: Record<string, number> = { infantry: 0, archer: 1 };
@@ -52,7 +56,7 @@ export class ActionBar {
     const gb = group();
     BUILD_KEYS.forEach((kind, i) => {
       const sul = R.build[kind].sulfur ?? 0;
-      const el = make(gb, String(i + 1), bank.building(kind, me, 1), R.build_names[kind], R.build[kind].cost, sul ? `유황 ${sul}` : '');
+      const el = make(gb, buildKeyLabel(i), bank.building(kind, me, 1), R.build_names[kind], R.build[kind].cost, sul ? `유황 ${sul}` : '');
       el.addEventListener('click', () => this.pickBuild(kind));
       this.btns.push({ el, cost: R.build[kind].cost, build: kind, sulfur: sul });
     });
@@ -72,9 +76,9 @@ export class ActionBar {
   /** 건물 버튼: 같은 건물을 다시 누르면 놓기를 그만둔다. */
   pickBuild(kind: number) { this.ctl.mode = this.ctl.mode === kind ? null : kind; this.update(); }
 
-  /** 숫자 키 n (1~) → 건물. 없는 번호면 false. */
+  /** 숫자 키 n (1~9) → 건물. 없는 번호면 false. */
   buildKey(n: number): boolean {
-    const kind = BUILD_KEYS[n - 1];
+    const kind = n >= 1 ? BUILD_KEYS[n - 1] : undefined;
     if (kind === undefined) return false;
     this.pickBuild(kind);
     return true;

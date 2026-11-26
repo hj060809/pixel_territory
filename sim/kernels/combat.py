@@ -39,7 +39,7 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
          nb, bx, by, bkind, bown, bhp, br, bprog, bcd, balive,
          k_speed, k_range, k_dmg, k_cd, k_sight, k_ranged, k_terrain, k_charge, k_vs, k_splash,
          walk, speed_mul, cover, fields, ready, tower_kind, tower_range, tower_dmg, tower_cd, neutral,
-         shots, builders, friend, hurt, hits):
+         shots, builders, friend, hurt, hits, blast, upassive):
     H, W = walk.shape
     gw = W // CELL + 1
     gh = H // CELL + 1
@@ -73,11 +73,11 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
                 utgt[i] = -1
                 utgb[i] = -1
                 st = IDLE
-        engage = (st == IDLE or st == AMOVE) and o != neutral
+        engage = (st == IDLE or st == AMOVE) and o != neutral and not upassive[i]   # 호위 중: 먼저 치지 않는다
         sight = k_sight[k]
         if engage:
             t = utgt[i]
-            if t >= 0 and (not ualive[t] or uaboard[t] or (uair[t] and not k_ranged[k])
+            if t >= 0 and (not ualive[t] or uaboard[t] or upassive[t] or (uair[t] and not k_ranged[k])
                            or (ux[t] - ux[i]) ** 2 + (uy[t] - uy[i]) ** 2 > (sight * 1.4) ** 2):
                 utgt[i] = -1
             tb = utgb[i]
@@ -92,7 +92,7 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
                     for gx in range(max(cx - rr, 0), min(cx + rr + 1, gw)):
                         j = head[gy * gw + gx]
                         while j >= 0:
-                            if friend[o, uown[j]] == 0 and uown[j] != neutral and not (uair[j] and not k_ranged[k]):
+                            if friend[o, uown[j]] == 0 and uown[j] != neutral and not upassive[j] and not (uair[j] and not k_ranged[k]):   # 호위 중인 병사는 저절로 노리지 않는다
                                 d = (ux[j] - ux[i]) ** 2 + (uy[j] - uy[i]) ** 2
                                 if d < bd:
                                     best, bd = j, d
@@ -141,6 +141,7 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
                         dmg *= hurt[bown[t]]
                         bhp[t] -= dmg
                         hits[o, bown[t]] += dmg
+                        blast[t] = o                # 마지막으로 친 나라 (무너지면 창고 몫을 가져간다)
                     if k_splash[k] > 0:                 # 서리 숨결: 둘레의 적도 (덜) 맞고 느려진다
                         sr = k_splash[k]
                         scx, scy = int(tx) // CELL, int(ty) // CELL
@@ -148,7 +149,7 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
                             for gx in range(max(scx - 1, 0), min(scx + 2, gw)):
                                 j = head[gy * gw + gx]
                                 while j >= 0:
-                                    if j != utgt[i] and ualive[j] and not uaboard[j] and friend[o, uown[j]] == 0 and not uair[j] \
+                                    if j != utgt[i] and ualive[j] and not uaboard[j] and friend[o, uown[j]] == 0 and not uair[j] and not upassive[j] \
                                             and (ux[j] - tx) ** 2 + (uy[j] - ty) ** 2 <= sr * sr:
                                         uhp[j] -= dmg * 0.6 * hurt[uown[j]]
                                         hits[o, uown[j]] += dmg * 0.6
@@ -253,7 +254,7 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
             for gx in range(max(cx - rr, 0), min(cx + rr + 1, gw)):
                 j = head[gy * gw + gx]
                 while j >= 0:
-                    if ualive[j] and friend[bown[b], uown[j]] == 0 and uown[j] != neutral:
+                    if ualive[j] and friend[bown[b], uown[j]] == 0 and uown[j] != neutral and not upassive[j]:   # 망루도 호위 중인 병사는 쏘지 않는다
                         d = (ux[j] - bx[b]) ** 2 + (uy[j] - by[b]) ** 2
                         if d < bd:
                             best, bd = j, d

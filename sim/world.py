@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from sim import rules as R
+from sim import storage
+from sim.trade import Trade
 from sim.boats import Fleet
 from sim.entities import AMOVE, ATTACK, BUILD, IDLE, MOVE, Buildings, Units
 from sim.kernels import rng as kernel_rng
@@ -49,6 +51,7 @@ class Nation:
     starving: bool = False
     n_units: int = 0
     n_buildings: int = 0
+    caps: list = field(default_factory=lambda: [R.STORE_BASE + R.STORE_HALL] * 4)   # 자원마다 한도 (식량·목재·석재·유황, sim/storage.py)
     idle: bool = False               # 조종자 없음 (사람이 떠났다): 판 끝을 셀 때 남은 나라로 치지 않는다
 
 
@@ -122,6 +125,7 @@ class World:
         self.wild = Wildlife(self, np.random.default_rng([abs(int(seed)) & 0xFFFFFFFF, 7]))   # 야생 동물 (거점이 선 다음에: 거점 곁엔 안 생기게)
         from sim.diplomacy import Diplomacy
         self.diplo = Diplomacy(self)                       # 외교: 동맹과 관계
+        self.trade = Trade(self)                           # 무역: 무역소와 행렬 (sim/trade.py)
 
     # ------------------------------------------------------------- 알림
     def say(self, text: str, to: int | None = None, skip=()) -> None:
@@ -210,7 +214,8 @@ class World:
                 near = near[:0]
         return near, far, dst
 
-    def order_move(self, ids, y, x, attack: bool = False) -> bool:
+    def order_move(self, ids, y, x, attack: bool = False, ferry: bool = True) -> bool:
+        """ferry: 바다 건너면 나룻배를 타게 한다 (나룻배가 병사를 항구로 부를 때는 False: 서로 부르며 끝없이 돌지 않게)."""
         ids = self._mine(ids)
         if len(ids) == 0:
             return False
@@ -234,7 +239,7 @@ class World:
             ids = ids[~can]
             if len(ids) == 0:
                 return True
-        ids, far, dst = self._split(ids, y, x)
+        ids, far, dst = self._split(ids, y, x) if ferry else (ids, [], None)
         ok = False
         for group, src in far:                       # 바다 건너: 나룻배를 타고 간다
             ok |= self.fleet.ferry(group, y, x, ('move', attack, y, x), src, dst)
@@ -484,7 +489,7 @@ class World:
                             self.k_terrain, self.k_charge, self.k_vs, self.k_splash,
                             m.walk, m.speed_mul, m.cover, self.fields.fields, self.fields.ready, R.TOWER, R.TOWER_RANGE, R.TOWER_DMG,
                             R.TOWER_CD, R.NEUTRAL, self.shots, self._builders,
-                            self.diplo.friend, self.diplo.hurt, self.diplo.hits)
+                            self.diplo.friend, self.diplo.hurt, self.diplo.hits, b.last, u.passive)
         if self.n_shots:                                    # 화면에 잠깐 그릴 공격 (화살, 칼부림)
             for row in self.shots[:self.n_shots].tolist():
                 self.recent.append((self.time, *row))
@@ -504,10 +509,12 @@ class World:
                 if b.prog[i] >= 1:
                     self.say(f'{R.BUILD_NAMES[int(b.kind[i])]} 완성', to=int(b.own[i]))
         self.fleet.update(dt)
+        self.trade.update(dt)                               # 무역 행렬
         self.diplo.update(dt)                               # 외교: 관계, 동맹 기간, 배신자
         # 무너진 건물
         dead = np.flatnonzero(b.alive[:b.n] & (b.hp[:b.n] <= 0))
         for i in dead:
+            storage.loot(self, i, int(b.last[i]))              # 거점·자원 건물: 그 몫을 마지막으로 친 나라에게
             b.alive[i] = False
             if b.kind[i] == R.HARBOR:
                 self.fleet.harbor_lost(i)
@@ -526,6 +533,7 @@ class World:
 
     def _economy(self, dt) -> None:
         u, b, w = self.units, self.builds, self.season_w
+        storage.update_caps(self)                       # 자원 한도 (다 지은 거점·자원 건물)
         for nat in self.nations:
             nat.rate = [0.0, 0.0, 0.0]
             nat.sulfur_rate = 0.0
@@ -540,7 +548,7 @@ class World:
             elif k in R.YIELD:
                 s = self.sites[b.site[i]]
                 res, base = R.YIELD[k]
-                sf = float(np.dot(R.FISH_SEASON if k == R.FISHERY else R.SEASON_YIELD[res], w))
+                sf = float(np.dot(R.SEASON_YIELD[res], w))
                 nat.rate[res] += base * s.rich * (1 + s.cold * (sf - 1))
         for nat in self.nations:                       # 난이도: AI의 자원 수입 배율
             if nat.bonus != 1.0:
@@ -556,6 +564,7 @@ class World:
             nat.starving = nat.res[R.FOOD] < 0
             if nat.starving:
                 nat.res[R.FOOD] = 0.0
+            storage.clamp(nat)                          # 한도를 넘는 만큼은 버린다
         # 굶주림과 회복
         alive = np.flatnonzero(u.alive[:u.n])
         if len(alive):

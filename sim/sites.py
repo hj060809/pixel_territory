@@ -3,7 +3,6 @@
 - 식량: 비옥하고 평평한 풀밭 (강가일수록 풍부)
 - 목재: 숲 (활엽수림, 열대우림, 침엽수림). 넓은 설원에도 평평하고 너무 높지 않은 곳엔 눈 덮인 숲 (생산량 SNOW_WOOD배)
 - 석재: 걸어 들어갈 수 있는 바위·자갈 비탈·석회암 지대
-- 물고기 떼: 바다에 맞닿은 해안에 드물게 (작은 섬일수록 많고, 큰 대륙일수록 적다). 낚시터를 지으면 식량
 같은 종류가 넓게 모인 곳의 가운데를 고르고, 서로 일정 거리 이상 떨어지게 한다.
 """
 from __future__ import annotations
@@ -13,7 +12,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import ndimage
 
-from sim.rules import FISH, FOOD, STONE, SULFUR, WOOD
+from sim.rules import FOOD, STONE, SULFUR, WOOD
 from engine.render import materials as S
 
 GRASSY = (S.GRASS, S.GRASS_YELLOW, S.GRASS_DEAD, S.DRYGRASS, S.SAVANNA, S.STEPPE)
@@ -42,19 +41,16 @@ def sites_for(gmap, map_seed: int) -> list[Site]:
     return copy.deepcopy(cache[map_seed])
 
 
+# 자원지 수 배율: 모든 종류의 목표 개수에 곱한다 (자원이 너무 흔하지 않게. docs/ECONOMY_PLAN.md 1장)
+SITE_SCALE = 0.8
 # 지도마다 종류별 최소 개수: 육지 넓이에 비례하는 목표의 절반, 아래 한도는 이만큼 (작은 섬 지도에서도 자원이 모자라지 않게)
-MIN_FLOOR = {FOOD: 5, WOOD: 5, STONE: 3}
+MIN_FLOOR = {FOOD: 4, WOOD: 4, STONE: 2}
 # 시작할 수 있는 섬마다 목재 자원지 최소 개수: 이 넓이(칸) 이상이면 2개, 아니면 1개 (어디서 시작해도 목재가 조금은 있게)
 WOOD_ISLAND_BIG = 8000
 # 설원의 숲: 설원(봄·가을에도 눈) 넓이 이만큼(칸)마다 하나, 생산량은 보통 숲의 이만큼
-SNOW_WOOD_PER = 7000
+SNOW_WOOD_PER = int(7000 / SITE_SCALE)
 SNOW_WOOD = 0.6
-# 물고기 떼: 섬마다 기대 개수 = FISH_K × (해안 길이 / (해안 길이 + FISH_COAST)) × √(FISH_REF / 섬 넓이), 최대 FISH_MAX
-FISH_K = 3.0
-FISH_COAST = 80
-FISH_REF = 3000
-FISH_MAX = 3
-FISH_MIN_AREA = 80          # 이보다 작은 섬엔 낚시터가 들어가지 않는다
+
 
 # 기준에 맞는 곳이 모자랄 때 '가장 비슷한 곳'을 고르는 재질 점수 (1 = 기준에 맞음)
 _LIKE = {
@@ -121,7 +117,7 @@ def find_sites(gmap, rng, spacing: float = 30.0) -> list[Site]:
     sites: list[Site] = []
     taken = np.zeros((0, 2))
     for kind, mask, weight, per_land in rules:
-        want = max(3, int(gmap.land_count * per_land))
+        want = max(3, int(gmap.land_count * per_land * SITE_SCALE))
         need = min(want, max(MIN_FLOOR[kind], want // 2))          # 이 지도의 최소 개수
         pool = np.zeros((len(taken) + want, 2))          # 이미 고른 자리 (미리 잡은 배열에 채워 간다)
         pool[:len(taken)] = taken
@@ -158,7 +154,6 @@ def find_sites(gmap, rng, spacing: float = 30.0) -> list[Site]:
     _snow_wood(gmap, sites, walk, spacing)
     _wood_per_island(gmap, sites, mat, walk, spacing)
     _sulfur(gmap, sites, mat, walk)
-    _fish(gmap, sites, walk)
     return sites
 
 
@@ -195,40 +190,6 @@ def _snow_wood(gmap, sites, walk, spacing):
         sites.append(Site(len(sites), WOOD, x, y, rich, float(gmap.cold[y, x]), snow=True))
 
 
-def _fish(gmap, sites, walk):
-    """물고기 떼: 바다(지도 가장자리와 이어진 물)에 맞닿은 해안의 땅 (바다에서 2.5~4칸: 낚시터가 땅 위에 들어가게),
-    앞바다가 넓게 트인 곳. 섬마다 기대 개수는 작은 섬일수록 크고 큰 대륙일수록 작다 (FISH_*), 소수 부분은 난수로.
-    서로 22칸, 다른 자원지와 12칸 넘게."""
-    ocean = gmap.ocean
-    if not ocean.any():
-        return
-    comp = gmap.comp
-    d = ndimage.distance_transform_edt(~ocean)
-    sea = ndimage.uniform_filter(ocean.astype(np.float32), 15)
-    cand = walk & (d >= 2.5) & (d <= 4.0) & (sea > 0.25)
-    area = np.bincount(comp[walk & (comp > 0)], minlength=int(comp.max()) + 1)
-    coast = np.bincount(comp[cand], minlength=len(area))
-    fb = np.random.default_rng([FISH, gmap.land_count])                # 따로 쓰는 난수 (다른 자리는 그대로)
-    for c in np.flatnonzero(coast):
-        if area[c] < FISH_MIN_AREA:
-            continue
-        want = FISH_K * coast[c] / (coast[c] + FISH_COAST) * np.sqrt(FISH_REF / area[c])
-        want = min(FISH_MAX, int(want) + (fb.random() < want - int(want)))
-        if want <= 0:
-            continue
-        ys, xs = np.nonzero(cand & (comp == c))
-        got: list = []
-        for k in fb.permutation(len(ys)):
-            y, x = int(ys[k]), int(xs[k])
-            if any((y - s.y) ** 2 + (x - s.x) ** 2 < 12 ** 2 for s in sites) or any((y - a) ** 2 + (x - b) ** 2 < 22 ** 2 for a, b in got):
-                continue
-            got.append((y, x))
-            if len(got) >= want:
-                break
-        for y, x in got:
-            sites.append(Site(len(sites), FISH, x, y, float(np.clip(0.9 + sea[y, x] * 0.5, 0.9, 1.2)), float(gmap.cold[y, x])))
-
-
 def _sulfur(gmap, sites, mat, walk):
     """유황 웅덩이: 넓은 사막(둘레 15칸의 60% 넘게 사막·모래 언덕) 가운데, 사막 넓이에 따라 0~6곳, 서로 45칸 넘게.
     다른 자원지와 14칸 넘게. 사막이 없는 지도에는 없다."""
@@ -237,7 +198,7 @@ def _sulfur(gmap, sites, mat, walk):
         return
     dens = ndimage.uniform_filter(d.astype(np.float32), 15)
     ys, xs = np.nonzero(d & (dens > 0.6))
-    want = int(np.clip(d.sum() // 2500, 1, 6))
+    want = int(np.clip(d.sum() / 2500 * SITE_SCALE, 1, 6))
     fb = np.random.default_rng([SULFUR, gmap.land_count])
     chosen: list = []
     for k in fb.permutation(len(ys))[:6000]:

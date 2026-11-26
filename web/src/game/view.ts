@@ -16,7 +16,7 @@ import { Hud } from './hud.ts';
 import { Connection, type Handlers, type JoinOptions } from './net.ts';
 import { SpriteBank } from './sprites.ts';
 import { GameState, type StartInfo } from './state.ts';
-import { F_OCEAN, TerrainRules } from './terrainRules.ts';
+import { TerrainRules } from './terrainRules.ts';
 import { fadeCovered } from './occlude.ts';
 import { TouchInput } from './touch.ts';
 import { TouchUi } from './touchUi.ts';
@@ -26,6 +26,7 @@ import { closeMenu, confirmBox, menuBox, menuOpen, visRow, type MenuItem } from 
 import { helpBox } from './help.ts';
 import { serverPlea } from '../ui/coffee.ts';
 import { Tutorial } from './tutorial.ts';
+import { BuildInfoUi } from './buildInfo.ts';
 import { Chat } from './chat.ts';
 import { setTouchMode, touchMode } from '../ui/device.ts';
 import { toggleVis, visOn } from './visibility.ts';
@@ -105,6 +106,7 @@ export class GameView {
   private bar: ActionBar | null = null;
   private dev: DevConsole | null = null;          // 개발용 숨은 콘솔 (서버 --dev)
   private diplo: DiploUi | null = null;           // 외교 말풍선과 동맹 요청 알림
+  private binfo: BuildInfoUi | null = null;       // 건물 말풍선 (체력, 보관 자원, 생산, 공격)
   private tui: TouchUi | null = null;
   private raf = 0;
   private disposed = false;
@@ -149,6 +151,7 @@ export class GameView {
     this.bar?.dispose();
     this.dev?.dispose();
     this.diplo?.dispose();
+    this.binfo?.dispose();
     document.body.classList.remove('multi');
     this.tui?.dispose();
     this.loading.dispose();
@@ -216,27 +219,15 @@ export class GameView {
         rules ??= await TerrainRules.load(`/api/maps/${key}/rules.bin`, info.rules);
         if (this.disposed) return;
         ctl = new Controller(st, net, rules);
-        const FISH = info.rules.kinds?.FISH;                // 물고기 자원지: 그 앞바다를 헤엄치는 물고기 떼
-        const balls: [number, number][] = [];
-        for (const s of info.sites) {
-          const f = s.kind === FISH ? ctl.fishSpot(s) : null;
-          if (!f) continue;
-          // 무리 가운데는 표시에서 바다 쪽으로 조금 더 (물가에 걸려 반쪽이 되지 않게, 표시는 무리 안쪽에)
-          const dx = f.x - s.x, dy = f.y - s.y, n = Math.hypot(dx, dy) || 1;
-          let cx = f.x, cy = f.y;
-          for (let t = 3; t >= 0.5; t -= 0.5) {
-            const x = Math.round(f.x + (dx / n) * t), y = Math.round(f.y + (dy / n) * t);
-            if (x >= 0 && y >= 0 && x < rules.W && y < rules.H && rules.at(y, x) & F_OCEAN) { cx = x; cy = y; break; }
-          }
-          balls.push([cx + 0.5, cy + 0.5]);
-        }
-        life.setBaitBalls(balls);
         const bank = new SpriteBank(info.nations.map((n) => n.color));
         draw = new Overlay(g, bank, st, ctl, scene);
         if (!this.diplo) this.diplo = new DiploUi(st, ctl, net);
         else this.diplo.reset(st, ctl);
         const dui = this.diplo;
         ctl.onForeignHall = (b) => dui.openFor(b);
+        ctl.onPickElse = () => { if (dui.isOpen) dui.close(); };
+        if (!this.binfo) this.binfo = new BuildInfoUi(st, ctl, () => scene.season.weights());
+        else this.binfo.reset(st, ctl);
         this.bar?.dispose();
         this.bar = new ActionBar(st, ctl, bank);          // 하단 버튼 (건물 1~, 병종 QWE)
         if (!this.hud) this.hud = new Hud(st, ctl, scene, rules);
@@ -451,8 +442,8 @@ export class GameView {
       if (e.target instanceof HTMLInputElement) return;   // 대화·콘솔에 쓰는 중: 게임 단축키가 아니다
       keys.add(e.key);
       const k = e.key.toLowerCase();
-      const digit = /^Digit[1-9]$/.test(e.code) ? Number(e.code.slice(5)) : 0;   // Shift를 눌러도 숫자 (e.key는 '!' 등)
-      if (['f1', 'f5', 'f6', 'f10', 'f12', ' ', 'tab'].includes(k) || (digit && (e.ctrlKey || e.shiftKey))) e.preventDefault();
+      const digit = /^Digit[0-9]$/.test(e.code) ? Number(e.code.slice(5)) : -1;   // Shift를 눌러도 숫자 (e.key는 '!' 등)
+      if (['f1', 'f5', 'f6', 'f10', 'f12', ' ', 'tab'].includes(k) || (digit > 0 && (e.ctrlKey || e.shiftKey))) e.preventDefault();
       if (k === 'escape' && (closeMenu() || this.chat?.close())) return;
       if (menuOpen() && k !== 'f1') return;               // 창이 열려 있으면 게임 키는 쉰다
       if (k === 'enter' && st?.over && !document.querySelector('.t-menu-back')) { exit(); return; }
@@ -461,9 +452,9 @@ export class GameView {
       const hud = this.hud;
       if (!ctl || !st || !hud) return;
       hudWait = 1;
-      if (digit) {                            // 숫자: 건물 버튼 / Ctrl+숫자: 부대 지정 / Shift+숫자: 부대 부르기
-        if (e.ctrlKey) ctl.setGroup(digit);
-        else if (e.shiftKey) ctl.recallGroup(digit);
+      if (digit >= 0) {                       // 숫자: 건물 버튼 / Ctrl+숫자: 부대 지정 / Shift+숫자: 부대 부르기 (부대는 1~9)
+        if (e.ctrlKey) { if (digit > 0) ctl.setGroup(digit); }
+        else if (e.shiftKey) { if (digit > 0) ctl.recallGroup(digit); }
         else this.bar?.buildKey(digit);
         return;
       }
@@ -472,6 +463,7 @@ export class GameView {
       switch (k) {
         case 'escape':
           if (this.diplo?.isOpen) this.diplo.close();
+          else if (ctl.inspect) ctl.inspect = null;
           else if (ctl.mode !== null) ctl.mode = null; else { ctl.sel.clear(); ctl.selB = null; ctl.selShips.clear(); }
           break;
         case 'a': if (ctl.sel.size) ctl.mode = 'attack'; break;
@@ -520,6 +512,7 @@ export class GameView {
       }
       if (st && draw) draw.draw(cam, now, pointer, box);
       this.diplo?.frame(cam);
+      this.binfo?.frame(cam);
       this.tui?.frame();
       hudWait += dt;
       if (this.hud && hudWait >= 0.25) {
@@ -529,6 +522,7 @@ export class GameView {
         this.hud.update(cam, touchMode() ? null : mouse);
         if (this.bar && st) this.bar.el.style.display = st.over ? 'none' : '';   // 졌거나 끝났으면 (관전) 명령 버튼을 숨긴다
         this.diplo?.render();
+        this.binfo?.render();
         this.bar?.update();
         this.tui?.update();
         this.tut?.update();

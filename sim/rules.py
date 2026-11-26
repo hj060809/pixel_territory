@@ -39,9 +39,9 @@ UNIT_STATS = {
     HORSE_ARCHER: dict(hp=26.0, dmg=6.0, range=13.0, cd=1.5, speed=8.1, sight=17.0, cost=(0, 0, 0), time=0.0,
                        terrain=1.0, charge=1.0, upkeep=1.5, ranged=True, fly=False, splash=0.0),      # 궁수 + 말
     DRAGON_RIDER: dict(hp=380.0, dmg=30.0, range=8.0, cd=2.5, speed=7.0, sight=18.0, cost=(0, 0, 0), time=0.0,
-                       terrain=1.0, charge=1.0, upkeep=4.0, ranged=True, fly=True, splash=2.6),       # 병사 + 드래곤
+                       terrain=1.0, charge=1.0, upkeep=4.0, ranged=True, fly=True, splash=4.0),       # 병사 + 드래곤
     WILD_DRAGON:  dict(hp=900.0, dmg=22.0, range=8.0, cd=3.5, speed=3.5, sight=16.0, cost=(0, 0, 0), time=0.0,
-                       terrain=1.0, charge=1.0, upkeep=0.0, ranged=True, fly=False, splash=2.6),      # 둥지를 지키는 야생 드래곤
+                       terrain=1.0, charge=1.0, upkeep=0.0, ranged=True, fly=False, splash=4.0),      # 둥지를 지키는 야생 드래곤
     TORTOISE:     dict(hp=600.0, dmg=5.0, range=2.2, cd=1.5, speed=4.0, sight=13.0, cost=(0, 0, 0), time=0.0,
                        terrain=1.0, charge=1.0, upkeep=3.0, ranged=False, fly=False, splash=0.0),     # 길든 거대 바위거북 (탱커)
 }
@@ -53,8 +53,8 @@ UNIT_VS = {(INFANTRY, LANCER): 1.3, (INFANTRY, HORSE_ARCHER): 1.3, (LANCER, ARCH
 #   발 구르기: 붙은 적이 있으면 cd초마다 앞발로 땅을 내리찍어 r칸 안의 땅의 적 모두에게 dmg, push칸 밀어낸다
 #   낮은 포효 (어그로): cd초마다 r칸 안의 적 병사가 t초 동안 바위거북만 노린다 (명령받은 적도)
 #   껍질 숨기: 체력이 hp 비율 아래면 t초 동안 껍질 속으로 숨어 받는 피해를 cut만큼 줄인다 (움직이지도 치지도 않는다, cd초에 한 번)
-STOMP = dict(cd=3.5, r=2.6, dmg=10.0, push=0.8)
-TAUNT = dict(cd=15.0, r=7.0, t=4.0)
+STOMP = dict(cd=3.5, r=4.0, dmg=10.0, push=0.8)
+TAUNT = dict(cd=15.0, r=10.0, t=4.0)
 HIDE = dict(hp=0.25, t=5.0, cut=0.7, cd=30.0)
 HEAL_RIDER = 1.5           # 용기사가 어디서든 1초에 회복하는 체력
 HEAL_ON_SNOW = 4.0         # 용기사가 눈 위에서 1초에 회복하는 체력 (설원에 진지를 둘 이유)
@@ -63,19 +63,20 @@ STARVE = 0.4               # 식량이 바닥나면 병사가 1초에 잃는 체
 HEAL_NEAR_HALL = 0.6       # 거점 가까이서 1초에 회복하는 체력
 
 # --- 건물
-HALL, FARM, LUMBER, QUARRY, TOWER, HARBOR, SULFUR_PIT, FIRE_TOWER, FISHERY = range(9)
-BUILD_NAMES = ('거점', '농장', '벌목장', '채석장', '망루', '항구', '유황 채취장', '화염탑', '낚시터')
+HALL, FARM, LUMBER, QUARRY, TOWER, HARBOR, SULFUR_PIT, FIRE_TOWER, TRADE_POST = range(9)
+BUILD_NAMES = ('거점', '농장', '벌목장', '채석장', '망루', '항구', '유황 채취장', '화염탑', '무역소')
 #             체력, 크기(반지름, 칸), 비용(식량, 목재, 석재), 짓는 데 드는 일(병사×초), sulfur: 유황 비용
 BUILD_STATS = {
-    HALL:   dict(hp=700.0, r=5, cost=(0, 200, 80), work=90.0),
-    FARM:   dict(hp=160.0, r=4, cost=(0, 50, 0), work=20.0),
-    LUMBER: dict(hp=160.0, r=4, cost=(0, 40, 0), work=18.0),
+#   비용은 목재와 석재로 나눈다 (목재를 조금 더: 건물 전체로 목재 : 석재 ≈ 1.45 : 1). 채석장만 목재로 (석재가 바닥나도 캘 수 있게)
+    HALL:   dict(hp=700.0, r=5, cost=(0, 170, 130), work=90.0),
+    FARM:   dict(hp=160.0, r=4, cost=(0, 40, 15), work=20.0),
+    LUMBER: dict(hp=160.0, r=4, cost=(0, 30, 15), work=18.0),
     QUARRY: dict(hp=180.0, r=4, cost=(0, 60, 0), work=24.0),
-    TOWER:  dict(hp=320.0, r=2, cost=(0, 40, 80), work=30.0),
-    HARBOR: dict(hp=260.0, r=4, cost=(0, 90, 20), work=30.0),     # 해안에만. 이 땅의 병사가 여기 모여 배로 건너고, 전함을 만든다
-    SULFUR_PIT: dict(hp=160.0, r=4, cost=(0, 60, 0), work=22.0),  # 사막의 유황 웅덩이에만
-    FIRE_TOWER: dict(hp=520.0, r=2, cost=(0, 0, 80), work=35.0, sulfur=40),
-    FISHERY: dict(hp=150.0, r=3, cost=(0, 45, 0), work=18.0),      # 해안의 물고기 떼 자리에만 (식량)
+    TOWER:  dict(hp=320.0, r=2, cost=(0, 60, 50), work=30.0),
+    HARBOR: dict(hp=260.0, r=4, cost=(0, 70, 50), work=30.0),     # 해안에만. 이 땅의 병사가 여기 모여 배로 건너고, 전함을 만든다
+    SULFUR_PIT: dict(hp=160.0, r=4, cost=(0, 40, 25), work=22.0),  # 사막의 유황 웅덩이에만
+    FIRE_TOWER: dict(hp=520.0, r=2, cost=(0, 50, 70), work=35.0, sulfur=40),
+    TRADE_POST: dict(hp=240.0, r=3, cost=(0, 70, 50), work=24.0),  # 어디서나. 다른 나라의 무역소로 무역 행렬을 보낸다 (sim/trade.py)
 }
 # 화염탑: cd초마다 range칸 안의 가장 가까운 적에게 dmg (둘레 splash칸의 적에게는 splash_mul배). 유황이 없으면 weak배.
 #   드래곤(용기사, 야생 드래곤)은 vs_dragon배 (얼음은 불에 약하다), 바위거북은 vs_tortoise배 (껍질이 견딘다).
@@ -83,7 +84,7 @@ BUILD_STATS = {
 #   그동안 숨결 16번(480)을 맞아 체력 약 40이 남는다 (아슬아슬하게). 눈 위에서는 용기사가 초당 4씩 회복해 용기사가 이긴다
 #   사거리가 궁수(13칸, 건물 가장자리에서 = 가운데에서 15칸)보다 길어서 궁수가 밖에서 일방적으로 치지 못한다
 FIRE = dict(cd=2.0, range=UNIT_STATS[ARCHER]['range'] * 1.25, dmg=14.0,     # 사거리: 궁수의 1.25배 (16.25칸, 탑 가운데에서)
-            splash=2.5, splash_mul=0.6, weak=0.5, vs_dragon=1.6, vs_tortoise=0.7)
+            splash=4.0, splash_mul=0.6, weak=0.5, vs_dragon=1.6, vs_tortoise=0.7)
 
 # --- 배
 # 나룻배: 병사들이 있는 땅에 완성된 항구가 있으면, 바다 건너로 명령받은 병사들이 그 항구에 모여 차례로 타고
@@ -93,7 +94,7 @@ FERRY_HP = 10.0            # 전함 한 방(WARSHIP_DMG)에 가라앉는다
 FERRY_SPEED = 4.5          # 칸/초 (병사가 평지를 걷는 속도와 같다)
 # 전함: 항구에서 만든다. 다른 나라의 나룻배와 전함을 공격한다
 WARSHIP = 'warship'        # 항구 대기열에 넣는 이름
-WARSHIP_COST = (0, 80, 40)
+WARSHIP_COST = (0, 70, 50)
 WARSHIP_TIME = 20.0
 WARSHIP_HP = 180.0
 WARSHIP_SPEED = 5.0
@@ -102,10 +103,9 @@ WARSHIP_DMG = 14.0
 WARSHIP_CD = 1.6
 
 SULFUR = 3                                                     # 자원지 종류: 유황 웅덩이 (자원 0~2와 따로 센다)
-FISH = 4                                                       # 자원지 종류: 해안의 물고기 떼 (식량)
-SITE_NAMES = ('식량', '목재', '석재', '유황', '물고기')
-SITE_BUILDING = {FOOD: FARM, WOOD: LUMBER, STONE: QUARRY, SULFUR: SULFUR_PIT, FISH: FISHERY}     # 자원지 종류 → 지을 건물
-SITE_RES = {FOOD: FOOD, WOOD: WOOD, STONE: STONE, SULFUR: SULFUR, FISH: FOOD}     # 자원지 종류 → 나는 자원 (유황은 따로)
+SITE_NAMES = ('식량', '목재', '석재', '유황')
+SITE_BUILDING = {FOOD: FARM, WOOD: LUMBER, STONE: QUARRY, SULFUR: SULFUR_PIT}     # 자원지 종류 → 지을 건물
+SITE_RES = {FOOD: FOOD, WOOD: WOOD, STONE: STONE, SULFUR: SULFUR}     # 자원지 종류 → 나는 자원 (유황은 따로)
 SULFUR_YIELD = 0.25        # 유황 채취장이 1초에 모으는 유황 (× 풍부함)
 
 # --- 야생 동물과 길들이기 (sim/wildlife.py). 동물 하나 = 표 한 줄 (사막 동물 등은 한 줄 더하면 된다)
@@ -127,7 +127,7 @@ WILDLIFE = {
                  wake=8.0, guard=14.0, subdue=0.3, subdue_time=30.0, limit=2,
                  mounts={k: DRAGON_RIDER for k in _ANY}),
     TORTOISE_W: dict(name='바위거북', habitat='desert', group=(1, 2), per_area=2500, cap=8, regrow=360.0, tame=4.0,
-                     food=300, companion=TORTOISE, tamers=_ANY, calm=True),
+                     food=240, companion=TORTOISE, tamers=_ANY, calm=True),   # 먹이는 처음 한도(STORE_BASE + STORE_HALL) 안에서
 }
 MOUNTED = {v for a in WILDLIFE.values() for v in a.get('mounts', {}).values()}     # 동물을 탄 병종
 
@@ -147,13 +147,34 @@ def josa(word: str, a: str, b: str) -> str:
 TOWER_RANGE, TOWER_DMG, TOWER_CD = 22.0, 6.0, 1.4
 
 # 1초에 나는 자원 (자원지 풍부함 1 기준). 거점도 조금씩 낸다 (아무것도 없어도 다시 일어설 수 있게)
-YIELD = {FARM: (FOOD, 1.5), LUMBER: (WOOD, 0.9), QUARRY: (STONE, 0.55), FISHERY: (FOOD, 1.3)}
+YIELD = {FARM: (FOOD, 1.5), LUMBER: (WOOD, 0.9), QUARRY: (STONE, 0.65)}
 HALL_YIELD = (0.45, 0.25, 0.0)
 # 계절별 배율 (봄, 여름, 가을, 겨울). 추운 곳일수록 이 차이가 그대로, 열대는 거의 1
 SEASON_YIELD = {FOOD: (0.6, 1.0, 1.7, 0.05), WOOD: (1.0, 1.0, 1.0, 0.7), STONE: (1.0, 1.0, 1.0, 0.8)}
-FISH_SEASON = (0.9, 1.0, 1.1, 0.5)    # 낚시터: 계절을 덜 탄다 (겨울에도 반은 잡힌다)
 
-START_RES = (160.0, 160.0, 40.0)
+
+# 자원 한도 (sim/storage.py): 자원마다 따로. 기본 STORE_BASE + 다 지은 거점마다 모든 자원 +STORE_HALL
+#   + 다 지은 자원 건물마다 그 자원 +STORE_SITE (창고는 없다: 거점과 자원 건물이 창고를 겸한다, 무너지면 그 몫을 빼앗긴다)
+STORE_BASE = 200.0
+STORE_HALL = 50.0
+STORE_SITE = 25.0
+
+# 무역 (sim/trade.py): 무역소마다 행렬 하나가 다른 나라의 무역소를 오가며 남는 자원을 모자란 자원과 1:1로 바꾼다
+#   load: 한 번에 싣는 양 = 내주는 나라의 그 자원 한도 × load (한도가 늘면 행렬 규모도 는다), every: 행렬이 돌아온 뒤 다음 출발까지 (초), speed: 걷는 빠르기 (칸/초, 지형을 탄다),
+#   wait: 상대 무역소에서 짐을 바꾸는 시간, keep: 내주지 않고 남겨 두는 양 (한도의 비율), least: 이보다 적게 바꿀 거면 안 간다
+#   (행렬의 체력은 구성원마다: CARAVAN_MEMBERS)
+#   board: 항구에서 상선에 타고 내리는 시간 (바다 건너 무역: 내 항구와 무역이 끊기지 않은 나라의 항구를 쓴다, 빠른 길로)
+#   escort: 행렬 하나를 따라가는 호위병 최대 (남으면 무역소에서 다음 행렬을 기다린다), escort_r: 호위병이 행렬 곁에 머무는 거리
+#   raid_mul: 약탈 단계마다 그 나라와의 행렬 간격 배율,
+#   raid_stop: 이 단계면 모든 나라가 그 나라와의 무역을 멈춘다, raid_forget: 약탈 단계가 하나 내려가는 시간 (초),
+#   rel: 행렬이 무사히 다녀오면 두 나라의 관계가 이만큼 오른다 (무역하는 나라끼리는 덜 싸운다)
+# 행렬 구성 (sim/trade.py): 앞에서 뒤로 (이름, 체력). 상인이 낙타 둘을 끌고 간다. 짐은 살아 있는 구성원이 고르게 나눠 진다
+CARAVAN_MEMBERS = (('trader', 50.0), ('camel', 70.0), ('camel', 70.0))
+CARAVAN_GAP = 4.0          # 구성원 사이 (길 위 칸, 화면 draw.ts와 같다)
+TRADE = dict(load=0.16, every=10.0, speed=3.5, wait=3.0, keep=0.15, least=10.0, board=4.0,
+             escort=6, escort_r=6.0, raid_mul=1.5, raid_stop=3, raid_forget=180.0, rel=5.0)
+
+START_RES = (160.0, 160.0, 120.0)      # 석재를 넉넉히: 석재 자원지가 먼 곳에서 시작해도 첫 건물들을 짓게
 START_UNITS = ((INFANTRY, 5), (ARCHER, 2))
 
 COLORS = [  # 색 이름, 색 (스프라이트 옷/지붕), 밝은 색. 설정 화면에서 내 나라 색을 고르고, AI는 나머지를 쓴다

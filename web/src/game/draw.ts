@@ -191,10 +191,10 @@ export class Overlay {
   }
 
   /** 건물이 서는 방향 (BDIRS 중 하나): 4방향을 BTILT만큼 비스듬히 돌려 옆벽과 박공이 함께 보이게.
-   *  항구·낚시터는 잔교가 바다 칸에 똑바로 닿도록 돌리지 않는다. 나머지는 자리마다 (뒤를 보는 일은 드물게). */
+   *  항구는 잔교가 바다 칸에 똑바로 닿도록 돌리지 않는다. 나머지는 자리마다 (뒤를 보는 일은 드물게). */
   private bdir(b: BuildRec): number {
     const K = this.st.info.rules.kinds;
-    if (b.kind === K.HARBOR || b.kind === K.FISHERY) {                // 잔교가 바다 쪽을 본다
+    if (b.kind === K.HARBOR) {                                        // 잔교가 바다 쪽을 본다
       const d = this.dock(b);
       if (d) return (((Math.round(Math.atan2(-(d[1] + 0.5 - b.x), d[0] + 0.5 - b.y) / (Math.PI / 2)) % 4) + 4) % 4) * 4;
     }
@@ -304,6 +304,26 @@ export class Overlay {
     if (b.qlen > 1) this.text(`+${b.qlen - 1}`, x + img.width + 2 * k, y + 2, 11, 'rgb(255,240,200)');
   }
 
+  /** 멀리서 보는 무역 행렬: 병사 무리 배지와 같은 모양 (나라색 둥근 사각형 + 어두운 테두리) 안에, 숫자 대신 흰 도트 그림
+   *  (땅: 짐 실은 수레, 바다: 돛단배). 다치면 아래 체력 막대. */
+  private caravanBadge(x: number, y: number, own: number, sea: boolean, hp: number) {
+    const g = this.g, n = this.st.info.nations[own], P = 2;              // 도트 하나 = 화면 2픽셀
+    const art = sea
+      ? ['...#....', '...##...', '...###..', '########', '.######.']
+      : ['.###....', '.####..#', '########', '.#....#.', '###..###'];
+    const w = 8 * P + 8, h = art.length * P + 5;
+    const x0 = Math.round(x - w / 2), y0 = Math.round(y - h / 2);
+    g.fillStyle = 'rgb(20,18,24)'; roundRect(g, x0 - 1, y0 - 1, w + 2, h + 2, 4); g.fill();
+    const c = n ? n.color : [200, 200, 200];
+    g.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`; roundRect(g, x0, y0, w, h, 4); g.fill();
+    const ox = x0 + 4, oy = y0 + Math.round((h - art.length * P) / 2);
+    for (const [col, dx, dy] of [['rgba(0,0,0,0.45)', 1, 1], ['rgb(255,250,235)', 0, 0]] as [string, number, number][]) {   // 그림자 1점, 흰 그림
+      g.fillStyle = col;
+      for (let r = 0; r < art.length; r++) for (let q = 0; q < 8; q++) if (art[r][q] === '#') g.fillRect(ox + q * P + dx, oy + r * P + dy, P, P);
+    }
+    if (hp < 0.999) this.bar(x0 + w / 2, y0 + h + 4, w, hp);
+  }
+
   /** 나라색 바닥 고리: 발밑 타원 (나라 색 반투명 + 밝은 나라 색 테두리). */
   private groundRing(x: number, y: number, rx: number, ry: number, own: number, a: number) {
     const g = this.g, n = this.st.info.nations[own];
@@ -320,6 +340,7 @@ export class Overlay {
 
   draw(cam: Camera, now: number, mouse: [number, number] | null, box: [number, number, number, number] | null) {
     const g = this.g, st = this.st, z = cam.zoom, R = st.info.rules, me = st.info.me;
+    this.bank.stack.beginFrame();                                    // 빛이 바뀐 그림은 프레임마다 조금씩 다시 칠한다
     const W = cam.viewW, H = cam.viewH;
     const sx = (x: number) => (x - cam.x) * z, sy = (y: number) => (y - cam.y) * z;
     const vis = (x: number, y: number, pad = 40) => x >= -pad && x <= W + pad && y >= -pad && y <= H + pad;
@@ -342,8 +363,7 @@ export class Overlay {
     const taken = st.siteTaken(), ks = Math.max(2, Math.round(z * 0.6));
     for (const s of st.info.sites) {
       if (taken.has(s.id)) continue;
-      const fs = s.kind === R.kinds.FISH ? this.ctl.fishSpot(s) : null;   // 물고기 떼: 앞바다 무리의 가운데에
-      const x = sx(fs ? fs.x + 0.5 : s.x), y = sy(fs ? fs.y + 0.5 : s.y);
+      const x = sx(s.x), y = sy(s.y);
       if (!vis(x, y)) continue;
       const img = this.bank.site(s.kind, ks, !!s.snow);
       g.drawImage(img, Math.round(x - img.width / 2), Math.round(y - img.height / 2));
@@ -451,6 +471,42 @@ export class Overlay {
       if (this.ctl.selShips.has(b.id)) { g.strokeStyle = SEL; g.lineWidth = 1; g.strokeRect(rc.x - 2.5, rc.y - 2.5, rc.w + 4, rc.h + 4); }
       if (b.hp < 0.999) this.bar(rc.x + rc.w / 2, rc.y - 4, Math.max(rc.w, 12), b.hp);
       if (ferry && b.cargo) this.text(`${b.cargo}`, rc.x + rc.w + 2, rc.y + rc.h / 2, 12, 'white', true);
+    }
+    // 무역 행렬 (sim/trade.py): 구성원마다 (상인, 낙타 둘) 서버가 보낸 자리에. 다치면 저마다 체력 막대. 바다 위면 상선 한 척.
+    // 멀리서는 (병사가 무리 배지가 되는 만큼) 행렬마다 배지 하나 (무리 배지와 같은 모양, 수레 / 돛단배 그림)
+    if (z < UNIT_ZOOM) {
+      const groups = new Map<number, { own: number; sea: boolean; x: number; y: number; hp: number; n: number }>();
+      for (const c of st.caravans.values()) {
+        const e = groups.get(c.id) ?? { own: c.own, sea: c.sea, x: 0, y: 0, hp: 0, n: 0 };
+        e.x += lerp(c.px, c.x, a); e.y += lerp(c.py, c.y, a); e.hp += c.hp; e.n++;
+        groups.set(c.id, e);
+      }
+      for (const e of groups.values()) {
+        const x = sx(e.x / e.n), y = sy(e.y / e.n);
+        if (!vis(x, y, 30)) continue;
+        this.caravanBadge(x, y, e.own, e.sea, e.hp / e.n);
+      }
+    } else {
+      const names: string[] = R.caravan_members ?? ['trader', 'camel', 'camel'];
+      const parts: { name: string; own: number; x: number; y: number; dir: number; frame: number; hp: number }[] = [];
+      for (const c of st.caravans.values()) {
+        const x = lerp(c.px, c.x, a), y = lerp(c.py, c.y, a);
+        if (!vis(sx(x), sy(y), 80)) continue;
+        if (c.sea) {                                              // 바다 위: 상선 한 척 (물결에 조금 흔들린다)
+          const bob = Math.sin(t * 2 + c.id) * 0.6;
+          parts.push({ name: 'merchant', own: c.own, x, y: y + bob * 0.1, dir: c.dir, frame: 0, hp: c.hp });
+          continue;
+        }
+        const name = names[c.kind] ?? 'camel';
+        const step = c.moving ? (Math.trunc(t * 5.4 + c.id * 0.7 + c.idx * 0.5) % 2) : 0;   // 걷는 동안만 다리
+        if (visOn() && c.own < st.info.nations.length) this.groundRing(sx(x), sy(y), 2.2 * z, 2.2 * z * 0.5, c.own, 0.4);
+        parts.push({ name, own: c.own, x, y, dir: c.dir, frame: step, hp: c.hp });
+      }
+      parts.sort((p, q) => p.y - q.y);
+      for (const p of parts) {
+        const rc = stack.draw(g, p.name, p.own, L, sx(p.x), sy(p.y), K, { frame: p.frame, dir: p.dir, torch: tl(p.x, p.y), rim: visOn() });
+        if (p.hp < 0.999) this.bar(rc.x + rc.w / 2, rc.y - 4, Math.max(rc.w, 12), p.hp);   // 맞으면 저마다 체력 막대 (병사와 같다)
+      }
     }
     // 야생 동물 (멀리서는 작게)
     this.breaths = this.breaths.filter((b) => now - b.at < 900);      // 숨결을 뿜은 자리 (그 뒤 0.9초 동안 숨결 자세)

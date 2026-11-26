@@ -238,31 +238,6 @@ function harbor(): Vol {
 }
 
 
-/** 낚시터: 해안의 작은 판잣집, 바다 쪽(+y)으로 뻗은 나무 잔교와 매어 둔 쪽배, 생선 말리는 덕장과 그물. */
-function fishery(): Vol {
-  const v = new Vol(18, 22, 11);
-  timberWalls(v, 2, 2, 9, 7, 0, 3);                                      // 판잣집
-  v.box(5, 7, 0, 6, 7, 2, Mat.DARK);
-  v.gable(1, 1, 10, 8, 4, Mat.THATCH, true);
-  for (let y = 8; y <= 21; y++) for (let x = 6; x <= 8; x++) v.set(x, y, 1, Mat.WOOD, (y + x) % 3 ? 0 : -1);   // 잔교 (기둥 위)
-  for (const y of [10, 14, 18, 21]) { v.box(6, y, 0, 6, y, 1, Mat.WOOD_D, 1); v.box(8, y, 0, 8, y, 1, Mat.WOOD_D, 1); }
-  v.box(8, 21, 2, 8, 21, 3, Mat.WOOD_D);                                 // 계류 말뚝과 밧줄
-  for (let y = 15; y <= 19; y++) for (let x = 10; x <= 12; x++) {         // 쪽배
-    if ((y === 15 || y === 19) && x !== 11) continue;
-    v.set(x, y, 0, Mat.WOOD_D, 0);
-    if (x !== 11 || y === 15 || y === 19) v.set(x, y, 1, Mat.WOOD, 1);
-  }
-  v.set(11, 17, 1, Mat.WOOD_D, 1); v.box(9, 18, 2, 9, 18, 2, Mat.DARK);
-  for (const x of [12, 16]) v.box(x, 3, 0, x, 3, 5, Mat.WOOD_D);         // 덕장: 기둥 둘, 가로대, 매단 생선
-  for (let x = 12; x <= 16; x++) v.set(x, 3, 5, Mat.WOOD, 1);
-  for (const x of [13, 14, 15]) { v.set(x, 3, 4, Mat.METAL, 1); v.set(x, 3, 3, Mat.METAL, x === 14 ? 0 : 2); }
-  for (let y = 9; y <= 12; y++) for (let x = 11; x <= 15; x++)            // 펼쳐 말리는 그물
-    if ((x + y) % 2 === 0 || hash(x, y, 31) < 0.3) v.set(x, y, 0, Mat.DARK, -1);
-  v.cyl(3.5, 10.5, 1.2, 0, 1, Mat.WOOD, -1);                              // 통
-  flag(v, 10, 7, 0, 8);
-  return v;
-}
-
 /** 유황 채취장: 노랗게 끓는 유황 웅덩이 위의 나무 도르래 틀, 둘레의 유황 결정, 쌓은 자루. */
 function sulfurPit(): Vol {
   const v = new Vol(20, 20, 13);
@@ -673,8 +648,124 @@ function tortoise(frame: number): Vol {
   return v;
 }
 
+// ------------------------------------------------------------- 무역소와 무역 행렬 (sim/trade.py)
+// 무역소: 나라색 차양을 친 좌판 둘 (곡식·통나무·돌), 저울, 짐 상자.
+function tradePost(): Vol {
+  const v = new Vol(18, 18, 12);
+  for (let y = 3; y <= 15; y++) for (let x = 2; x <= 15; x++) v.set(x, y, 0, Mat.WOOD, (x + y) % 4 === 0 ? -1 : 0);   // 널마루
+  for (const [x0, y0] of [[3, 4], [10, 4]] as [number, number][]) {      // 좌판 둘: 기둥 넷, 판, 비스듬한 차양
+    for (const [dx, dy] of [[0, 0], [4, 0], [0, 4], [4, 4]]) v.box(x0 + dx, y0 + dy, 1, x0 + dx, y0 + dy, dy ? 4 : 6, Mat.WOOD_D);
+    v.box(x0, y0 + 3, 2, x0 + 4, y0 + 4, 2, Mat.WOOD, 1);                // 판
+    for (let x = x0 - 1; x <= x0 + 5; x++) for (let y = y0 - 1; y <= y0 + 5; y++) {
+      const z = 7 - Math.floor((y - y0 + 1) / 2);
+      v.set(x, y, z, Mat.CLOTH, (x + y) % 2 ? 0 : -1);                    // 줄무늬 차양 (나라색)
+    }
+  }
+  v.box(3, 7, 3, 4, 8, 3, Mat.CROP, 1); v.set(5, 8, 3, Mat.CROP);         // 곡식
+  v.box(10, 7, 3, 11, 8, 3, Mat.STONE, 1); v.box(13, 7, 3, 13, 8, 3, Mat.WOOD, 1);   // 돌, 통나무
+  v.box(8, 13, 1, 8, 13, 5, Mat.WOOD_D); v.box(6, 13, 5, 10, 13, 5, Mat.METAL, 1);   // 저울
+  v.box(6, 12, 3, 6, 14, 4, Mat.METAL); v.box(10, 12, 3, 10, 14, 4, Mat.METAL);
+  v.box(2, 12, 1, 4, 14, 3, Mat.WOOD, 0); v.box(13, 12, 1, 15, 14, 2, Mat.WOOD, 0);   // 짐 상자
+  v.box(13, 12, 3, 15, 14, 3, Mat.SAIL, 1);
+  flag(v, 15, 4, 1, 8);
+  return v;
+}
+
+/** 무역 상인 (행렬 맨 앞, 낙타를 끈다, 앞이 +x): 크림색 긴 옷에 나라색 터번과 허리띠, 짙은 수염, 지팡이, 허리 가방,
+ *  뒤로 늘어진 고삐. frame 0 서기, 1 걷기 (옷자락 아래로 발이 엇갈린다). */
+function trader(frame: number): Vol {
+  const v = new Vol(13, 9, 14);
+  const R = Mat.SAIL, C = Mat.CLOTH, S = Mat.SKIN, cy = 4;
+  for (const [y, fwd] of [[cy - 1, 1], [cy + 1, -1]] as [number, number][]) {   // 샌들 (걸을 때 앞뒤로)
+    const dx = frame ? fwd : 0;
+    v.box(5 + dx, y, 0, 6 + dx, y, 0, Mat.LEATHER, -1);
+  }
+  for (let z = 1; z <= 7; z++) {                                         // 긴 옷: 아래로 갈수록 넓게
+    const w = z <= 3 ? 2 : 1, x0 = z <= 3 ? 4 : 5;
+    v.box(x0, cy - w, z, 6, cy + w, z, R, z <= 2 ? -1 : (z === 7 ? 1 : 0));
+  }
+  if (frame) v.set(7, cy - 1, 1, R, -1);                                  // 걸을 때 앞자락이 들린다
+  v.box(4, cy - 2, 5, 6, cy + 2, 5, C, 1);                               // 허리띠 (나라색)
+  v.set(4, cy + 2, 4, C, 0); v.set(4, cy + 2, 3, C, -1);                 // 늘어진 띠 끝
+  v.box(3, cy + 2, 3, 3, cy + 2, 4, Mat.LEATHER, 0);                     // 허리 가방
+  for (const y of [cy - 2, cy + 2]) {                                     // 소매와 손
+    v.box(6, y, 6, 6, y, 7, R, 0);
+    v.set(7, y, 6, S, 0);
+  }
+  v.box(5, cy - 1, 8, 6, cy + 1, 9, S, 0);                               // 얼굴
+  v.set(7, cy, 9, S, 1);                                                  // 코
+  v.box(6, cy - 1, 8, 7, cy + 1, 8, Mat.WOOD_D, 0);                      // 짙은 수염
+  v.set(7, cy - 1, 9, Mat.DARK); v.set(7, cy + 1, 9, Mat.DARK);           // 눈
+  v.box(4, cy - 2, 10, 6, cy + 2, 11, C, 0);                             // 터번 (나라색, 둥글게 감음)
+  v.box(5, cy - 1, 12, 6, cy + 1, 12, C, 1);
+  v.box(4, cy - 2, 10, 4, cy + 2, 10, C, -1);
+  v.set(3, cy, 10, C, -1); v.set(3, cy, 9, C, -1);                       // 뒤로 늘어진 터번 자락
+  v.box(8, cy - 2, 0, 8, cy - 2, 10, Mat.WOOD_D, 0);                      // 지팡이 (앞손)
+  v.set(8, cy - 2, 11, Mat.WOOD, 1); v.set(9, cy - 2, 11, Mat.WOOD, 0);   // 굽은 머리
+  for (let x = 1; x <= 6; x++) v.set(x, cy + 3, 6 - Math.floor(x / 3), Mat.LEATHER, -1);   // 고삐 (뒤의 낙타로)
+  return v;
+}
+
+/** 짐 낙타 (앞이 +x, 몸 가운데 y = 4): 둥근 몸통과 혹, 앞으로 휘어 오르는 긴 목, 길쭉한 머리와 귀,
+ *  무릎이 있는 가는 다리. 혹 위에 나무 안장틀과 나라색 깔개, 양옆에 불룩한 짐 자루와 물주머니. frame 0 서기, 1 걷기. */
+function camel(frame: number): Vol {
+  const v = new Vol(21, 9, 18);
+  const M = Mat.CAMEL, D = Mat.HORSE_D, cy = 4, NB = -9;                  // NB: 배를 다른 색으로 칠하지 않는다
+  // 다리: 허벅지 → 무릎 → 정강이 → 넓적한 발. 두께 2×2 (비스듬히 돌려 그려도 끊기지 않게). 걸을 때 앞뒤가 엇갈린다
+  const legs: [number, number, number][] = [[13, cy - 2, 1], [13, cy + 1, -1], [5, cy - 2, -1], [5, cy + 1, 1]];
+  for (const [x, y, ph] of legs) {
+    const sw = frame ? ph : 0;
+    const at = (z: number) => Math.round(x + sw * (z >= 5 ? 0 : z >= 3 ? 0.5 : 1.2));   // 아래로 갈수록 더 내딛는다
+    for (let z = 1; z <= 8; z++) v.box(at(z), y, z, at(z) + 1, y + 1, z, M, z === 4 ? 1 : z < 4 ? -1 : 0);   // 무릎은 밝게
+    v.box(at(0), y, 0, at(0) + 1, y + 1, 0, D, 0);                       // 발
+  }
+  limb(v, [5, cy, 9.5], [13, cy, 9.5], 2.4, 2.2, M, 0, NB);             // 몸통
+  chunk(v, 14, cy, 10, 1.8, M, 0, 1, NB);                                 // 가슴
+  chunk(v, 4.5, cy, 9.5, 1.9, M, -1, 1, NB);                              // 엉덩이
+  chunk(v, 9, cy, 12.5, 2.2, M, 1, 0.9, NB);                              // 혹
+  limb(v, [15, cy, 10.5], [16.5, cy, 12.5], 1.3, 1.0, M, 0, NB);         // 목 (앞으로 내밀었다가)
+  limb(v, [16.5, cy, 12.5], [17, cy, 15], 1.0, 0.9, M, 0, NB);            // 위로
+  limb(v, [17, cy, 15.5], [19.5, cy, 15], 1.1, 0.8, M, 1, NB);            // 머리 (길쭉하게)
+  v.set(20, cy, 14, D); v.set(20, cy, 15, M, -1);                         // 주둥이
+  for (const y of [cy - 1, cy + 1]) { v.set(17, y, 17, M, 1); v.set(18, y, 16, Mat.DARK); }   // 귀, 눈
+  limb(v, [3, cy, 10], [2, cy, 7], 0.6, 0.5, M, -1, NB); v.set(2, cy, 6, D);   // 꼬리와 꼬리털
+  // 짐: 안장틀, 나라색 깔개, 양옆 짐 자루, 물주머니, 묶은 밧줄
+  v.box(6, cy - 2, 14, 12, cy + 2, 14, Mat.CLOTH, 0);                      // 혹 위 나라색 깔개 (위에서 어느 쪽으로도 보인다)
+  for (let x = 6; x <= 12; x += 2) { v.set(x, cy - 2, 14, Mat.CLOTH, 1); v.set(x, cy + 2, 14, Mat.CLOTH, 1); }   // 줄무늬
+  v.set(6, cy, 15, Mat.WOOD_D, 1); v.set(12, cy, 15, Mat.WOOD_D, 1);       // 안장틀 앞뒤 기둥
+  for (let x = 6; x <= 12; x++) for (const y of [cy - 3, cy + 3]) {      // 깔개: 양옆으로 늘어진다 (끝은 술)
+    for (let z = 10; z <= 13; z++) v.set(x, y, z, Mat.CLOTH, (x + z) % 3 === 0 ? 1 : 0);
+    if (x % 2 === 0) v.set(x, y, 9, Mat.GOLD, 0);
+  }
+  for (const [x0, y] of [[7, cy - 4], [7, cy + 4]] as [number, number][]) {   // 짐 자루 (불룩하게)
+    v.box(x0, y, 8, x0 + 4, y, 10, Mat.SAIL, 0);                          // (나라색 깔개가 위로 보이게 낮게)
+    v.box(x0 + 1, y, 11, x0 + 3, y, 11, Mat.SAIL, 1);
+    v.box(x0 + 2, y, 8, x0 + 2, y, 10, Mat.LEATHER, -1);                  // 묶은 끈
+  }
+  v.box(12, cy + 4, 9, 12, cy + 4, 11, Mat.LEATHER, 0); v.set(12, cy + 4, 12, Mat.WOOD_D, 1);   // 물주머니
+  v.box(8, cy - 1, 15, 10, cy + 1, 15, Mat.SAIL, 1);                        // 맨 위 꾸러미 (낮게: 깔개가 보이게)
+  v.set(9, cy, 16, Mat.LEATHER, 0);
+  v.set(19, cy + 1, 14, Mat.LEATHER, 0); v.set(18, cy + 2, 13, Mat.LEATHER, -1);   // 고삐
+  return v;
+}
+
+/** 상선 (바다 건너 무역): 넓은 배에 짐 상자와 통, 돛대 하나에 나라색 돛. */
+function merchant(): Vol {
+  const v = new Vol(18, 8, 13);
+  v.box(3, 3, 0, 14, 4, 0, Mat.WOOD_D);
+  v.box(2, 2, 1, 15, 5, 1, Mat.WOOD, -1);
+  v.walls(1, 1, 2, 16, 6, 2, Mat.WOOD, 1);
+  v.box(17, 3, 2, 17, 4, 3, Mat.WOOD, 1);                                 // 이물
+  v.box(3, 2, 2, 5, 4, 3, Mat.WOOD, 0); v.box(12, 3, 2, 14, 5, 3, Mat.SAIL, 0);   // 짐 상자, 자루
+  v.cyl(7.5, 4.5, 1.1, 2, 3, Mat.WOOD_D, 0);                               // 통
+  v.box(9, 3, 2, 9, 3, 11, Mat.WOOD_D);                                   // 돛대
+  v.box(9, 0, 5, 9, 6, 10, Mat.CLOTH, 0);                                 // 돛 (나라색)
+  v.box(9, 3, 12, 10, 3, 12, Mat.CLOTH, 1);
+  return v;
+}
+
 // ------------------------------------------------------------- 찾기
-const BUILD = [hall, farm, lumber, quarry, tower, harbor, sulfurPit, fireTower, fishery];
+const BUILD = [hall, farm, lumber, quarry, tower, harbor, sulfurPit, fireTower, tradePost];   // sim/rules.py 건물 번호 순서
 const UNIT = [infantry, archer, lancer, horseArcher, dragonRider, dragon, tortoise];   // sim/rules.py 병종 번호 순서
 const cache = new Map<string, Vol>();
 
@@ -687,7 +778,7 @@ export function model(name: string, frame = 0): Vol {
     const k = Number(name.slice(1));
     v = name[0] === 'u' ? UNIT[k](frame) : name[0] === 'b' ? BUILD[k]()
       : name === 'dragon' ? dragon(frame) : name === 'lair' ? lair() : name === 'tortoise' ? tortoise(frame)
-      : name === 'horse' ? horse(frame) : name === 'ferry' ? ferry() : name === 'warship' ? warship() : torch();
+      : name === 'horse' ? horse(frame) : name === 'trader' ? trader(frame) : name === 'camel' ? camel(frame) : name === 'merchant' ? merchant() : name === 'ferry' ? ferry() : name === 'warship' ? warship() : torch();
     cache.set(key, v);
   }
   return v;

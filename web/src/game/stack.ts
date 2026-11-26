@@ -234,6 +234,10 @@ export class StackRenderer {
   private ramps = new Map<number, Record<number, number[][]>>();
   private shaded = new Map<string, { key: number; cv: HTMLCanvasElement; p: Proj }>();
   private scaled = new Map<string, HTMLCanvasElement>();
+  /** 프레임마다 빛이 바뀐 그림을 다시 칠하는 수 (낮밤·횃불이 바뀔 때 한 프레임에 몰리면 끊긴다: 여러 프레임에 나눈다). */
+  private budget = 0;
+  static readonly RESHADE_PER_FRAME = 16;
+  beginFrame() { this.budget = StackRenderer.RESHADE_PER_FRAME; }
 
   constructor(private colors: number[][]) {}
 
@@ -254,7 +258,9 @@ export class StackRenderer {
     const torch = Math.round((o.torch ?? 0) * 4) / 4, sh = o.shadow ?? true, rim = !!o.rim;
     const key = `${name}:${frame}:${dir}/${dirs}:${cut}|${nid}|${torch}|${sh ? 1 : 0}|${rim ? 1 : 0}`;
     let e = this.shaded.get(key);
+    if (e && e.key !== L.key && this.budget <= 0) return { cv: e.cv, ax: e.p.ax, ay: e.p.ay, p: e.p };   // 이번 프레임엔 다시 칠할 몫을 다 썼다: 잠깐 옛 색으로
     if (!e || e.key !== L.key) {
+      if (e) this.budget--;
       const p = e?.p ?? getProj(name, frame, dir, dirs, cut);
       const cv = e?.cv ?? document.createElement('canvas');
       cv.width = p.w; cv.height = p.h;
@@ -278,7 +284,7 @@ export class StackRenderer {
       // 점마다 굵기가 같고 점 사이 경계만 1픽셀 섞여, 확대·이동 때 점이 2칸·3칸으로 바뀌며 자글거리지 않는다.
       const up = this.upscaled(cv, Math.ceil(k));
       const sm = g.imageSmoothingEnabled, q = g.imageSmoothingQuality;
-      g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'medium';
+      g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'low';
       g.drawImage(up, x, y, Math.round(cv.width * k), Math.round(cv.height * k));
       g.imageSmoothingEnabled = sm; g.imageSmoothingQuality = q;
     }

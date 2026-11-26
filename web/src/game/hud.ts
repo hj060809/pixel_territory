@@ -9,6 +9,8 @@ import { F_FORD, F_WATER, type TerrainRules } from './terrainRules.ts';
 import { touchMode } from '../ui/device.ts';
 import { coffeeLink } from '../ui/coffee.ts';
 import { chatLine } from './chat.ts';
+import { SEASON_ICONS, icon } from '../ui/icons.ts';
+import { SEASON_NAMES } from '../sim/clock.ts';
 import { A_FIGHT, A_HELD, A_SLEEP, A_TAMING, animalAt, isHostile } from './wildlife.ts';
 
 /** 고른 병사 수: 병종마다 ('보병 3 · 창기병 2', 0인 병종은 뺀다). */
@@ -16,6 +18,13 @@ export function unitCounts(st: GameState, slots: Iterable<number>, sep = '   '):
   const R = st.info.rules, k = R.unit_names.map(() => 0);
   for (const s of slots) { const u = st.units.get(s); if (u) k[u.kind]++; }
   return k.map((n: number, i: number) => (n || i < 2 ? `${R.unit_names[i]} ${n}` : '')).filter(Boolean).join(sep);
+}
+
+/** 왼쪽 위 칩 하나: 아이콘 + 값 (굵게) + 1초 수입 (작게). */
+interface Chip { el: HTMLSpanElement; v: HTMLElement; r: HTMLElement; fill: HTMLElement; last: string }
+interface TopParts {
+  res: Chip[]; sulfur: Chip; units: Chip; starve: HTMLSpanElement; mini: HTMLSpanElement;
+  season: Chip; time: Chip; speed: Chip; icons: string; capTip: string;
 }
 
 const BAR_H = 76;          // 하단 버튼 막대 높이 (그 위로 패널을 올린다)
@@ -33,7 +42,8 @@ export class Hud {
   /** 결과·관전 표시의 버튼이 할 일 (게임 화면이 정한다). */
   actions: { lobby: () => void; restart: () => void; newMap: () => void; room: (() => void) | null } =
     { lobby: () => {}, restart: () => {}, newMap: () => {}, room: null };
-  private top = el('hud');
+  private top = el('hud hud-top');
+  private topParts: TopParts | null = null;
   private nations = el('hud-nations');
   private sel = el('hud-panel hud-sel');
   private hover = el('hud-hover');
@@ -46,27 +56,111 @@ export class Hud {
   /** 새 판 (같은 지도로 다시): 상태와 선택을 바꾼다. */
   reset(st: GameState, ctl: Controller) { this.st = st; this.ctl = ctl; }
 
+  /** 왼쪽 위 상자를 한 번 만든다: 자원 칩 줄, 계절·시각·속도 줄, (PC) F1 줄. 매 프레임엔 글자만 바꾼다. */
+  private buildTop(): TopParts {
+    const R = this.st.info.rules, box = this.top;
+    box.textContent = '';
+    const row = (cls: string) => el('hud-row ' + cls, box);
+    const r1 = row('hud-res'), r2 = row('hud-env'), r3 = row('hud-keys');
+    const chip = (parent: HTMLElement, ico: string, tip: string, rate = true): Chip => {
+      const c = document.createElement('span');
+      c.className = 'chip';
+      c.title = tip;
+      c.dataset.tip = tip;
+      c.innerHTML = icon(ico);
+      const v = document.createElement('b'); c.appendChild(v);
+      const r = document.createElement('i');
+      if (rate) c.appendChild(r);
+      const gauge = document.createElement('span');               // 자원 한도 게이지 (자원 칩만)
+      gauge.className = 'gauge';
+      const fill = document.createElement('span');
+      gauge.appendChild(fill);
+      if (rate) c.appendChild(gauge);
+      parent.appendChild(c);
+      return { el: c, v, r, fill, last: '' };
+    };
+    const names = R.res_names as string[];
+    const res = [
+      chip(r1, 'food', `${names[0]} · 농장·거점에서 난다. 병사가 먹는다`),
+      chip(r1, 'wood', `${names[1]} · 벌목장·거점에서 난다`),
+      chip(r1, 'stone', `${names[2]} · 채석장에서 난다`),
+    ];
+    const sulfur = chip(r1, 'sulfur', '유황 · 사막의 유황 채취장에서 난다. 화염탑의 연료');
+    const units = chip(r1, 'soldier', '병사 수', false);
+    const starve = document.createElement('span');
+    starve.className = 'starve-tag';
+    starve.textContent = '굶주림!';
+    r1.appendChild(starve);
+    const mini = document.createElement('span');                 // 터치: 계절·시각 아이콘만 (둘째 줄 대신)
+    mini.className = 'env-mini';
+    r1.appendChild(mini);
+    const season = chip(r2, 'spring', '계절 · 농사 배율: 가을에 많고, 추운 곳은 겨울에 멈춘다', false);
+    const time = chip(r2, 'sun', '시각 (낮·밤)', false);
+    const speed = chip(r2, 'play', '게임 속도', false);
+    r3.innerHTML = `<span class="kbd">F1</span><span>조작 설명</span>`;
+    return { res, sulfur, units, starve, mini, season, time, speed, icons: '', capTip: '' };
+  }
+
+  private updateTop() {
+    const st = this.st, R = st.info.rules, me = st.nations[st.info.me];
+    const t = (this.topParts ??= this.buildTop());
+    const put = (c: Chip, v: string, r?: string) => {
+      const key = v + '|' + (r ?? '');
+      if (key === c.last) return;
+      c.last = key;
+      c.v.textContent = v;
+      if (r !== undefined) c.r.textContent = r;
+    };
+    const caps = me?.caps ?? [0, 0, 0, 0];
+    const rate = (c: Chip, x: number, have: number, cap: number) => {   // 수입 + 그 자원의 한도 게이지 (가득 차면 '가득')
+      const f = cap > 0 ? Math.min(have / cap, 1) : 0, full = f >= 0.999;
+      c.fill.style.width = `${(f * 100).toFixed(1)}%`;
+      c.el.classList.toggle('near', f >= 0.85 && !full);
+      c.el.classList.toggle('full', full);
+      c.r.className = full ? 'full' : x > 0.05 ? 'up' : x < -0.05 ? 'down' : 'zero';
+      return full && x > 0 ? '가득' : `${x > 0.05 ? '+' : ''}${x.toFixed(1)}`;
+    };
+    t.res.forEach((c, k) => { put(c, me ? fmt(me.res[k]) : '0', rate(c, me ? me.rate[k] : 0, me ? me.res[k] : 0, caps[k])); });
+    const sul = !!me && (me.sulfur > 0 || me.sulfurRate > 0);
+    t.sulfur.el.style.display = sul ? '' : 'none';
+    if (sul) put(t.sulfur, fmt(me!.sulfur), rate(t.sulfur, me!.sulfurRate, me!.sulfur, caps[3]));
+    const capTip = caps.map((v) => Math.round(v)).join(',');
+    if (t.capTip !== capTip) {                                      // 마우스를 올리면: 그 자원의 한도와 늘리는 법
+      t.capTip = capTip;
+      [...t.res, t.sulfur].forEach((c, k) => {
+        c.el.title = `${c.el.dataset.tip}\n한도 ${Math.round(caps[k])} (거점마다 +${R.store?.hall ?? 50}, 이 자원 건물마다 +${R.store?.site ?? 25})`;
+      });
+    }
+    put(t.units, `${me ? me.nUnits : 0}`);
+    const starving = !!me?.starving;
+    t.res[0].el.classList.toggle('starving', starving);
+    t.starve.style.display = starving ? '' : 'none';
+    // 계절·시각·속도
+    const season = this.scene.season, cycle = this.scene.cycle, w = season.weights();
+    const sf = R.season_yield_food.reduce((s: number, v: number, k: number) => s + v * w[k], 0);
+    const si = season.index(), night = cycle.sunAlt() <= 0, paused = st.paused;
+    const icons = `${si}|${night}|${paused}`;
+    if (icons !== t.icons) {
+      t.icons = icons;
+      t.season.el.querySelector('svg')!.outerHTML = icon(SEASON_ICONS[si]);
+      t.time.el.querySelector('svg')!.outerHTML = icon(night ? 'moon' : 'sun');
+      t.speed.el.querySelector('svg')!.outerHTML = icon(paused ? 'pause' : 'play');
+      t.mini.innerHTML = icon(SEASON_ICONS[si]) + icon(night ? 'moon' : 'sun');
+    }
+    put(t.season, `${SEASON_NAMES[si]} ${season.month()}월 · 농사 ×${sf.toFixed(1)}`);
+    put(t.time, cycle.label());
+    put(t.speed, paused ? '일시정지' : `×${st.speed}`);
+  }
+
   dispose() { for (const d of this.panels()) d.remove(); this.banner.remove(); }
 
   /** 가림 검사에 쓸 요소들. */
   panels(): HTMLElement[] { return [this.top, this.nations, this.sel, this.hover, this.msgs, this.prompt]; }
 
   update(cam: Camera, mouse: [number, number] | null) {
-    const st = this.st, R = st.info.rules, me = st.nations[st.info.me];
-    // 왼쪽 위: 자원과 시각
-    const lines: string[] = [];
-    if (me) {
-      const parts = [0, 1, 2].map((k) => `${R.res_names[k]} ${fmt(me.res[k])} (${me.rate[k] >= 0 ? '+' : ''}${me.rate[k].toFixed(1)})`);
-      if (me.sulfur > 0 || me.sulfurRate > 0) parts.push(`유황 ${fmt(me.sulfur)} (+${me.sulfurRate.toFixed(1)})`);
-      lines.push(parts.join('   ') + `   병사 ${me.nUnits}` + (me.starving ? '   굶주림!' : ''));
-    }
-    const w = this.scene.season.weights();
-    const sf = R.season_yield_food.reduce((s: number, v: number, k: number) => s + v * w[k], 0);
-    lines.push(`${this.scene.season.label()}  농사 ×${sf.toFixed(1)}   ${this.scene.cycle.label()}   ×${st.speed}` +
-      (st.paused ? '   일시정지' : ''));
+    const st = this.st, R = st.info.rules;
+    this.updateTop();
     const touch = touchMode();                                  // 터치: 도움말은 ☰ 메뉴에, 고른 것은 아래 한 줄 막대에
-    if (!touch) lines.push('F1: 조작 설명');                      // 자세한 조작은 메뉴의 '설명' 창 (help.ts)
-    this.top.textContent = lines.join('\n');
     // 오른쪽 위: 나라들
     this.nations.innerHTML = '';
     st.info.nations.forEach((n, i) => {
@@ -196,7 +290,7 @@ export class Hud {
       let building = false, taming = false;
       for (const s of ctl.sel.keys()) { const u = st.units.get(s); building ||= u?.state === 4; taming ||= u?.state === 5; }
       lines.push(unitCounts(st, ctl.sel.keys()) + (building ? '   (짓는 중)' : '') + (taming ? '   (길들이는 중)' : ''));
-      lines.push('오른쪽 클릭: 이동 · 공격 · 자원지에 짓기 · 야생말 길들이기 (바다 건너면 배)    A: 공격 이동    S: 정지    1~8: 이 병사들로 건물 짓기');
+      lines.push('오른쪽 클릭: 이동 · 공격 · 자원지에 짓기 · 야생말 길들이기 (바다 건너면 배)    A: 공격 이동    S: 정지    1~9: 이 병사들로 건물 짓기');
     }
     if (ctl.selShips.size) {
       const boats = [...ctl.selShips].map((id) => st.boats.get(id)!);

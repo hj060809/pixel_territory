@@ -24,7 +24,19 @@ export interface DiploState {
   troop_cd: number;                        // 병력 보내기까지 남은 초
   donate_max: number;                      // 한 번에 보낼 수 있는 비율
   ally_time: number; extend_prompt: number; traitor_time: number;
+  // 무역 (sim/trade.py Trade.state_for)
+  trade?: string[];                        // 나라마다: on 다님 · off 내가 끔 · theirs 상대가 끔 · hostile 적대로 멈춤 · nopost 무역소 없음
+  trade_mode?: number[];                   // 내가 그 나라와: 0 자동 · 1 켬 · -1 끔
+  raid?: number[];                         // 나라마다 약탈 단계 (높을수록 모든 나라가 그 나라와 덜 무역한다)
+  posts?: Record<string, { rest?: number; to?: number; back?: boolean; sea?: boolean; hp?: number; escort?: number; wait?: number; cargo?: number[]; give?: number; want?: number }>;   // 내 무역소(건물 번호)마다
 }
+
+/** 무역 상태 글과 색. */
+export const TRADE_TEXT: Record<string, [string, string]> = {
+  on: ['무역 중', 'rgb(150,230,150)'], off: ['무역 끔 (내가)', 'rgb(255,200,120)'], theirs: ['무역 끔 (상대가)', 'rgb(255,200,120)'],
+  hostile: ['적대라 무역 멈춤', 'rgb(255,120,110)'], nopost: ['무역소가 있어야 무역', 'rgb(200,200,200)'],
+  raider: ['약탈국이라 무역 멈춤', 'rgb(255,120,110)'],
+};
 
 export const LEVELS = ['적대', '경계', '보통', '우호'];
 export const LEVEL_COLORS = ['rgb(255,120,110)', 'rgb(255,200,120)', 'rgb(220,220,220)', 'rgb(150,230,150)'];
@@ -170,12 +182,15 @@ export class DiploUi {
     if (traitor) line(`배신자 (${mmss(d.traitors[key])})`, LEVEL_COLORS[0]);
     if (d.cooldown[key]) line(`거절당함: ${d.cooldown[key]}초 뒤에 다시 청할 수 있다`);
     if (ally && this.ctl.sel.size === 0) line('병력을 보내려면 병사를 먼저 고르세요');
+    const ts = d.trade?.[o.nid];
+    if (ts && TRADE_TEXT[ts]) line(TRADE_TEXT[ts][0], TRADE_TEXT[ts][1]);
     this.fillAmounts();
     // 버튼
     const out = d.outgoing.includes(o.nid), cool = !!d.cooldown[key], incoming = d.incoming.includes(o.nid);
     const marked = d.targets.some(([a, t]) => a === me && t === o.nid), hasAlly = Object.keys(d.allies).length > 0;
     const ext = d.extend.includes(o.nid), rcd = d.donate_cd > 0, tcd = d.troop_cd > 0;
-    const sig = [o.nid, ally, out, cool, incoming, marked, hasAlly, ext, rcd, tcd, this.confirmBreak].join(',');
+    const ts2 = d.trade?.[o.nid] ?? '';
+    const sig = [o.nid, ally, out, cool, incoming, marked, hasAlly, ext, rcd, tcd, this.confirmBreak, ts2].join(',');
     if (sig === this.sig) return;
     this.sig = sig;
     const body = this.body;
@@ -227,6 +242,15 @@ export class DiploUi {
                             { off: marked, title: '동맹들에게 이 나라를 함께 치자고 한다' });
     }
     if (r.childElementCount % 2 === 1) (r.lastElementChild as HTMLElement).classList.add('wide');   // 홀로 남는 버튼
+    if (ts2) {                                                 // 무역: 지금 다니면 [무역 중단], 아니면 [무역 재개] (적대여도)
+      const rt = this.row(body);
+      const running = ts2 === 'on' || ts2 === 'nopost' || ts2 === 'theirs';
+      const mineOff = ts2 === 'off' || ts2 === 'hostile' || ts2 === 'raider';
+      this.btn(rt, mineOff ? '무역 재개' : '무역 중단', () => this.send('trade', o.nid, { on: mineOff }), {
+        warm: !mineOff && running,
+        title: mineOff ? '이 나라와 무역을 다시 한다 (적대여도)' : '이 나라와 무역 행렬을 주고받지 않는다',
+      }).classList.add('wide');
+    }
   }
 
   /** 동맹 버튼의 글 (남은 대기 시간, 고른 병사 수)과 보낼 자원의 양: 매번. */

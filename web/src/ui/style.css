@@ -13,6 +13,41 @@ canvas#view { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
   position: fixed; left: 8px; top: 8px; padding: 6px; background: var(--panel);
   font-size: 14px; line-height: 19px; white-space: pre; pointer-events: none;
 }
+/* 게임 왼쪽 위: 도트 아이콘 + 숫자 (game/hud.ts buildTop, ui/icons.ts) */
+.hud-top { white-space: normal; display: flex; flex-direction: column; gap: 4px; padding: 6px 10px 6px 8px; }
+.hud-row { display: flex; align-items: center; gap: 14px; white-space: nowrap; }
+.hud-top .chip { display: inline-flex; align-items: center; gap: 5px; pointer-events: auto; cursor: default; }
+.hud-top .chip b { font-size: 15px; color: rgb(246, 240, 222); }
+.hud-top .chip i { font-style: normal; font-size: 11px; margin-left: -1px; }
+.hud-top .chip i.up { color: rgb(150, 222, 110); }
+.hud-top .chip i.down { color: rgb(255, 122, 100); }
+.hud-top .chip i.zero { color: rgb(150, 148, 140); }
+.hud-top .chip { position: relative; }
+.hud-top .chip .gauge { position: absolute; left: 21px; right: 0; bottom: -3px; height: 2px; background: rgba(255, 255, 255, 0.13); }
+.hud-top .chip .gauge span { display: block; height: 100%; width: 0; background: rgb(150, 196, 120); }
+.hud-top .chip.near .gauge span { background: rgb(236, 190, 80); }
+.hud-top .chip.full .gauge span { background: rgb(255, 140, 80); }
+.hud-top .chip.full b { color: rgb(255, 190, 110); }
+.hud-top .chip i.full { color: rgb(255, 150, 90); font-weight: bold; }
+.hud-top .chip.starving b { color: rgb(255, 110, 90); animation: starve-blink 0.9s steps(2, jump-none) infinite; }
+@keyframes starve-blink { 50% { color: rgb(255, 220, 200); } }
+.hud-top .starve-tag { font-size: 12px; font-weight: bold; color: rgb(255, 110, 90); margin-left: -6px; }
+.hud-env { gap: 16px; }
+.hud-env .chip b { font-weight: normal; font-size: 13px; color: rgb(226, 220, 204); }
+.hud-keys { gap: 6px; font-size: 12px; color: rgb(170, 166, 156); }
+.hud-keys .kbd { min-width: 24px; height: 19px; line-height: 17px; padding: 0 4px; font-size: 11px; }
+.env-mini { display: none; gap: 4px; margin-left: -4px; }
+.ico { flex: none; display: block; image-rendering: pixelated;
+  filter: drop-shadow(1px 0 0 rgba(10, 8, 14, 0.85)) drop-shadow(-1px 0 0 rgba(10, 8, 14, 0.85))
+    drop-shadow(0 1px 0 rgba(10, 8, 14, 0.85)) drop-shadow(0 -1px 0 rgba(10, 8, 14, 0.85)); }
+body.touch .hud-top { padding: 4px 8px 4px 6px; }
+body.touch .hud-row { gap: 9px; }
+body.touch .hud-top .chip { pointer-events: none; gap: 3px; }
+body.touch .hud-top .chip b { font-size: 12px; }
+body.touch .hud-top .chip i { font-size: 9px; }
+body.touch .hud-top .chip .gauge { left: 19px; bottom: -2px; }
+body.touch .hud-env, body.touch .hud-keys { display: none; }
+body.touch .env-mini { display: inline-flex; }
 .loading {
   position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
   background: rgba(8, 10, 16, 0.92); gap: 10px; pointer-events: none; z-index: 10; transition: opacity 0.25s;
@@ -75,6 +110,24 @@ canvas#overlay { position: fixed; inset: 0; width: 100vw; height: 100vh; display
   z-index: 20; pointer-events: auto; }
 .diplo-prompts .dprompt { display: flex; align-items: center; gap: 6px; padding: 5px 8px; background: rgba(14, 16, 22, 0.9);
   border: 1px solid rgb(120, 104, 70); font-size: 14px; color: rgb(255, 238, 196); }
+.build-bubble { width: 240px; }
+.build-bubble .bbar { display: grid; grid-template-columns: 48px 1fr auto; align-items: center; gap: 6px; font-size: 12px; margin-top: 3px; }
+.build-bubble .blabel { color: var(--dim); }
+.build-bubble .bval { color: var(--ink); font-variant-numeric: tabular-nums; }
+.build-bubble .bgauge { display: block; height: 5px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(0, 0, 0, 0.5); }
+.build-bubble .bgauge span { display: block; height: 100%; background: rgb(130, 196, 104); }
+.build-bubble .bbar.low .bgauge span { background: rgb(230, 96, 72); }
+.build-bubble .bbar.build .bgauge span { background: rgb(236, 190, 80); }
+.build-bubble .bsec { margin-top: 7px; padding: 5px 6px 6px; border: 1px solid rgb(70, 66, 56); background: rgba(255, 255, 255, 0.03); }
+.build-bubble .bhead { font-size: 11px; color: var(--gold); margin-bottom: 4px; }
+.build-bubble .bres { display: grid; grid-template-columns: 16px 34px auto 1fr; align-items: center; gap: 6px; font-size: 12px; margin-top: 3px; }
+.build-bubble .bres b { text-align: right; color: rgb(246, 240, 222); font-variant-numeric: tabular-nums; }
+.build-bubble .bcap { color: var(--dim); font-size: 11px; }
+.build-bubble .bres .bgauge span { background: rgb(150, 196, 120); }
+.build-bubble .bstat { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-top: 3px; color: var(--ink); }
+.build-bubble .bstat b { color: rgb(150, 222, 110); }
+.build-bubble .bstat span { color: var(--dim); }
+.build-bubble .bnote { margin-top: 6px; font-size: 12px; color: var(--dim); }
 .diplo-bubble .dres { margin-bottom: 5px; padding: 6px; border: 1px solid rgb(70, 66, 56); background: rgba(255, 255, 255, 0.03); }
 .diplo-bubble .dkinds { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
 .diplo-bubble .dkinds .dbtn { width: 100%; padding: 3px 0; }

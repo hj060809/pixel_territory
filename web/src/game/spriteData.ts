@@ -87,13 +87,6 @@ export const SPRITES = {
    "rRrrR",
    "RRRRR"
   ],
-  "4": [
-   ".vvv.v",
-   "VbVVVV",
-   ".VVV.V",
-   "......",
-   "bb.bbb"
-  ],
   "3": [
    "..y..",
    ".yYy.",

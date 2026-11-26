@@ -4,7 +4,7 @@ import time
 import traceback
 
 from tests import toplevel  # noqa: F401
-from tests import test_bake, test_rules, test_server, test_smoke, test_wildlife, test_dragon, test_tortoise, test_firetower, test_defeat, test_diplomacy, test_multi, test_rooms
+from tests import test_bake, test_rules, test_server, test_smoke, test_wildlife, test_dragon, test_tortoise, test_firetower, test_defeat, test_diplomacy, test_multi, test_rooms, test_storage, test_trade
 
 # 옛 데스크톱 코드(main.py 등)와 견주는 테스트: 그 코드가 옆에 있을 때만 (지금 저장소에는 없다)
 parity = []
@@ -22,7 +22,7 @@ def report(name, ok, detail=''):
     print(f'  [{"통과" if ok else "실패"}] {name}' + (f'  ({detail})' if detail and not ok else ''), flush=True)
 
 
-for mod in (*parity, test_bake, test_rules, test_wildlife, test_dragon, test_tortoise, test_firetower, test_defeat, test_diplomacy, test_multi, test_rooms, test_server, test_smoke):
+for mod in (*parity, test_bake, test_rules, test_wildlife, test_dragon, test_tortoise, test_firetower, test_defeat, test_diplomacy, test_storage, test_trade, test_multi, test_rooms, test_server, test_smoke):
     print(f'== {mod.__name__}', flush=True)
     t0 = time.time()
     try:

@@ -152,17 +152,17 @@ export class Tutorial {
         title: '자원지에 짓기',
         pc: `병사를 고르고 ${mouse('right')} 빈 <b>식량 자원지</b>(이삭 표시)를 오른쪽 클릭하면 농장을 짓습니다. 목재·석재 자원지도 같은 방법이에요.`,
         touch: `병사를 고르고 ${gesture('tap')} 빈 <b>식량 자원지</b>(이삭 표시)를 탭하면 농장을 짓습니다. 목재·석재 자원지도 같은 방법이에요.`,
-        enter: () => { this.base = this.myBuilds([K().FARM, K().LUMBER, K().QUARRY, K().FISHERY]).length; },
+        enter: () => { this.base = this.myBuilds([K().FARM, K().LUMBER, K().QUARRY]).length; },
         target: () => {
           const st = this.h.st()!, taken = st.siteTaken();
           const s = this.near(st.info.sites.filter((x) => x.kind === 0 && !taken.has(x.id)));
           return s ? [s.x + 0.5, s.y + 0.5] : null;
         },
-        done: () => this.myBuilds([K().FARM, K().LUMBER, K().QUARRY, K().FISHERY]).length > this.base,
+        done: () => this.myBuilds([K().FARM, K().LUMBER, K().QUARRY]).length > this.base,
       },
       {
         title: '건물 짓기',
-        pc: `아래 막대의 <b>망루</b>를 누르거나 ${kbd('2')}를 누른 뒤 ${mouse('left')} 땅을 클릭하세요. 망루는 다가오는 적을 쏩니다.`,
+        pc: `아래 막대의 <b>망루</b>를 누르거나 ${kbd('7')}을 누른 뒤 ${mouse('left')} 땅을 클릭하세요. 망루는 다가오는 적을 쏩니다.`,
         touch: `아래 막대의 <b>망루</b> 버튼 ${then} 그림을 끌어 자리에 놓고 ${tbtn('✓ 짓기', 'ok')}. 망루는 다가오는 적을 쏩니다.`,
         enter: () => { this.base = this.myBuilds([K().TOWER]).length; },
         target: () => { const h = this.hall('me'); return h ? [h.x, h.y] : null; },

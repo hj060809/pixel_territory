@@ -3,18 +3,19 @@
 // 도착 시각은 걸음 간격에 맞춰 부드럽게 따라가므로 (sched), 상태가 들쭉날쭉 와도 끊기거나 튀지 않는다.
 // 순간 이동(배에서 내림, 새로 생김)은 섞지 않는다.
 
-import type { AnimalRec, BoatRec, BuildRec, NationRec, ShotRec, StateMsg, UnitRec } from './protocol.ts';
+import type { AnimalRec, BoatRec, BuildRec, CaravanRec, NationRec, ShotRec, StateMsg, UnitRec } from './protocol.ts';
 import type { DiploState } from './diplomacy.ts';
 
 export interface Unit extends UnitRec { px: number; py: number }
 export interface Boat extends BoatRec { px: number; py: number }
+export interface Caravan extends CaravanRec { px: number; py: number }
 export interface Animal extends AnimalRec { px: number; py: number }
 export interface Shot extends ShotRec { t0: number }
 
 export interface StartInfo {
   map: string; H: number; W: number; round: number; tick_hz: number; me: number;
   nations: { id: number; name: string; color: number[]; light: number[] }[];
-  sites: { id: number; kind: number; x: number; y: number; rich: number; snow?: boolean }[];
+  sites: { id: number; kind: number; x: number; y: number; rich: number; cold?: number; snow?: boolean }[];
   lairs?: number[][];                  // 드래곤 둥지 [y, x]
   year_length: number; day_length: number;
   rules: any;
@@ -32,6 +33,7 @@ export class GameState {
   units = new Map<number, Unit>();
   builds = new Map<number, BuildRec>();
   boats = new Map<number, Boat>();
+  caravans = new Map<number, Caravan>();   // 무역 행렬의 구성원 (행렬 번호 × 8 + 구성원 번호 → 구성원, 걸음마다 모두 온다)
   animals = new Map<number, Animal>();     // 야생 동물 (번호 → 동물)
   shots: Shot[] = [];
   nations: NationRec[] = [];
@@ -65,6 +67,7 @@ export class GameState {
     const a = this.alpha(now);                          // 지금 그리고 있는 위치에서 이어서
     for (const u of this.units.values()) { u.px += (u.x - u.px) * a; u.py += (u.y - u.py) * a; }
     for (const b of this.boats.values()) { b.px += (b.x - b.px) * a; b.py += (b.y - b.py) * a; }
+    for (const b of this.caravans.values()) { b.px += (b.x - b.px) * a; b.py += (b.y - b.py) * a; }
     for (const b of this.animals.values()) { b.px += (b.x - b.px) * a; b.py += (b.y - b.py) * a; }
     for (const r of m.units) {
       const old = this.units.get(r.slot);
@@ -82,6 +85,15 @@ export class GameState {
       this.boats.set(r.id, { ...r, px: keep ? old!.px : r.x, py: keep ? old!.py : r.y });
     }
     for (const id of [...this.boats.keys()]) if (!seen.has(id)) this.boats.delete(id);
+    const cseen = new Set<number>();
+    for (const r of m.caravans) {
+      const key = r.id * 8 + r.idx;
+      cseen.add(key);
+      const old = this.caravans.get(key);
+      const keep = old && old.sea === r.sea && Math.hypot(old.px - r.x, old.py - r.y) < SNAP;
+      this.caravans.set(key, { ...r, px: keep ? old!.px : r.x, py: keep ? old!.py : r.y });
+    }
+    for (const id of [...this.caravans.keys()]) if (!cseen.has(id)) this.caravans.delete(id);
     for (const r of m.animals) {
       const old = this.animals.get(r.id);
       const keep = old && Math.hypot(old.px - r.x, old.py - r.y) < SNAP;

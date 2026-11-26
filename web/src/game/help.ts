@@ -73,7 +73,7 @@ export function fillHelp(parent: HTMLElement, solo: boolean, lobby = false) {
   el('div', 'help-head', right, '키보드');
   row(right, kbd('A'), '공격 이동 (가다가 만나는 적과 싸운다)');
   row(right, kbd('S'), '멈춤');
-  row(right, `${kbd('1')}<span class="help-plus">~</span>${kbd('9')}`, '건물 짓기 (고른 병사가, 없으면 가까운 쉬는 병사가)');
+  row(right, `${kbd('1')}<span class="help-plus">~</span>${kbd('9')}`, '건물 짓기: 1 거점 · 2 무역소 · 3~6 자원 건물 · 7 망루 · 8 화염탑 · 9 항구 (고른 병사가, 없으면 가까운 쉬는 병사가)');
   row(right, `${kbd('Q')}${kbd('W')}${kbd('E')}`, '보병 · 궁수 · 전함 만들기');
   row(right, `${kbd('Ctrl')}${plus}${kbd('1~9')}`, '고른 병사를 부대로 지정');
   row(right, `${kbd('Shift')}${plus}${kbd('1~9')}`, '그 부대를 부르기');

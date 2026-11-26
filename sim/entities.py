@@ -40,6 +40,8 @@ class Units:
         self.ty = np.zeros(cap, np.float32)
         self.slow = np.zeros(cap, np.float32)      # 서리 숨결에 맞아 느려진 남은 시간
         self.air = np.zeros(cap, np.bool_)         # 날고 있다 (용기사): 지형 무시, 근접 공격을 받지 않는다
+        self.passive = np.zeros(cap, np.bool_)     # 중립 (행렬을 따라가는 호위병, sim/trade.py): 먼저 치지 않고, 누구도 저절로 노리지 않는다.
+                                                   # 명령으로 공격받으면 풀린다 (맞서 싸운다)
         self.gen = np.zeros(cap, np.uint16)        # 칸을 새로 쓸 때마다 +1 (화면이 '같은 병사'인지 알게)
         self.n = 0                       # 쓴 적 있는 칸 수 (alive가 아닌 칸은 다시 쓴다)
 
@@ -58,6 +60,7 @@ class Units:
         self.cd[i] = self.search[i] = 0.0
         self.anim[i] = np.random.random() * 4
         self.alive[i] = True
+        self.passive[i] = False
         self.aboard[i] = False
         self.tx[i], self.ty[i], self.slow[i] = x, y, 0.0
         self.air[i] = False
@@ -78,6 +81,7 @@ class Buildings:
         self.prog = np.zeros(cap, np.float32)      # 0~1, 1이면 완성
         self.cd = np.zeros(cap, np.float32)
         self.site = np.full(cap, -1, np.int32)
+        self.last = np.full(cap, -1, np.int16)     # 마지막으로 친 나라 (sim/storage.py: 무너지면 그 건물의 몫을 가져간다)
         self.alive = np.zeros(cap, np.bool_)
         self.queue = [[] for _ in range(cap)]      # 거점의 훈련 대기열 [(종류, 남은 시간)]
         self.gen = np.zeros(cap, np.uint16)        # 칸을 새로 쓸 때마다 +1
@@ -96,6 +100,7 @@ class Buildings:
         self.maxhp[i] = hp
         self.hp[i] = hp * max(prog, 0.1)
         self.r[i], self.prog[i], self.site[i], self.cd[i] = r, prog, site, 0.0
+        self.last[i] = -1
         self.alive[i] = True
         self.queue[i] = []
         self.gen[i] = (int(self.gen[i]) + 1) & 0xFFFF

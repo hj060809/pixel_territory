@@ -4,7 +4,7 @@
 import type { Connection } from './net.ts';
 import type { GameState, Unit, Boat } from './state.ts';
 import type { BuildRec } from './protocol.ts';
-import { F_OCEAN, type TerrainRules } from './terrainRules.ts';
+import { type TerrainRules } from './terrainRules.ts';
 import { josa } from '../ui/device.ts';
 import { animalAt } from './wildlife.ts';
 
@@ -13,7 +13,7 @@ const FLY_CELLS = 18 / 2.4;           // 날고 있는 병종이 떠 있는 높�
 /** null / 'attack'(A 다음 클릭) / 숫자 = 놓을 건물 종류 (하단 버튼, 숫자 키) */
 export type Mode = null | 'attack' | number;
 /** 건물 버튼 (숫자 키 1~): 서버 이름 */
-export const BUILD_NAMES_EN = ['hall', 'farm', 'lumber', 'quarry', 'tower', 'harbor', 'sulfur', 'fire', 'fishery'];   // 건물 종류 번호 순서 (sim/rules.py)
+export const BUILD_NAMES_EN = ['hall', 'farm', 'lumber', 'quarry', 'tower', 'harbor', 'sulfur', 'fire', 'trade'];   // 건물 종류 번호 순서 (sim/rules.py)
 export type TrainKind = 'infantry' | 'archer' | 'warship';
 export interface Ping { t0: number; x: number; y: number; col: string }
 
@@ -33,6 +33,9 @@ export class Controller {
 
   get me() { return this.st.info.me; }
   onForeignHall: ((b: BuildRec) => void) | null = null;     // 다른 나라의 거점을 눌렀다 (외교 말풍선)
+  onPickElse: (() => void) | null = null;                   // 다른 나라의 거점이 아닌 곳을 눌렀다 (외교 말풍선을 닫는다)
+  /** 살펴보는 다른 나라의 건물 (거점 말고): 건물 말풍선 (buildInfo.ts). */
+  inspect: [number, number] | null = null;
   rules_kinds() { return this.R().kinds; }
   /** 내 동맹인가 (외교 상태). */
   isAlly(nid: number) { return !!this.st.diplo && String(nid) in this.st.diplo.allies; }
@@ -62,41 +65,11 @@ export class Controller {
 
   siteAt(x: number, y: number, r: number) {
     let best = null as StartSite | null, bd = r;
-    const FISH = this.R().kinds.FISH;
     for (const s of this.st.info.sites) {
-      let d = Math.hypot(s.x - x, s.y - y);
-      if (s.kind === FISH) {                                     // 물고기 떼: 앞바다의 표시 자리를 눌러도
-        const f = this.fishSpot(s);
-        if (f) d = Math.min(d, Math.hypot(f.x + 0.5 - x, f.y + 0.5 - y));
-      }
+      const d = Math.hypot(s.x - x, s.y - y);
       if (d < bd) { best = s; bd = d; }
     }
     return best;
-  }
-
-  private fishSpots = new Map<number, { x: number; y: number } | null>();
-
-  /** 물고기 떼의 자리: 낚시터(자원지 칸, 해안의 땅) 앞바다에서 물가 가까운 바다 칸들의 가운데 (표시를 여기에),
-   *  (물고기 떼도 이 앞바다를 헤엄친다: life.ts BaitBalls). 없으면 null. */
-  fishSpot(s: { id: number; x: number; y: number }) {
-    if (this.fishSpots.has(s.id)) return this.fishSpots.get(s.id)!;
-    const m = this.rules, r = 7;
-    const sea = (y: number, x: number) => y >= 0 && y < m.H && x >= 0 && x < m.W && !!(m.at(y, x) & F_OCEAN);
-    const near: [number, number][] = [];
-    for (let y = s.y - r; y <= s.y + r; y++) for (let x = s.x - r; x <= s.x + r; x++) {
-      if ((x - s.x) ** 2 + (y - s.y) ** 2 <= r * r && sea(y, x) && sea(y - 1, x) && sea(y + 1, x) && sea(y, x - 1) && sea(y, x + 1)) near.push([x, y]);
-    }
-    let out = null;
-    if (near.length) {
-      // 자원지에서 가까운 바다 칸 쪽으로 (가까운 절반의 가운데), 그 가운데에서 가장 가까운 바다 칸
-      near.sort((a, b) => Math.hypot(a[0] - s.x, a[1] - s.y) - Math.hypot(b[0] - s.x, b[1] - s.y));
-      const front = near.slice(0, Math.max(1, Math.ceil(near.length / 2)));
-      const mx = front.reduce((t, c) => t + c[0], 0) / front.length, my = front.reduce((t, c) => t + c[1], 0) / front.length;
-      const c = front.reduce((b, q) => (Math.hypot(q[0] - mx, q[1] - my) < Math.hypot(b[0] - mx, b[1] - my) ? q : b));
-      out = { x: c[0], y: c[1] };
-    }
-    this.fishSpots.set(s.id, out);
-    return out;
   }
 
   boatAt(x: number, y: number, r: number, own?: number): Boat | null {
@@ -112,7 +85,7 @@ export class Controller {
   // ------------------------------------------------------------- 고른 것
   /** 살아 있는 선택만 남긴다 (죽은 병사, 무너진 건물, 가라앉은 배). */
   prune() {
-    for (const [s, g] of this.sel) { const u = this.st.units.get(s); if (!u || u.gen !== g || u.bits & 2) this.sel.delete(s); }
+    for (const [s, g] of this.sel) { const u = this.st.units.get(s); if (!u || u.gen !== g || u.bits & 2 || u.bits & 8) this.sel.delete(s); }   // 8: 행렬 호위 중
     if (this.selB) { const b = this.st.builds.get(this.selB[0]); if (!b || b.gen !== this.selB[1]) this.selB = null; }
     for (const id of this.selShips) { const b = this.st.boats.get(id); if (!b || !pickable(b)) this.selShips.delete(id); }
   }
@@ -127,10 +100,12 @@ export class Controller {
   drawnY(u: Unit, ground = false) { return !ground && u.bits & 4 ? u.y - FLY_CELLS : u.y; }
 
   selectBox(x0: number, y0: number, x1: number, y1: number, add: boolean) {
+    this.inspect = null;
+    this.onPickElse?.();
     if (!add) { this.sel.clear(); this.selShips.clear(); this.selB = null; }
     for (const u of this.st.units.values()) {
       const uy = this.drawnY(u);
-      if (u.own === this.me && !(u.bits & 2) && u.x >= x0 && u.x <= x1 && uy >= y0 && uy <= y1) this.sel.set(u.slot, u.gen);
+      if (u.own === this.me && !(u.bits & 2) && !(u.bits & 8) && u.x >= x0 && u.x <= x1 && uy >= y0 && uy <= y1) this.sel.set(u.slot, u.gen);
     }
     for (const b of this.st.boats.values()) {
       if (b.own === this.me && pickable(b) && b.x >= x0 && b.x <= x1 && b.y >= y0 && b.y <= y1) this.selShips.add(b.id);
@@ -139,12 +114,16 @@ export class Controller {
 
   /** px: 고르는 반경 (화면 픽셀, 터치는 손가락 크기만큼 넓게). */
   selectPoint(x: number, y: number, zoom: number, add: boolean, px = 8) {
-    const u = this.unitAt(x, y, Math.max(1.5, px / zoom), this.me);
+    this.inspect = null;                                       // 말풍선은 누를 때마다 새로 (땅·다른 것을 누르면 꺼진다)
+    const fb0 = this.buildingAt(x, y);
+    if (!(fb0 && fb0.own !== this.me && fb0.kind === this.R().kinds.HALL)) this.onPickElse?.();
+    const u0 = this.unitAt(x, y, Math.max(1.5, px / zoom), this.me);
+    const u = u0 && !(u0.bits & 8) ? u0 : null;                 // 행렬을 따라가는 호위병은 무역소에 돌아올 때까지 고를 수 없다
     if (u) {
       if (!add) { this.sel.clear(); this.selB = null; this.selShips.clear(); }
       if (zoom < UNIT_ZOOM) {                    // 멀리서는 배지 하나 = 그 무리 전체
         for (const v of this.st.units.values()) {
-          if (v.own === this.me && !(v.bits & 2) && Math.hypot(v.x - u.x, v.y - u.y) < 34 / zoom) this.sel.set(v.slot, v.gen);
+          if (v.own === this.me && !(v.bits & 2) && !(v.bits & 8) && Math.hypot(v.x - u.x, v.y - u.y) < 34 / zoom) this.sel.set(v.slot, v.gen);
         }
       } else this.sel.set(u.slot, u.gen);
       return;
@@ -163,7 +142,13 @@ export class Controller {
     }
     const fb = this.buildingAt(x, y);                        // 다른 나라의 거점: 외교 말풍선 (고른 병사는 그대로)
     if (fb && fb.own !== this.me && fb.kind === this.R().kinds.HALL && this.onForeignHall) {
+      this.selB = null;                                      // 건물 말풍선은 닫고 외교 말풍선 (고른 병사는 그대로)
       this.onForeignHall(fb);
+      return;
+    }
+    if (fb && fb.own !== this.me) {                          // 다른 나라의 다른 건물: 살펴보기 말풍선 (고른 병사는 그대로)
+      this.selB = null;
+      this.inspect = [fb.slot, fb.gen];
       return;
     }
     if (!add) { this.sel.clear(); this.selB = null; this.selShips.clear(); }
@@ -173,6 +158,16 @@ export class Controller {
   private ping(x: number, y: number, col: string) { this.pings.push({ t0: performance.now(), x, y, col }); }
 
   /** 오른쪽 클릭 (attack: A 다음 클릭). 서버로 보내고, 같은 판단으로 명령 표시를 바로 그린다. */
+  /** (x, y) 둘레의 무역 행렬 구성원 (서버 Trade.caravan_at과 같다). */
+  caravanAt(x: number, y: number, r: number) {
+    let best = null, bd = r;
+    for (const c of this.st.caravans.values()) {
+      const d = Math.hypot(c.x - x, c.y - y);
+      if (d < bd) { best = c; bd = d; }
+    }
+    return best;
+  }
+
   command(x: number, y: number, zoom: number, attack: boolean, px = 8) {
     this.prune();
     const r = Math.max(2.0, px / zoom);
@@ -186,6 +181,8 @@ export class Controller {
       this.net.command(this.refs(), [...this.selShips], x, y, attack, r);
     }
     if (!this.sel.size) return;
+    const car = this.caravanAt(x, y, Math.max(2.5, r));        // 다른 나라의 무역 행렬: 약탈하러 간다 (sim/trade.py raid)
+    if (car && car.own !== this.me && !car.sea) return this.ping(x, y, PING.attack);
     const foe = this.unitAt(x, y, Math.max(2.0, r));
     if (foe && foe.own !== this.me) return this.ping(x, y, PING.attack);
     const an = animalAt(this.st, x, y, Math.max(1.8, r));      // 야생 동물: 길들이러 (깨어 있거나 잠든 드래곤은 친다)
