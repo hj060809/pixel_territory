@@ -174,6 +174,13 @@ CARAVAN_GAP = 4.0          # 구성원 사이 (길 위 칸, 화면 draw.ts와 �
 TRADE = dict(load=0.16, every=10.0, speed=3.5, wait=3.0, keep=0.15, least=10.0, board=4.0,
              escort=6, escort_r=6.0, raid_mul=1.5, raid_stop=3, raid_forget=180.0, rel=5.0)
 
+# 기후 효과 (sim/climate.py, 부족은 sim/tribes.py): 병사만 받는다
+#   slow: 불리한 기후 지역에서 이동 배율, chance·every·dmg: 확률 피해 (every초에 한 번꼴로 chance 확률, 최대 체력의 dmg),
+#   floor: 기후 피해로는 최대 체력의 이 비율 아래로 떨어지지 않는다, snow_take: 설원 부족이 사막 밖에서 받는 피해 배율,
+#   desert_deal: 사막 부족이 설원 밖에서 주는 피해 배율, tame_*: 길들이는 시간 배율, temperate_trade: 온대 부족의 무역 빠르기
+CLIMATE = dict(slow=0.85, chance=0.5, every=3.0, dmg=0.02, floor=0.3, snow_take=0.7, desert_deal=1.2,
+               tame_snow_tortoise=1.5, tame_desert_dragon=1.25, temperate_trade=1.2)
+
 START_RES = (160.0, 160.0, 120.0)      # 석재를 넉넉히: 석재 자원지가 먼 곳에서 시작해도 첫 건물들을 짓게
 START_UNITS = ((INFANTRY, 5), (ARCHER, 2))
 

@@ -12,6 +12,7 @@ import { AdvancedDialog, AdvancedState } from './advanced.ts';
 import type { LobbyInfo } from './lobbyArt.ts';
 import { DIM, GOLD, INK, button, div, field, uiScale, previewReserve } from './widgets.ts';
 import { setVisPref, visPref } from '../game/visibility.ts';
+import { TRIBE_ICONS, iconImage } from '../ui/icons.ts';
 
 export const SEASONS = ['봄', '여름', '가을', '겨울'];
 
@@ -46,7 +47,7 @@ export interface PlayRequest {
 }
 
 interface Listing { presets: { key: string; name: string }[]; sizes: number[] }
-interface Layout { key: string; starts: number[][]; colors: number[]; lairs: number[][]; sulfur: number[][] }
+interface Layout { key: string; starts: number[][]; colors: number[]; lairs: number[][]; sulfur: number[][]; tribes: number[] }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -69,6 +70,7 @@ export class Setup {
   private buildStart = 0;
   private startAfterBuild = false;
   private layout: Layout | null = null;
+  private spotTribe: number | null = null;          // 고른 시작 자리의 부족 (sim/tribes.py)
   private layoutFetching = '';
   private mouse: [number, number] | null = null;
   private previewSize = 260;
@@ -301,7 +303,7 @@ export class Setup {
     this.layoutFetching = want;
     try {
       const r = await (await fetch(`/api/maps/${this.builtKey}/layout?bots=${this.s.bots}&color=${this.s.color}`)).json();
-      if (this.layoutFetching === want) this.layout = { key: want, starts: r.starts, colors: r.colors, lairs: r.lairs ?? [], sulfur: r.sulfur ?? [] };
+      if (this.layoutFetching === want) this.layout = { key: want, starts: r.starts, colors: r.colors, lairs: r.lairs ?? [], sulfur: r.sulfur ?? [], tribes: r.tribes ?? [] };
     } finally {
       if (this.layoutFetching === want) this.layoutFetching = '';
     }
@@ -316,6 +318,7 @@ export class Setup {
     const j = await res.json();
     if (!res.ok) { this.say(j.error ?? '그 자리는 고를 수 없습니다'); return; }
     this.s.spot = [y, x];
+    this.spotTribe = j.tribes?.[0] ?? null;
     this.say('시작 자리를 정했습니다');
     this.render();
   }
@@ -426,10 +429,11 @@ export class Setup {
     }
     const n = this.mapSize();
     const hallKind = this.lobby?.rules.kinds.HALL ?? 0;
-    const hall = (y: number, x: number, color: number, me: boolean, label?: string) => {
+    const hall = (y: number, x: number, color: number, me: boolean, label?: string, tribe?: number | null) => {
       const sx = ((x + 0.5) / n) * size, sy = ((y + 0.5) / n) * size;
       const img = this.bank.building(hallKind, color, 2);
       g.drawImage(img, Math.trunc(sx - img.width / 2), Math.trunc(sy + 6 - img.height));
+      tribeBadge(g, sx, sy, tribe);
       if (me) {
         g.strokeStyle = '#fff';
         g.lineWidth = 1;
@@ -463,9 +467,9 @@ export class Setup {
       // 방 만들기: 시작 자리는 대기실에서
     } else if (this.s.spotMode === 'random') {
       if (this.layout && this.layout.key === this.layoutWant()) {
-        this.layout.starts.forEach(([y, x], i) => hall(y, x, this.layout!.colors[i], i === 0, this.s.name.trim() || '나'));
+        this.layout.starts.forEach(([y, x], i) => hall(y, x, this.layout!.colors[i], i === 0, this.s.name.trim() || '나', this.layout!.tribes[i]));
       }
-    } else if (this.s.spot) hall(this.s.spot[0], this.s.spot[1], this.s.color, true);
+    } else if (this.s.spot) hall(this.s.spot[0], this.s.spot[1], this.s.color, true, undefined, this.spotTribe);
     if (this.mode === 'single' && this.s.spotMode === 'pick' && this.mouse) {
       g.strokeStyle = GOLD;
       g.beginPath();
@@ -473,6 +477,17 @@ export class Setup {
       g.stroke();
     }
   }
+}
+
+/** 미리보기 거점 오른쪽 아래의 부족 아이콘 (어두운 동그라미 위에, sim/tribes.py: 0 온대, 1 설원, 2 사막). 대기실도 쓴다. */
+export function tribeBadge(g: CanvasRenderingContext2D, sx: number, sy: number, tribe?: number | null) {
+  if (tribe === undefined || tribe === null) return;
+  const img = iconImage(TRIBE_ICONS[tribe] ?? 'leaf');
+  if (!img.complete) return;
+  const x = Math.trunc(sx + 7), y = Math.trunc(sy - 2);
+  g.fillStyle = 'rgba(12,12,20,0.75)'; g.beginPath(); g.arc(x + 8, y + 8, 10, 0, Math.PI * 2); g.fill();
+  g.imageSmoothingEnabled = false;
+  g.drawImage(img, x, y, 16, 16);
 }
 
 /** 멀티 이름 칸: 입력 + [🎲] (다시 뽑기). 멀티 화면과 방 만들기가 함께 쓴다. */

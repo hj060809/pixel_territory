@@ -50,25 +50,23 @@ import numpy as np
 
 from sim import rules as R
 from sim.entities import AMOVE, BUILD, IDLE, TAME
+from sim import tribes
 from sim.wildlife import FIGHT, HELD, SLEEP, SUBDUED, TAMING, _desert, _grass
-from engine.render import materials as S
 
 
 def dragon_tribes(w) -> set:
     """드래곤 의지를 갖는 AI 나라: 시작 거점이 있는 섬에 드래곤이 있어야 한다 (없으면 드래곤 부족이 아니다).
-    그중 시작 거점이 설원·툰드라 위인 나라, 그리고 둥지에 가장 가까운 나라 하나는 꼭 (그런 섬이 있으면).
+    그중 설원 부족 (sim/tribes.py), 그리고 둥지에 가장 가까운 나라 하나는 꼭 (그런 섬이 있으면).
     처음 한 번 정한다 (시작 거점 자리로)."""
     got = w.__dict__.get('_dragon_tribes')
     if got is not None:
         return got
     m = w.map
-    mat, _ = m.seasons.state(None)
-    cold = np.isin(mat, (S.SNOW, S.SNOW_OLD, S.ICE, S.TUNDRA)) | (m.layers['pre'] == S.TUNDRA)
     starts = _starts(w)
     lairs = [(a.hy, a.hx) for a in w.wild.animals.values() if a.unit >= 0]
     lair_comps = {int(m.comp[int(ly), int(lx)]) for ly, lx in lairs}
     starts = {nid: p for nid, p in starts.items() if int(m.comp[p]) in lair_comps}   # 자기 섬에 드래곤이 있는 나라만
-    out = {nid for nid, p in starts.items() if _share(m, cold, p) >= DRIVE_COLD}
+    out = {nid for nid in starts if w.nations[nid].tribe == tribes.SNOW}   # 설원 부족 (sim/tribes.py)
     if starts:
         def far(nid):
             y, x = starts[nid]
@@ -99,25 +97,16 @@ def _starts(w) -> dict:
     return out
 
 
-def _share(m, mask, p) -> float:
-    """p 둘레 DRIVE_R칸의 땅 중 mask인 비율."""
-    y, x = p
-    y0, y1, x0, x1 = max(y - DRIVE_R, 0), y + DRIVE_R + 1, max(x - DRIVE_R, 0), x + DRIVE_R + 1
-    land = m.land[y0:y1, x0:x1]
-    return float((mask[y0:y1, x0:x1] & land).sum() / land.sum()) if land.any() else 0.0
-
-
 def tortoise_tribes(w) -> set:
     """거북 의지를 갖는 AI 나라: 시작 거점이 있는 섬에 사막(거북이 사는 땅)이 있어야 한다.
-    그중 시작 거점이 사막인 나라, 그리고 그 섬의 사막에 가장 가까운 나라 하나는 꼭. 처음 한 번 정한다."""
+    그중 사막 부족 (sim/tribes.py), 그리고 그 섬의 사막에 가장 가까운 나라 하나는 꼭. 처음 한 번 정한다."""
     got = w.__dict__.get('_tortoise_tribes')
     if got is not None:
         return got
     m = w.map
     hab = _lean_masks(m)[1]                                  # 거북이 사는 넓은 사막
-    sandy = np.isin(m.layers['pre'], (S.DESERT, S.DUNE))
     starts = {nid: p for nid, p in _starts(w).items() if hab[m.comp == m.comp[p]].any()}   # 자기 섬에 사막이 있는 나라만
-    out = {nid for nid, p in starts.items() if _share(m, sandy, p) >= DRIVE_COLD}
+    out = {nid for nid in starts if w.nations[nid].tribe == tribes.DESERT}   # 사막 부족 (sim/tribes.py)
     if starts:
         def far(nid):
             y, x = starts[nid]
@@ -145,12 +134,13 @@ HUNT_RETRY = 60.0      # 실패한 뒤 다시 노리기까지 (초)
 LEAN_R = 40            # 집 둘레 이만큼 안의 지형으로 성향을 정한다
 LEAN_MIN = 0.6         # 가장 좋아하는 동물의 성향은 적어도 이만큼
 LEAN_KINDS = (R.DRAGON, R.TORTOISE_W, R.HORSE)
-DRIVE_R = 8            # 시작 거점 둘레 이만큼 안의
-DRIVE_COLD = 0.4       # 이만큼이 설원(봄·가을에도 눈)이나 툰드라면 드래곤 부족
 DRIVE_TIME = 300.0     # 이만큼 지나고
 DRIVE_BUILDS = 6       # 건물(거점 포함)이 이만큼 있으면 '자랐다'
 RAID_CHANCE = 0.025     # 호위 없는 적대국 행렬을 약탈하러 가는 확률 (생각할 때마다, × 공격성). 약탈국이 아닐 때만
 TRADE_PEACE = 1.8      # 무역하는 나라의 건물은 이만큼 멀리 있는 것처럼 친다 (덜 고른다)
+# 부족 (sim/climate.py): 불리한 기후 지역에 있는 표적은 이만큼 멀리 있는 것처럼 친다 (설원은 사막을, 사막은 설원을, 온대는 둘 다 조금)
+CLIMATE_AVOID = {'snow': (1.0, 1.5), 'desert': (1.6, 1.0), 'temperate': (1.25, 1.25)}   # (설원 지역 표적, 사막 지역 표적)
+DESERT_RUSH = 0.8      # 사막 부족은 병력이 이만큼만 모여도 쳐들어간다 (빠른 공격)
 ESCORT_WANT = 2        # 무역소마다 호위병 (병력이 넉넉할 때)
 TRADE_TIME = 120.0     # 무역소: 이만큼 지난 뒤부터
 TRADE_TIME2 = 600.0    # 이 뒤로는 TRADE_MAX개까지
@@ -378,6 +368,8 @@ class Bot:
                     w.fleet.hunt([sh], min(foes, key=lambda o: np.hypot(o.y - sh.y, o.x - sh.x)))
         # 6. 공격
         need = 8 + (1 - self.aggression) * 14 + w.time / 90
+        if nat.tribe == tribes.DESERT:
+            need *= DESERT_RUSH
         hold = self.drive and not self.hunt and len(mine) < self.drive + 8    # 드래곤 병력을 모으는 중엔 쳐들어가지 않는다
         if len(idle) >= need and w.time >= self.raid_at and not hold:
             keep = int(len(idle) * 0.25)
@@ -393,8 +385,9 @@ class Bot:
         towers = len(w.building_ids(self.id, R.TOWER))
         camps = len(w.building_ids(self.id)) - len(halls) - towers
         stone = w.nations[self.id].res[R.STONE] - self.reserve[R.STONE]
+        snowy = w.nations[self.id].tribe == tribes.SNOW                        # 설원 부족은 지키기: 망루·화염탑을 하나씩 더
         want_t = (1 + camps // 3 + (1 if len(intel['near']) else 0) + (1 if intel['tortoises'] else 0)
-                  + min(3, int(stone // 250)))                                 # 석재가 남으면 더
+                  + min(3, int(stone // 250)) + (1 if snowy else 0))           # 석재가 남으면 더
         tcost = R.BUILD_STATS[R.TOWER]['cost']
         if (len(idle) >= 3 and towers < want_t and (self._spare(w, tcost) or (towers < 2 and len(intel['near']) and w.can_afford(self.id, tcost)))
                 and self.rng.random() < (0.7 if len(intel['near']) else 0.5)):
@@ -451,7 +444,7 @@ class Bot:
                     idle = np.setdiff1d(idle, pick)
         # 화염탑: 유황과 석재가 모이면 (적에게 용기사가 있으면 더 많이, 서둘러, 거점 곁에)
         fst = R.BUILD_STATS[R.FIRE_TOWER]
-        want_f = 1 + camps // 4 + min(3, intel['riders'])
+        want_f = 1 + camps // 4 + min(3, intel['riders']) + (1 if snowy else 0)
         if (len(idle) >= 2 and len(w.building_ids(self.id, R.FIRE_TOWER)) < want_f
                 and w.can_afford(self.id, fst['cost'], fst['sulfur']) and (intel['riders'] or self._spare(w, fst['cost']))
                 and self.rng.random() < (0.85 if intel['riders'] else 0.6)):
@@ -1023,6 +1016,11 @@ class Bot:
         d = d * np.where(rel < -50, 0.6, np.where(rel < 0, 0.85, 1.0))                  # 적대하는 나라를 먼저
         trading = np.array([w.trade.status(self.id, int(o)) == 'on' if o < dp.n else False for o in own])
         d = d * np.where(trading, TRADE_PEACE, 1.0)                                     # 무역하는 나라는 덜 친다
+        snow, sand = tribes.zones(w.map)                                                # 불리한 기후 지역의 표적은 덜 고른다
+        tname = ('temperate', 'snow', 'desert')[w.nations[self.id].tribe]
+        fy, fx = b.y[foes].astype(int), b.x[foes].astype(int)
+        av = CLIMATE_AVOID[tname]
+        d = d * np.where(snow[fy, fx], av[0], np.where(sand[fy, fx], av[1], 1.0))
         if self.focus is not None and self.focus[1] > w.time:
             d = d * np.where(own == self.focus[0], 0.4, 1.0)                           # 동맹이 공격을 요청한 나라는 더 먼저
         t = foes[int(np.argmin(d))]

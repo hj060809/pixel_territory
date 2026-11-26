@@ -47,6 +47,7 @@ def setup(world, me: int, enemy: int) -> None:
     """판이 만들어진 뒤: 자원, 적 병사·거점 줄이기, 내 거점 곁 말 무리."""
     w = world
     w.nations[me].res = list(RES)
+    w.nations[me].tribe = 0                                  # 튜토리얼은 온대 (sim/tribes.py)
     u, b = w.units, w.builds
     foes = [int(i) for i in np.flatnonzero(u.alive[:u.n] & (u.own[:u.n] == enemy))]
     for i in foes[ENEMY_UNITS:]:

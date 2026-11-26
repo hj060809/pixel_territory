@@ -63,14 +63,14 @@ class Room:
                 'bots': self.bots, 'locked': bool(self.password), 'map': self.setup.get('map', ''),
                 'start_mode': self.start_mode}
 
-    def view(self, me: int, map_status: dict | None = None) -> dict:
+    def view(self, me: int, map_status: dict | None = None, tribes: dict | None = None) -> dict:
         """대기실 화면에 보낼 것 (me: 받는 사람의 members 번호)."""
         return {'t': 'room', 'id': self.id, 'code': self.code, 'name': self.name, 'host': self.host, 'me': me,
                 'cap': self.cap, 'bots': self.bots, 'start_mode': self.start_mode, 'setup': self.setup,
                 'locked': bool(self.password), 'state': self.state, 'layout': self.layout,
                 'members': [{'name': m.name, 'color': m.color, 'ready': m.ready, 'spot': list(m.spot) if m.spot else None}
                             for m in self.members],
-                'map_status': map_status or {}}
+                'map_status': map_status or {}, 'tribes': tribes or {}}
 
     def free_color(self) -> int:
         used = {m.color for m in self.members}

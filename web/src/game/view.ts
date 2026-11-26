@@ -27,6 +27,7 @@ import { helpBox } from './help.ts';
 import { serverPlea } from '../ui/coffee.ts';
 import { Tutorial } from './tutorial.ts';
 import { BuildInfoUi } from './buildInfo.ts';
+import { TribeButton } from './tribeUi.ts';
 import { Chat } from './chat.ts';
 import { setTouchMode, touchMode } from '../ui/device.ts';
 import { toggleVis, visOn } from './visibility.ts';
@@ -113,6 +114,7 @@ export class GameView {
   private handed = false;                         // 연결을 대기실에 넘겼다 (닫지 않는다)
   private token: string | null = null;            // 내 자리 표 (이어 하기를 지울 때)
   private menuBtn: HTMLButtonElement | null = null; // 오른쪽 위 [메뉴] (데스크톱)
+  private tribeBtn: TribeButton | null = null;      // 자원 HUD 오른쪽 동그란 부족 버튼 (누르면 말풍선으로 효과)
   private tut: Tutorial | null = null;              // 튜토리얼 판의 단계 안내
   private chat: Chat | null = null;                 // 대화 (사람이 여럿인 판)
 
@@ -142,6 +144,7 @@ export class GameView {
     if (!this.handed) this.net?.close();
     clearResume(this.token);                            // 스스로 나갔다: 다시 열어도 이어 하지 않는다
     this.menuBtn?.remove();
+    this.tribeBtn?.dispose();
     this.tut?.dispose();
     this.chat?.dispose();
     document.body.classList.remove('in-tutorial', 'chat-typing');
@@ -318,6 +321,7 @@ export class GameView {
     mb.textContent = '☰ 메뉴';
     mb.addEventListener('click', (e) => { e.stopPropagation(); openMenu(); });
     document.body.appendChild(mb);
+    this.tribeBtn = new TribeButton(() => st, () => this.hud?.panels()[0] ?? null);   // 자원 HUD 오른쪽
     this.listen(document, 'visibilitychange', () => {   // 탭을 숨기면 일시정지, 돌아오면 이어 간다 (싱글만)
       if (!st || st.over || !solo()) return;
       if (document.hidden && !st.paused) { autoPaused = true; net.send({ t: 'pause', on: true, auto: true }); }
@@ -523,6 +527,7 @@ export class GameView {
         if (this.bar && st) this.bar.el.style.display = st.over ? 'none' : '';   // 졌거나 끝났으면 (관전) 명령 버튼을 숨긴다
         this.diplo?.render();
         this.binfo?.render();
+        this.tribeBtn?.update();
         this.bar?.update();
         this.tui?.update();
         this.tut?.update();

@@ -69,10 +69,37 @@ const ICONS: Record<string, string> = {
   // 속도: 재생 세모, 일시정지 두 막대
   play: px('rgb(232,226,210)', [[4, 3, 2, 10], [6, 4, 2, 8], [8, 5, 2, 6], [10, 6, 2, 4], [12, 7, 1, 2]]),
   pause: px('rgb(232,226,210)', [[4, 3, 3, 10], [9, 3, 3, 10]]),
+  // 온대 부족: 잎 (잎맥이 있는 초록 잎)
+  leaf: px('rgb(96,150,62)', [[9, 2, 4, 2], [7, 4, 6, 2], [5, 6, 7, 2], [4, 8, 7, 2], [4, 10, 5, 2], [5, 12, 2, 1]])
+    + px('rgb(150,200,90)', [[10, 2, 2, 1], [8, 4, 3, 1], [6, 6, 3, 1], [5, 8, 2, 1]])
+    + px('rgb(62,104,44)', [[3, 13, 2, 2], [5, 11, 1, 1], [6, 10, 1, 1], [7, 9, 1, 1], [8, 8, 1, 1], [9, 7, 1, 1], [10, 6, 1, 1], [11, 5, 1, 1]]),
+  // 사막 부족: 모래 언덕 둘 (뒤의 큰 언덕, 앞의 작은 언덕). 볕 받는 쪽은 밝고 그늘 쪽은 어둡다, 능선은 더 밝게
+  dunes: px('rgb(208,170,100)', [[9, 5, 3, 1], [7, 6, 5, 1], [6, 7, 6, 1], [5, 8, 8, 1], [4, 9, 9, 4]])
+    + px('rgb(164,124,72)', [[12, 6, 2, 1], [12, 7, 3, 1], [13, 8, 3, 1], [13, 9, 3, 4]])
+    + px('rgb(238,210,142)', [[3, 9, 3, 1], [1, 10, 6, 1], [0, 11, 8, 1], [0, 12, 9, 1]])
+    + px('rgb(190,150,88)', [[6, 10, 2, 1], [8, 11, 2, 1], [9, 12, 3, 1]])
+    + px('rgb(222,190,120)', [[0, 13, 16, 2]])
+    + px('rgb(252,236,184)', [[9, 5, 2, 1], [3, 9, 2, 1]]),
 };
 
 export type IconName = keyof typeof ICONS;
 export const SEASON_ICONS = ['spring', 'sun', 'autumn', 'winter'];
+/** 부족 아이콘 (sim/tribes.py 번호 순서: 온대, 설원, 사막). */
+export const TRIBE_ICONS = ['leaf', 'winter', 'dunes'];
+
+const images = new Map<string, HTMLImageElement>();
+/** 캔버스에 그릴 아이콘 그림 (처음엔 읽는 중일 수 있다: complete일 때만 그린다). */
+export function iconImage(name: string): HTMLImageElement {
+  let img = images.get(name);
+  if (!img) {
+    img = new Image();
+    const body = (ICONS[name] ?? '').replace('<svg class="ico"', '<svg');
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" shape-rendering="crispEdges">${body}</svg>`);
+    images.set(name, img);
+  }
+  return img;
+}
 
 /** 아이콘 SVG 글. */
 export function icon(name: string, size = 16): string {

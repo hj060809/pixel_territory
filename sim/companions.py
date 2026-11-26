@@ -82,7 +82,7 @@ class Companions:
                 if len(near):
                     s.spin = R.STOMP['cd']
                     for j in near:                                   # 둘레 땅의 적을 치고 밀어낸다
-                        d = R.STOMP['dmg'] * w.diplo.hurt[u.own[j]]
+                        d = R.STOMP['dmg'] * w.diplo.hurt[u.own[j]] * u.fx_take[j]
                         u.hp[j] -= d
                         w.diplo.hits[u.own[i], u.own[j]] += d
                         if u.hp[j] <= 0:

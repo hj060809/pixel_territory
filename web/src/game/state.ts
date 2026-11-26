@@ -14,7 +14,7 @@ export interface Shot extends ShotRec { t0: number }
 
 export interface StartInfo {
   map: string; H: number; W: number; round: number; tick_hz: number; me: number;
-  nations: { id: number; name: string; color: number[]; light: number[] }[];
+  nations: { id: number; name: string; color: number[]; light: number[]; tribe?: number }[];   // tribe: sim/tribes.py (0 온대, 1 설원, 2 사막)
   sites: { id: number; kind: number; x: number; y: number; rich: number; cold?: number; snow?: boolean }[];
   lairs?: number[][];                  // 드래곤 둥지 [y, x]
   year_length: number; day_length: number;

@@ -50,7 +50,7 @@ class FireTowers:
             for j in near:
                 kind = int(u.kind[j])
                 mul = F['vs_dragon'] if kind in (R.DRAGON_RIDER, R.WILD_DRAGON) else F['vs_tortoise'] if kind == R.TORTOISE else 1.0
-                d = dmg * mul * (1.0 if j == tgt else F['splash_mul']) * w.diplo.hurt[u.own[j]]
+                d = dmg * mul * (1.0 if j == tgt else F['splash_mul']) * w.diplo.hurt[u.own[j]] * u.fx_take[j]
                 u.hp[j] -= d
                 w.diplo.hits[o, u.own[j]] += d
                 if u.hp[j] <= 0:

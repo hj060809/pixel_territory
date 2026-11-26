@@ -202,7 +202,9 @@ def create_app(cfg: ServerConfig | None = None) -> FastAPI:
         starts = choose_starts(gmap, n, rng, [player_spot] if player_spot else None, sites)   # 맨 앞 = 고른 사람 자리
         from sim.wildlife import lairs_for
         lairs = lairs_for(gmap, R.WILDLIFE[R.DRAGON]['cap'])               # 드래곤 둥지 (미리보기에 표시)
+        from sim.tribes import classify
         return {'starts': [list(map(int, s)) for s in starts], 'colors': pick_colors(rng, n, color),
+                'tribes': [classify(gmap, int(s[0]), int(s[1])) for s in starts],   # 자리마다 부족 (sim/tribes.py)
                 'lairs': [list(map(int, p)) for p in lairs],
                 'sulfur': [[s.y, s.x] for s in sites if s.kind == R.SULFUR]}                # 유황 웅덩이 (미리보기에 표시)
 
@@ -398,8 +400,14 @@ def create_app(cfg: ServerConfig | None = None) -> FastAPI:
             gmap, sites = await asyncio.to_thread(_layout_map, key)
             from sim.spawn import choose_starts
             r.layout = [list(map(int, q)) for q in choose_starts(gmap, r.nations, np.random.default_rng(), None, sites)]
+        tribes = None                                           # 미리보기: 배치·고른 자리마다 부족 (sim/tribes.py)
+        if status.get('state') == 'ready':
+            from sim.tribes import classify
+            gmap, _ = await asyncio.to_thread(_layout_map, key)
+            tribes = {'layout': [classify(gmap, int(q[0]), int(q[1])) for q in (r.layout or [])],
+                      'spots': [classify(gmap, int(mm.spot[0]), int(mm.spot[1])) if mm.spot else None for mm in r.members]}
         for i, m in enumerate(r.members):
-            m.send(r.view(i, status))
+            m.send(r.view(i, status, tribes))
 
     async def _room_message(r, member, m):
         t = m.get('t')

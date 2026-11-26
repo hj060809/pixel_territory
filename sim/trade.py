@@ -339,8 +339,9 @@ class Trade:
                     self.raid_lv[k] = max(0.0, self.raid_lv[k] - 1)
 
     def speed(self, nid: int) -> float:
-        """무역 빠르기 배율 (출발 간격을 이만큼 줄인다). 부족 (5단계: 온대 1.2)이 들어오면 여기서."""
-        return 1.0
+        """무역 빠르기 배율 (출발 간격을 이만큼 줄인다): 온대 부족은 CLIMATE['temperate_trade'] (sim/tribes.py)."""
+        from sim import tribes
+        return R.CLIMATE['temperate_trade'] if self.w.nations[nid].tribe == tribes.TEMPERATE else 1.0
 
     def rest_after(self, own: int, partner: int) -> float:
         """행렬이 돌아온 뒤 다음 출발까지: 약탈국과 오가는 길이면 (어느 쪽이든) raid_mul배씩 더 쉰다."""

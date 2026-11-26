@@ -139,6 +139,28 @@ export class Overlay {
 
   /** 서리 숨결 (0.9초): 입에서 굵은 얼음 줄기가 뻗어 나가 넓게 퍼지고, 맞은 자리에 서리 안개와 얼음 고리.
    *  얼음 알갱이는 점 크기(K)의 2배까지, 앞으로 갈수록 크게 흩어진다. */
+  /** 더위·동상 (기후 확률 피해, sim/climate.py): 병사 머리 위의 정수 크기 점. 동상은 하늘색 눈송이가 내려앉고,
+   *  더위는 주황 점이 아른거리며 오른다. f: 0→1 (0.3초). */
+  private climateHit(x: number, y: number, z: number, f: number, frost: boolean) {
+    const g = this.g, d = Math.max(1, Math.trunc(z * 0.4)), top = Math.trunc(y - 4 * z);
+    g.globalAlpha = 1 - f * f;
+    if (frost) {                                                 // 눈송이 둘: 가운데 + 네 팔
+      for (const [ox, oy] of [[-1.2, 0], [1.0, -0.8]]) {
+        const cx = Math.trunc(x + ox * z), cy = Math.trunc(top + oy * z + f * z * 1.5);
+        g.fillStyle = 'rgb(214,238,255)'; g.fillRect(cx, cy, d, d);
+        g.fillStyle = 'rgb(150,200,240)';
+        g.fillRect(cx - d, cy, d, d); g.fillRect(cx + d, cy, d, d); g.fillRect(cx, cy - d, d, d); g.fillRect(cx, cy + d, d, d);
+      }
+    } else {                                                     // 아지랑이: 셋이 흔들리며 오른다
+      for (let k = 0; k < 3; k++) {
+        const cx = Math.trunc(x + (k - 1) * 1.1 * z + Math.sin((f * 2 + k * 0.7) * Math.PI) * d);
+        const cy = Math.trunc(top + z * (0.6 - f * 1.6) - (k % 2) * d * 2);
+        g.fillStyle = k === 1 ? 'rgb(255,214,120)' : 'rgb(255,150,64)'; g.fillRect(cx, cy, d, d);
+      }
+    }
+    g.globalAlpha = 1;
+  }
+
   private drawFrost(sx: (x: number) => number, sy: (y: number) => number, K: number, z: number, now: number) {
     const g = this.g, LIFE = 900;
     this.frost = this.frost.filter((f) => now - f.at < LIFE);
@@ -517,7 +539,7 @@ export class Overlay {
     const units = [...st.units.values()].filter((u) => !(u.bits & 2));
     if (z >= UNIT_ZOOM) {
       for (const s of st.shots) {                                 // 치는 병사는 맞는 쪽을 본다
-        if (!fresh.includes(s)) continue;
+        if (!fresh.includes(s) || s.kind >= 8) continue;          // 8·9 더위·동상: 치는 게 아니다
         const u = this.ctl.unitAt(s.x0, s.y0, 0.7, undefined, true);
         if (!u) continue;
         if (s.kind === 4) { this.spinAt.set(u.slot, now); continue; }   // 바위거북 발 구르기
@@ -606,6 +628,8 @@ export class Overlay {
           }
           this.frost.push({ x0: s.x0, y0: s.y0, x1: s.x1, y1: s.y1, at: now, air: !!(shooter && shooter.bits & 4), src });
         }
+      } else if (s.kind === 8 || s.kind === 9) {                 // 기후 (sim/climate.py): 8 동상 눈송이, 9 더위 아지랑이
+        if (z >= UNIT_ZOOM && age < 1) this.climateHit(bx, by, z, Math.max(age, 0), s.kind === 8);
       } else if (s.kind === 1) {                                 // 화살·망루
         const f = Math.min(Math.max(age, 0) * 1.6, 1.0), h = Math.max(f - 0.15, 0.0);
         g.strokeStyle = 'rgb(236,226,196)'; g.lineWidth = 1; g.beginPath();

@@ -176,6 +176,8 @@ export class DiploUi {
       if (color) t.style.color = color;
       this.info.appendChild(t);
     };
+    const tribes = this.st.info.rules.tribe_names ?? ['온대', '설원', '사막'];
+    if (info.tribe !== undefined) line(`${tribes[info.tribe]} 부족`, 'rgb(230,220,190)');   // 시작 거점 둘레 지형 (sim/tribes.py)
     const lv = d.theirs[o.nid] ?? 2;
     line(`우리를 보는 눈: ${LEVELS[lv]}`, LEVEL_COLORS[lv]);
     if (ally) line(`동맹 · 남은 기간 ${mmss(d.allies[key])}`, LEVEL_COLORS[3]);

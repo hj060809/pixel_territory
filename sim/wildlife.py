@@ -29,6 +29,7 @@ import numpy as np
 from scipy import ndimage
 
 from sim import rules as R
+from sim import climate
 from sim.entities import IDLE, MOVE, TAME
 
 GRAZE, WALK, FLEE, HELD, TAMING, SLEEP, FIGHT, SUBDUED = range(8)    # 동물 상태 (화면에 그대로 간다)
@@ -391,7 +392,7 @@ class Wildlife:
             reach = DRAGON_REACH if a.unit >= 0 else REACH
             if d > reach:
                 k = int(u.kind[i])
-                sp = R.UNIT_STATS[k]['speed'] * float(m.speed_mul[int(u.y[i]), int(u.x[i])]) ** R.UNIT_STATS[k]['terrain']
+                sp = R.UNIT_STATS[k]['speed'] * float(m.speed_mul[int(u.y[i]), int(u.x[i])]) ** R.UNIT_STATS[k]['terrain'] * float(u.fx_speed[i])
                 step = min(sp * dt, d - reach * 0.8)
                 nx, ny = u.x[i] + (a.x - u.x[i]) / d * step, u.y[i] + (a.y - u.y[i]) / d * step
                 if m.walk[int(ny), int(nx)]:
@@ -406,7 +407,7 @@ class Wildlife:
                 continue
             a.mode = TAMING
             a.dir = 1 if u.x[i] > a.x else -1                # 병사 쪽을 본다
-            t.prog += dt / R.WILDLIFE[a.kind]['tame']
+            t.prog += dt / (R.WILDLIFE[a.kind]['tame'] * climate.tame_mul(w, int(u.own[i]), a.kind))   # 부족: 설원은 거북, 사막은 드래곤이 더디다
             a.prog = max(t.prog, max((o.prog for o in self.tamers.values() if o.aid == a.id), default=0.0))
             if t.prog >= 1.0:
                 self._mount(i, a)
@@ -483,7 +484,7 @@ class Wildlife:
                 if d[j, near[j]] < FEAR:
                     k = ids[near[j]]
                     self._flee(a, float(u.x[k]), float(u.y[k]))
-        hits = [(r[1], r[2]) for r in w.recent if w.time - r[0] < 0.3]
+        hits = [(r[1], r[2]) for r in w.recent if w.time - r[0] < 0.3 and r[5] < 8]   # 8·9 더위·동상은 공격이 아니다
         if hits:
             hx = np.array(hits, np.float32)
             for a in free:
@@ -644,6 +645,6 @@ class Wildlife:
         for i in ids:
             if int(i) in self.tamers:
                 continue
-            u.hp[i] -= dmg
+            u.hp[i] -= dmg * u.fx_take[i]                       # 기후: 설원 부족은 사막 밖에서 덜 다친다
             if u.hp[i] <= 0:
                 u.alive[i] = False

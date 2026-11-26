@@ -39,7 +39,7 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
          nb, bx, by, bkind, bown, bhp, br, bprog, bcd, balive,
          k_speed, k_range, k_dmg, k_cd, k_sight, k_ranged, k_terrain, k_charge, k_vs, k_splash,
          walk, speed_mul, cover, fields, ready, tower_kind, tower_range, tower_dmg, tower_cd, neutral,
-         shots, builders, friend, hurt, hits, blast, upassive):
+         shots, builders, friend, hurt, hits, blast, upassive, fx_speed, fx_take, fx_deal):
     H, W = walk.shape
     gw = W // CELL + 1
     gh = H // CELL + 1
@@ -123,14 +123,14 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
             if dist <= k_range[k]:
                 if ucd[i] <= 0:
                     ucd[i] = k_cd[k]
-                    dmg = k_dmg[k]
+                    dmg = k_dmg[k] * fx_deal[i]     # 기후: 사막 부족은 설원 밖에서 더 세게 (sim/climate.py)
                     if umoving[i]:                  # 달려와서 처음 치는 한 방 (기병 돌격)
                         dmg *= k_charge[k]
                     if utgt[i] >= 0:
                         dmg *= k_vs[k, ukind[t]]    # 상성 (보병 → 기병, 기병 → 궁수)
                         if k_ranged[k]:
                             dmg *= cover[int(uy[t]), int(ux[t])]
-                        dmg *= hurt[uown[t]]
+                        dmg *= hurt[uown[t]] * fx_take[t]   # 기후: 설원 부족은 사막 밖에서 덜 다친다
                         uhp[t] -= dmg
                         hits[o, uown[t]] += dmg
                         if uhp[t] <= 0:
@@ -151,7 +151,7 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
                                 while j >= 0:
                                     if j != utgt[i] and ualive[j] and not uaboard[j] and friend[o, uown[j]] == 0 and not uair[j] and not upassive[j] \
                                             and (ux[j] - tx) ** 2 + (uy[j] - ty) ** 2 <= sr * sr:
-                                        uhp[j] -= dmg * 0.6 * hurt[uown[j]]
+                                        uhp[j] -= dmg * 0.6 * hurt[uown[j]] * fx_take[j]
                                         hits[o, uown[j]] += dmg * 0.6
                                         uslow[j] = 2.5
                                         if uhp[j] <= 0:
@@ -217,7 +217,7 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
                             sy += (np.random.random() - 0.5)
                     j = nxt[j]
         L = np.sqrt(dx * dx + dy * dy)
-        sp = k_speed[k] if fly else k_speed[k] * speed_mul[int(uy[i]), int(ux[i])] ** k_terrain[k]   # 지형을 타는 정도 (병종마다)
+        sp = k_speed[k] if fly else k_speed[k] * speed_mul[int(uy[i]), int(ux[i])] ** k_terrain[k] * fx_speed[i]   # 지형 (병종마다) × 기후
         if uslow[i] > 0:
             sp *= 0.55                              # 서리 숨결에 맞아 느려짐
         vx, vy = 0.0, 0.0
@@ -261,7 +261,7 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
                     j = nxt[j]
         if best >= 0:
             bcd[b] = tower_cd
-            dd = tower_dmg * cover[int(uy[best]), int(ux[best])] * hurt[uown[best]]
+            dd = tower_dmg * cover[int(uy[best]), int(ux[best])] * hurt[uown[best]] * fx_take[best]
             uhp[best] -= dd
             hits[bown[b], uown[best]] += dd
             if uhp[best] <= 0:

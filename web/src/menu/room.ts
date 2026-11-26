@@ -10,7 +10,7 @@
 import { Connection, type Handlers } from '../game/net.ts';
 import { SpriteBank } from '../game/sprites.ts';
 import type { LobbyInfo } from './lobbyArt.ts';
-import { SEASONS } from './setup.ts';
+import { SEASONS, tribeBadge } from './setup.ts';
 import { busyBox } from '../ui/coffee.ts';
 import { DIM, GOLD, INK, button, div, uiScale, previewReserve } from './widgets.ts';
 
@@ -18,6 +18,7 @@ interface Member { name: string; color: number; ready: boolean; spot: number[] |
 interface RoomState {
   id: string; code: string; name: string; host: number; me: number; cap: number; bots: number; start_mode: 'random' | 'pick';
   setup: { map: string; difficulty?: string; season?: number; vis?: boolean }; locked: boolean; state: string; layout: number[][] | null;
+  tribes?: { layout?: number[]; spots?: (number | null)[] };   // 자리마다 부족 (sim/tribes.py)
   members: Member[]; map_status: { state?: string; progress?: string };
 }
 
@@ -316,8 +317,9 @@ export class RoomView {
       }
     }
     const HALL = this.lobby?.rules.kinds.HALL ?? 0;
-    const hall = (y: number, x: number, color: number | null, label: string, me: boolean) => {
+    const hall = (y: number, x: number, color: number | null, label: string, me: boolean, tribe?: number | null) => {
       const [sx, sy] = at(y, x);
+      tribeBadge(g, sx, sy, tribe);
       if (color === null) {                                      // AI 자리: 색은 시작할 때 정해진다
         g.fillStyle = 'rgba(200,200,200,0.8)'; g.strokeStyle = '#000';
         g.beginPath(); g.arc(sx, sy, 5, 0, Math.PI * 2); g.fill(); g.stroke();
@@ -332,10 +334,10 @@ export class RoomView {
     if (r.start_mode === 'random' && r.layout) {
       r.layout.forEach(([y, x], i) => {
         const m = r.members[i];
-        hall(y, x, m ? m.color : null, m ? m.name : '', i === r.me);
+        hall(y, x, m ? m.color : null, m ? m.name : '', i === r.me, r.tribes?.layout?.[i]);
       });
     } else if (r.start_mode === 'pick') {
-      r.members.forEach((m, i) => { if (m.spot) hall(m.spot[0], m.spot[1], m.color, m.name, i === r.me); });
+      r.members.forEach((m, i) => { if (m.spot) hall(m.spot[0], m.spot[1], m.color, m.name, i === r.me, r.tribes?.spots?.[i]); });
       if (this.mouse) {
         g.strokeStyle = GOLD; g.beginPath(); g.arc(this.mouse[0], this.mouse[1], 10, 0, Math.PI * 2); g.stroke();
       }

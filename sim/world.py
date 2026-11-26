@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from sim import rules as R
-from sim import storage
+from sim import climate, storage, tribes
 from sim.trade import Trade
 from sim.boats import Fleet
 from sim.entities import AMOVE, ATTACK, BUILD, IDLE, MOVE, Buildings, Units
@@ -53,6 +53,7 @@ class Nation:
     n_buildings: int = 0
     caps: list = field(default_factory=lambda: [R.STORE_BASE + R.STORE_HALL] * 4)   # 자원마다 한도 (식량·목재·석재·유황, sim/storage.py)
     idle: bool = False               # 조종자 없음 (사람이 떠났다): 판 끝을 셀 때 남은 나라로 치지 않는다
+    tribe: int = 0                   # 부족 (sim/tribes.py: 0 온대, 1 설원, 2 사막). 시작 거점 자리로 한 번 정한다
 
 
 class World:
@@ -117,6 +118,7 @@ class World:
             name = names[i] if names and i < len(names) and names[i] else f'{word} {animals[i % len(animals)]}'
             self.nations.append(Nation(i, name, col, light))
         self._spawn_all(starts)
+        tribes.assign(self)                                # 나라마다 부족 (시작 거점 둘레의 지형)
         from sim.companions import Companions
         self.companions = Companions(self)
         from sim.firetower import FireTowers
@@ -482,6 +484,7 @@ class World:
         u, b, m = self.units, self.builds, self.map
         self._economy(dt)
         self._training(dt)
+        climate.update(self, dt)                            # 기후 효과: 병사마다 이동·피해 배율, 더위·동상 (sim/climate.py)
         self.n_shots = step(dt, u.n, u.x, u.y, u.hp, u.own, u.kind, u.state, u.slot, u.tgt, u.tgb, u.bld, u.cd,
                             u.search, u.anim, u.moving, u.alive, u.aboard, u.tx, u.ty, u.slow, u.air,
                             b.n, b.x, b.y, b.kind, b.own, b.hp, b.r, b.prog, b.cd, b.alive,
@@ -489,7 +492,7 @@ class World:
                             self.k_terrain, self.k_charge, self.k_vs, self.k_splash,
                             m.walk, m.speed_mul, m.cover, self.fields.fields, self.fields.ready, R.TOWER, R.TOWER_RANGE, R.TOWER_DMG,
                             R.TOWER_CD, R.NEUTRAL, self.shots, self._builders,
-                            self.diplo.friend, self.diplo.hurt, self.diplo.hits, b.last, u.passive)
+                            self.diplo.friend, self.diplo.hurt, self.diplo.hits, b.last, u.passive, u.fx_speed, u.fx_take, u.fx_deal)
         if self.n_shots:                                    # 화면에 잠깐 그릴 공격 (화살, 칼부림)
             for row in self.shots[:self.n_shots].tolist():
                 self.recent.append((self.time, *row))

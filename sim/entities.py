@@ -40,6 +40,9 @@ class Units:
         self.ty = np.zeros(cap, np.float32)
         self.slow = np.zeros(cap, np.float32)      # 서리 숨결에 맞아 느려진 남은 시간
         self.air = np.zeros(cap, np.bool_)         # 날고 있다 (용기사): 지형 무시, 근접 공격을 받지 않는다
+        self.fx_speed = np.ones(cap, np.float32)   # 기후 효과 배율 (sim/climate.py가 걸음마다): 이동, 받는 피해, 주는 피해
+        self.fx_take = np.ones(cap, np.float32)
+        self.fx_deal = np.ones(cap, np.float32)
         self.passive = np.zeros(cap, np.bool_)     # 중립 (행렬을 따라가는 호위병, sim/trade.py): 먼저 치지 않고, 누구도 저절로 노리지 않는다.
                                                    # 명령으로 공격받으면 풀린다 (맞서 싸운다)
         self.gen = np.zeros(cap, np.uint16)        # 칸을 새로 쓸 때마다 +1 (화면이 '같은 병사'인지 알게)
@@ -61,6 +64,7 @@ class Units:
         self.anim[i] = np.random.random() * 4
         self.alive[i] = True
         self.passive[i] = False
+        self.fx_speed[i] = self.fx_take[i] = self.fx_deal[i] = 1.0
         self.aboard[i] = False
         self.tx[i], self.ty[i], self.slow[i] = x, y, 0.0
         self.air[i] = False

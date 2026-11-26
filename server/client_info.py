@@ -13,6 +13,7 @@ import numpy as np
 
 from engine.render import materials as M
 from sim import rules as R
+from sim import tribes as tribes_mod
 
 MAT_NAMES = {
     M.GRASS: '초원', M.GRASS_YELLOW: '초원', M.GRASS_DEAD: '마른 초원', M.DRYGRASS: '마른 풀밭', M.SAVANNA: '사바나',
@@ -47,6 +48,7 @@ def rules_info() -> dict:
         'kinds': {'HALL': R.HALL, 'FARM': R.FARM, 'LUMBER': R.LUMBER, 'QUARRY': R.QUARRY, 'TOWER': R.TOWER,
                   'HARBOR': R.HARBOR, 'SULFUR_PIT': R.SULFUR_PIT, 'FIRE_TOWER': R.FIRE_TOWER, 'SULFUR': R.SULFUR,
                   'TRADE_POST': R.TRADE_POST},
+        'tribe_names': list(tribes_mod.NAMES),
         'trade': dict(R.TRADE), 'caravan_members': [m for m, _ in R.CARAVAN_MEMBERS], 'caravan_gap': R.CARAVAN_GAP,
         'store': {'base': R.STORE_BASE, 'hall': R.STORE_HALL, 'site': R.STORE_SITE},
         'site_building': {str(k): v for k, v in R.SITE_BUILDING.items()},
