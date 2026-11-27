@@ -498,6 +498,9 @@ class GameSession:
                 nat.res = [max(0.0, r + a) for r, a in zip(nat.res, add[:3])]
                 nat.sulfur = max(0.0, nat.sulfur + add[3])
                 self.world.say('개발: 자원 ' + ', '.join(f'{n} {a:+.0f}' for n, a in zip(('식량', '목재', '석재', '유황'), add) if a), to=nid)
+            elif m.get('cmd') == 'raid':                     # 겨울 드래곤 습격을 지금 (겨울이 아니어도, 끝날 때까지)
+                if not self.world.wild.start_raid(free=True):
+                    self.world.say('개발: 습격할 드래곤이 없다 (잠든 드래곤, 둥지 둘레 설원에 칠 것이 있어야)', to=nid)
             elif m.get('cmd') == 'die':                      # 내 병사·건물을 모두 허문다 (진 뒤 관전 화면 시험)
                 self.world.ruin(nid)
             elif m.get('cmd') == 'spawn':                    # 원하는 병사를 원하는 만큼: (x, y)에서 가장 가까운 걸을 수 있는 칸부터

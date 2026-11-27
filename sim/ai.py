@@ -51,7 +51,7 @@ import numpy as np
 from sim import rules as R
 from sim.entities import AMOVE, BUILD, IDLE, TAME
 from sim import tribes
-from sim.wildlife import FIGHT, FLY, HELD, NOVA, SLEEP, SUBDUED, TAMING, _desert, _grass
+from sim.wildlife import AIR_NOVA, FIGHT, FLY, HELD, NOVA, SLEEP, SUBDUED, TAMING, _desert, _grass
 
 
 def dragon_tribes(w) -> set:
@@ -600,7 +600,7 @@ class Bot:
             return idle
         hc = comp[int(home[0]), int(home[1])]
         harbor = bool(w.fleet.harbors_on(self.id, hc))
-        lairs = [a for a in wild.animals.values() if a.unit >= 0 and not wild.taming(a.id, self.id)
+        lairs = [a for a in wild.animals.values() if a.unit >= 0 and not a.raid and not wild.taming(a.id, self.id)   # 습격 중인 드래곤은 길들일 수 없다
                  and (comp[int(a.hy), int(a.hx)] == hc or harbor)]
         if not lairs:
             return idle
@@ -645,7 +645,7 @@ class Bot:
         u, wild = w.units, w.wild
         a = wild.animals.get(self.hunt)
         hunters = self.hunters
-        if a is None:                                        # 길들였거나 (다른 나라가) 가져갔다
+        if a is None or a.raid:                              # 길들였거나 (다른 나라가) 가져갔다 / 습격에 나섰다 (길들일 수 없다)
             self._end_hunt(w, failed=False)
             return
         if self.hunt_phase == 'muster':
@@ -662,7 +662,7 @@ class Bot:
         if len(hunters) < max(4, int(self.hunt_need * 0.35)) or w.time > self.hunt_until:
             self._end_hunt(w, failed=True, home=home)
             return
-        if a.mode == NOVA:                                  # 눈보라를 겨눴다: 겨눈 곳 원 안의 사냥꾼은 바깥으로 피한다
+        if a.mode in (NOVA, AIR_NOVA):                      # 눈보라를 겨눴다: 겨눈 곳 원 안의 사냥꾼은 바깥으로 피한다
             r = R.WILDLIFE[R.DRAGON]['nova']['r'] + 2.5
             close = hunters[np.hypot(u.x[hunters] - a.tx, u.y[hunters] - a.ty) < r]
             if len(close):

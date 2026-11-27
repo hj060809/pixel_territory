@@ -3,6 +3,7 @@
 //   res food 2000       하나만 (food/wood/stone/sulfur 또는 식량/목재/석재/유황)
 //   spawn infantry 20  병사 소환: 지금 보는 화면 가운데에서 가장 가까운 걸을 수 있는 칸부터 (수를 빼면 1, 한 번에 200까지)
 //                       infantry/archer/lancer/horsearcher/rider/tortoise 또는 보병/궁수/창기병/기마궁수/용기사/바위거북
+//   raid                겨울 드래곤 습격을 지금 (겨울이 아니어도)
 // 서버도 --dev가 아니면 이 명령을 받지 않는다 (배포 서버에서는 쓸 수 없다).
 
 import type { Connection } from './net.ts';
@@ -18,7 +19,7 @@ export class DevConsole {
 
   constructor(private net: Connection, private say: (t: string) => void, private center: () => number[]) {
     this.el.className = 'dev-console';
-    this.el.placeholder = 'res 5000 · res sulfur 200 · spawn infantry 20  (Enter 보내기, ` 닫기)';
+    this.el.placeholder = 'res 5000 · res sulfur 200 · spawn infantry 20 · raid  (Enter 보내기, ` 닫기)';
     this.el.style.cssText = 'position:fixed;left:50%;top:70px;transform:translateX(-50%);width:420px;z-index:30;display:none;'
       + 'font:14px monospace;padding:6px 10px;background:rgba(10,12,20,0.92);color:#d8f0c8;border:1px solid #5a8a50;outline:none';
     this.el.addEventListener('keydown', (e) => {
@@ -51,6 +52,8 @@ export class DevConsole {
       if (!Number.isFinite(n) || n < 1) { this.say('개발: 수는 1 이상'); return; }
       const [x, y] = this.center();
       this.net.send({ t: 'dev', cmd: 'spawn', kind, n: Math.min(n, 200), x, y });
+    } else if (cmd === 'raid' || cmd === '습격') {
+      this.net.send({ t: 'dev', cmd: 'raid' });
     } else if (line) this.say(`개발: 모르는 명령 ${cmd}`);
   }
 

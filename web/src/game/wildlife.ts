@@ -11,7 +11,8 @@ import { type Animal, type GameState, lerp } from './state.ts';
 
 export const A_GRAZE = 0, A_WALK = 1, A_FLEE = 2, A_HELD = 3, A_TAMING = 4;     // 동물 상태 (서버와 같은 번호)
 export const A_SLEEP = 5, A_FIGHT = 6, A_SUBDUED = 7;                           // 사나운 동물
-export const A_NOVA = 8, A_FLY = 9;                                              // 드래곤 기술: 눈보라 모으기, 날기
+export const A_NOVA = 8, A_FLY = 9, A_AIR_NOVA = 10;                             // 드래곤 기술: 눈보라 모으기, 날기, 날며 (공중에 멈춰) 눈보라 모으기
+export const A_RAID = 11, A_HOMEWARD = 12;                                       // 드래곤 겨울 습격: 습격 중, 둥지로 돌아가는 중 (둘 다 날고 있다)
 const LIFT = 18;                                                                 // 날 때 띄워 그리는 높이 (모델 점, draw.ts FLY_LIFT와 같다)
 const NAMES = ['horse', 'dragon', 'tortoise', 'reindeer'] as const;                                      // 동물 종류 → 모델 (rules.WILDLIFE 순서)
 const ang = new Map<number, number>();                                           // 동물이 보는 방향 (라디안)
@@ -45,8 +46,8 @@ export function drawAnimals(g: CanvasRenderingContext2D, stack: StackRenderer, L
     } else if (hostile) {
       const moving = Math.hypot(an.x - an.px, an.y - an.py) > 0.01;
       const breath = breathing(an.x, an.y, an.id);                   // 숨결을 뿜는 중이면 다 뿜을 때까지 숨결 자세 (그새 쓰러지거나 잠들어도: 숨결이 입에서 끝나게)
-      frame = breath && an.state !== A_FLY ? 5 : an.state === A_SLEEP ? 3 : an.state === A_NOVA ? 5   // 잠 / 눈보라를 모은다 (날개를 펴 들고)
-        : an.state === A_FLY ? (breathing(an.x, an.y, an.id) ? 6 : 1 + (Math.trunc(t * 4 + seed) % 2))   // 날며 숨결 / 날갯짓
+      frame = breath && an.state !== A_FLY && an.state !== A_RAID && an.state !== A_HOMEWARD ? 5 : an.state === A_SLEEP ? 3 : an.state === A_NOVA || an.state === A_AIR_NOVA ? 5   // 잠 / 눈보라를 모은다 (날개를 펴 들고)
+        : an.state === A_FLY || an.state === A_RAID || an.state === A_HOMEWARD ? (breathing(an.x, an.y, an.id) ? 6 : 1 + (Math.trunc(t * 4 + seed) % 2))   // 날며 숨결 / 날갯짓
         : an.state !== A_FIGHT ? 4                                                       // 쓰러짐: 날개를 늘어뜨린다
         : breathing(an.x, an.y, an.id) ? 5 : moving ? (Math.trunc(t * 3.2 + seed) % 2 ? 7 : 8) : 0;   // 숨결 / 걷기 / 서기
     } else if (an.state === A_TAMING) {                       // 앞발을 들었다 놓는다 (점점 덜)
@@ -59,15 +60,15 @@ export function drawAnimals(g: CanvasRenderingContext2D, stack: StackRenderer, L
     else if (an.state === A_WALK) frame = Math.trunc(t * 3 + seed) % 2 ? 1 : 0;
     let a = ang.get(an.id) ?? (an.dir < 0 ? Math.PI : 0);    // 가는 쪽 (길들이는 중·싸우는 중엔 상대 쪽)
     const mx = an.x - an.px, my = an.y - an.py;
-    const aim = hostile && an.state === A_NOVA && aimOf ? aimOf(an) : null;   // 눈보라를 겨눈 곳을 바라본다
+    const aim = hostile && aimOf ? aimOf(an) : null;          // 눈보라를 겨눈 곳 / 숨결을 뿜는 상대를 바라본다
     if (aim) a = turnTo(a, Math.atan2(aim[1] - an.y, aim[0] - an.x), dt * 8);
-    else if (an.state === A_TAMING || an.state === A_HELD || (hostile && an.state === A_FIGHT && Math.hypot(mx, my) < 0.005)) {
+    else if (an.state === A_TAMING || an.state === A_HELD || (hostile && (an.state === A_FIGHT || an.state === A_FLY || an.state === A_RAID) && Math.hypot(mx, my) < 0.005)) {   // 멈췄다: 상대 쪽 (날다가 돌아볼 때도)
       a = turnTo(a, an.dir < 0 ? Math.PI : 0, dt * 4);
     } else if (Math.hypot(mx, my) > 0.005) a = turnTo(a, Math.atan2(my, mx), dt * 6);
     ang.set(an.id, a);
     const dir = ((Math.round(a / (TAU / DIRS)) % DIRS) + DIRS) % DIRS;
-    const nova = hostile && an.state === A_NOVA ? R.wildlife[an.kind]?.nova : null;
-    const lift = hostile && an.state === A_FLY ? Math.round(LIFT * k) : 0;   // 날고 있다: 띄워 그리고 땅에 그림자
+    const nova = hostile && (an.state === A_NOVA || an.state === A_AIR_NOVA) ? R.wildlife[an.kind]?.nova : null;
+    const lift = hostile && (an.state === A_FLY || an.state === A_AIR_NOVA || an.state === A_RAID || an.state === A_HOMEWARD) ? Math.round(LIFT * k) : 0;   // 날고 있다: 띄워 그리고 땅에 그림자
     if (lift) {
       const sh = stack.silhouette(NAMES[an.kind] ?? 'dragon', { frame, dir });
       g.globalAlpha = 0.28;
@@ -99,7 +100,7 @@ export function drawAnimals(g: CanvasRenderingContext2D, stack: StackRenderer, L
         g.fillRect(zx, zy, 3 * kp, kp); g.fillRect(zx + kp, zy + kp, kp, kp); g.fillRect(zx, zy + 2 * kp, 3 * kp, kp);
       }
       const w = Math.max(img.width * 0.7, 30), cx = rx + img.width / 2;
-      if (an.state === A_FIGHT || an.state === A_NOVA || an.state === A_FLY || (an.state === A_SLEEP && an.hp < 0.99)) {
+      if (an.state === A_FIGHT || an.state === A_NOVA || an.state === A_FLY || an.state === A_AIR_NOVA || an.state === A_RAID || an.state === A_HOMEWARD || (an.state === A_SLEEP && an.hp < 0.99)) {
         bars.push({ x: cx, y: ry - 4, w, prog: an.hp, col: '' });
       }
       else if (an.state !== A_SLEEP) {                        // 쓰러짐: 남은 시간, 길들이는 중이면 진행

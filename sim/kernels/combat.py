@@ -209,7 +209,7 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
             for gx in range(max(cx - 1, 0), min(cx + 2, gw)):
                 j = head[gy * gw + gx]
                 while j >= 0:
-                    if j != i and ualive[j] and uair[j] == fly:   # 나는 것끼리, 걷는 것끼리만 밀어낸다
+                    if j != i and ualive[j] and uair[j] == fly and uown[i] != neutral + 1:   # 나는 것끼리, 걷는 것끼리만 밀어낸다 (야생 드래곤은 밀리지 않는다: 뒷걸음질처럼 보이지 않게)
                         ex, ey = ux[i] - ux[j], uy[i] - uy[j]
                         d2 = ex * ex + ey * ey
                         if d2 < 2.2 and d2 > 1e-6:

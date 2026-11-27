@@ -543,7 +543,7 @@ export class GameView {
       }
     };
     this.raf = requestAnimationFrame(frame);
-    (window as any).__game = { get st() { return st; }, get ctl() { return ctl; }, cam, scene, net, key, life };
+    (window as any).__game = { get st() { return st; }, get ctl() { return ctl; }, get draw() { return draw; }, cam, scene, net, key, life };
   }
 }
 

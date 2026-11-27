@@ -127,14 +127,26 @@ WILDLIFE = {
                  wake=8.0, guard=14.0, subdue=0.3, subdue_time=30.0, limit=2,
                  mounts={k: DRAGON_RIDER for k in _ANY},
                  # 체력에 따라 늘어나는 기술 (sim/wildlife.py _lairs): 2단계 (체력 phase 아래) 눈보라 폭발, 3단계 날아오르기.
-                 #   nova: cd초마다, 자기를 치는 병사가 가장 많이 몰린 곳 (드래곤에서 reach칸 안, 반지름 r칸에 min명 넘게)을 골라
-                 #         땅에 원을 보이고 wind초 동안 입 앞에 빛을 모았다가 그곳으로 던진다 (fly초 날아가 터진다).
-                 #         원 안의 땅의 병사마다 그 자리에서 얼음이 터진다: 최대 체력의 dmg_frac (큰 유닛은 dmg_max까지), freeze초 얼어붙는다
-                 #   flight: 체력 phase 아래면 날아올라 쓰러질 때까지 둥지 둘레 r칸을 빙 돌며 난다 (근접 병사는 못 친다, 활·망루만).
-                 #         날며 breath초마다 가장 가까운 병사에게 서리 숨결 (드래곤 공격과 같은 피해·범위). 쓰러지면 땅으로 떨어진다.
-                 #         둘레에 병사가 idle초 넘게 없으면 내려앉아 둥지로 돌아간다
-                 nova=dict(phase=0.9, cd=12.0, wind=1.5, fly=0.45, reach=18.0, r=7.0, dmg_frac=0.65, dmg_max=60.0, freeze=2.0, min=3),
-                 flight=dict(phase=0.5, r=9.0, speed=6.0, breath=2.5, idle=4.0)),
+                 #   nova: cd초마다, 자기를 치는 병사가 가장 많이 몰린 곳 (드래곤에서 reach칸 안, 반지름 r칸에 min명 넘게:
+                 #         나는 용기사는 혼자서도 min명 몫)을 골라 wind초 동안 입 앞에 빛을 모았다가 그곳으로 던진다 (fly초 날아가 터진다).
+                 #         반지름 r칸 안의 병사 (나는 용기사도)마다 얼음이 터진다: 최대 체력의 dmg_frac (큰 유닛은 dmg_max까지), freeze초 얼어붙는다.
+                 #         날고 있을 때도 쓴다 (공중에 멈춰 모은다)
+                 #   flight: 체력 phase 아래면 날아올라 쓰러질 때까지 치고 빠진다 (근접 병사는 못 친다, 활·망루·용기사만):
+                 #         자기를 칠 수 있는 병사들의 반대쪽으로 날아 사거리 밖 (+margin칸)으로 빠졌다가 (둥지에서 guard+leash칸 안,
+                 #         flee초까지), turn초 동안 돌아보고 (눈보라가 준비됐으면 이때 모은다), 가장 가까운 병사에게 날아가
+                 #         숨결이 닿으면 서리 숨결 (드래곤 공격과 같은 피해·범위, breath초에 한 번까지) → hold초 동안 그 자리에서
+                 #         뿜기를 마치고 (공격 중엔 물러나지 않는다: 뒷걸음질처럼 보이지 않게) → 다시 병사들 반대쪽으로 빠진다.
+                 #         쓰러지면 땅으로 떨어진다. 둘레에 병사가 idle초 넘게 없으면 내려앉아 둥지로 돌아간다
+                 nova=dict(phase=0.9, cd=12.0, wind=1.5, fly=0.45, reach=18.0, r=7.0, dmg_frac=0.55, dmg_max=50.0, freeze=2.0, min=3),
+                 flight=dict(phase=0.5, speed=6.0, breath=2.5, idle=4.0, leash=12.0, margin=3.0, turn=0.5, flee=5.0, hold=0.9),
+                 # 겨울 습격 (sim/wildlife.py _raids): 겨울이 every번 (그 사이 무작위) 올 때마다 잠든 드래곤 하나가 깨어
+                 #   제 몫의 설원에 있는 나라 병사·건물 (거점은 빼고: 드래곤 때문에 망하지 않게)을 날아다니며 친다.
+                 #   둥지가 있는 이어진 설원만 둥지마다 나눈다: 칸마다 그 설원 안 가장 가까운 둥지의 몫 (드래곤끼리 겹치지 않는다,
+                 #   둥지가 없는 떨어진 설원은 습격하지 않는다).
+                 #   치고 빠지기는 날기와 같다 (숨결, 눈보라). 건물에는 숨결 피해 ×bdmg.
+                 #   체력이 subdue 아래로 떨어지거나, 칠 것이 없거나, 겨울이 끝나면 둥지로 날아 돌아가 잔다 (돌아오면 체력을 heal까지 채운다).
+                 #   습격 중에는 쓰러지지 않는다 (길들일 수 없다: 둥지에서 깨웠을 때만)
+                 raid=dict(every=(1, 2), bdmg=2.0, heal=0.6, sight=20.0)),
     TORTOISE_W: dict(name='바위거북', habitat='desert', group=(1, 2), per_area=2500, cap=8, regrow=360.0, tame=4.0,
                      food=240, companion=TORTOISE, tamers=_ANY, calm=True),   # 먹이는 처음 한도(STORE_BASE + STORE_HALL) 안에서
     # 순록: 설원·툰드라의 평평한 곳에 촘촘한 무리로. 길들이지 않는다 (병사로 탈 수 없다: 목장에 들인다, docs/PASTURE_PLAN.md)
