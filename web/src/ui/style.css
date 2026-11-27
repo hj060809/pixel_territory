@@ -333,6 +333,15 @@ body.touch .hud-banner { top: 96px; }
 
 /* 모바일: 로비 [앱으로 설치] (앱으로 열었으면 숨김), 설치·전체 화면 안내 상자 */
 /* 로비 오른쪽 위 [앱 설치하기]: 커피·피드백 버튼과 같은 모양 (.feedback-btn), 모바일만, 앱으로 열었으면 숨김 */
+/* 개발용 명령어 창 (game/devConsole.ts): 입력칸 + [실행] [✕] */
+.dev-console { position: fixed; left: 50%; top: 70px; transform: translateX(-50%); z-index: 40; display: flex; gap: 6px; align-items: stretch;
+  width: min(560px, calc(100vw - 24px)); box-sizing: border-box; padding: 6px; background: rgba(10, 12, 20, 0.94); border: 1px solid #5a8a50; }
+.dev-console .dev-input { flex: 1; min-width: 0; font: 14px monospace; padding: 6px 10px; background: rgb(18, 22, 30); color: #d8f0c8; border: 1px solid #3c5a36; outline: none; }
+.dev-console button { font: bold 14px 'Malgun Gothic', sans-serif; color: #d8f0c8; background: rgb(40, 64, 38); border: 1px solid #5a8a50; padding: 0 14px; cursor: pointer; }
+.dev-console .dev-x { background: rgb(40, 40, 48); border-color: #555a66; padding: 0 12px; }
+body.touch .dev-console { top: 22vh; width: min(70vw, 560px); padding: 6px; gap: 6px; }   /* 오른쪽 위 ☰ 버튼과 겹치지 않게 (꾹 누른 손을 떼며 ✕가 눌리지 않게) */
+body.touch .dev-console .dev-input { font-size: 15px; padding: 7px 10px; }
+body.touch .dev-console button { font-size: 15px; padding: 0 14px; }
 .lobby .install-btn { display: none; }
 body.touch:not(.standalone) .lobby .install-btn { display: block; }
 .lobby .btn.install-btn { background: rgb(58, 40, 28); border-color: rgb(255, 214, 120); color: rgb(255, 226, 150); font-weight: bold; text-shadow: 1px 1px 0 #000; }

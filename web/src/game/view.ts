@@ -371,12 +371,14 @@ export class GameView {
       commanded: (mx, my) => { lifeClick = [mx, my]; },
       changed: () => { hudWait = 1; },
     });
+    const openDev = () => (this.dev ??= new DevConsole(net, (t) => st?.say(t), () => cam.toMap(window.innerWidth / 2, window.innerHeight / 2)));   // 개발용 명령어 창 (소환은 화면 가운데에)
     this.tui = new TouchUi({
       st: () => st, ctl: () => ctl, cam, touch,
       infoAt: (mx, my) => this.hud?.infoAt(mx, my, cam.zoom) ?? null,
       pause: togglePause, speed: cycleSpeed, home: () => centerHome(),
       restart: () => net.send({ t: 'restart' }), newMap: () => this.hooks.newMap(nextSeedKey(key)), lobby: exit,
       surrender, canSurrender, room: () => (st?.ended && st.info.room ? toRoom : null),
+      devConsole: () => { if (!st?.info.dev) return false; openDev().toggle(true); return true; },
       changed: () => { hudWait = 1; },
     });
     let lastTouch = -1e9;                     // 터치 뒤 브라우저가 흉내 내 보내는 마우스 이벤트는 무시한다
@@ -461,8 +463,7 @@ export class GameView {
     this.listen(window, 'keydown', (e: KeyboardEvent) => {
       if (e.code === 'Backquote' && st?.info.dev) {     // 개발용 숨은 콘솔 (혼자 하는 판, 또는 --dev 서버)
         e.preventDefault();
-        this.dev ??= new DevConsole(net, (t) => st?.say(t), () => cam.toMap(window.innerWidth / 2, window.innerHeight / 2));   // 소환은 화면 가운데에
-        this.dev.toggle();
+        openDev().toggle();
         return;
       }
       if (e.target instanceof HTMLInputElement) return;   // 대화·콘솔에 쓰는 중: 게임 단축키가 아니다

@@ -31,6 +31,7 @@ export interface TouchUiHooks {
   surrender(): void;                   // 항복 (묻고 나서)
   canSurrender(): boolean;
   room(): (() => void) | null;         // 판이 끝났고 방에서 시작했으면: 대기실로
+  devConsole(): boolean;               // ☰ 메뉴 버튼을 꾹 누름: 개발용 명령어 창 (열었으면 true, 개발 명령이 없는 판이면 false)
   changed(): void;
 }
 
@@ -71,7 +72,11 @@ export class TouchUi {
     this.speedBtn = btn(this.top, '×1', '', () => h.speed());
     this.pauseBtn.classList.add('t-solo');                // 사람이 여럿인 판에는 없다
     this.speedBtn.classList.add('t-solo');
-    btn(this.top, '☰', '', () => this.openMenu());
+    const menuBtn = btn(this.top, '☰', '', () => { if (longPressed) { longPressed = false; return; } this.openMenu(); });
+    let pressT = 0, longPressed = false;                   // 꾹 누르면 (0.6초) 개발용 명령어 창 (메뉴는 열지 않는다)
+    menuBtn.addEventListener('pointerdown', () => { longPressed = false; clearTimeout(pressT); pressT = window.setTimeout(() => { longPressed = h.devConsole(); if (longPressed) navigator.vibrate?.(15); }, 600); });
+    for (const ev of ['pointerup', 'pointerleave', 'pointercancel'] as const) menuBtn.addEventListener(ev, () => clearTimeout(pressT));
+    menuBtn.addEventListener('contextmenu', (e) => e.preventDefault());
     for (let n = 1; n <= 3; n++) this.groupBtns.push(this.groupButton(n));
     btn(this.side, '⌂', '', () => h.home()).title = '내 거점으로';
     btn(this.side, '▣', '', () => this.selectOnScreen()).title = '화면 안 내 병사 모두';

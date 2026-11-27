@@ -1,4 +1,5 @@
-// 개발용 숨은 콘솔: 혼자 하는 판 (배포 서버에서도), 사람이 여럿인 판은 서버를 --dev로 켰을 때만 (start 정보의 dev). 게임 중 ` 키로 열고 닫는다.
+// 개발용 숨은 콘솔: 혼자 하는 판 (배포 서버에서도), 사람이 여럿인 판은 서버를 --dev로 켰을 때만 (start 정보의 dev).
+// 게임 중 ` 키로 열고 닫는다 (모바일: 오른쪽 위 ☰ 메뉴 버튼을 꾹 누른다). 입력칸 옆 [실행] 또는 Enter (휴대폰 키보드의 전송·완료)로 보낸다.
 //   res 5000            모든 자원 +5000 (식량·목재·석재·유황)
 //   res food 2000       하나만 (food/wood/stone/sulfur 또는 식량/목재/석재/유황)
 //   spawn infantry 20  병사 소환: 지금 보는 화면 가운데에서 가장 가까운 걸을 수 있는 칸부터 (수를 빼면 1, 한 번에 200까지)
@@ -15,25 +16,45 @@ const UNITS: Record<string, number> = {                    // 병종 번호 (sim
 };
 
 export class DevConsole {
+  readonly box = document.createElement('form');               // 입력칸 + [실행] [✕] (폼: 휴대폰 키보드의 전송 키도 제출이 된다)
   readonly el = document.createElement('input');
 
   constructor(private net: Connection, private say: (t: string) => void, private center: () => number[]) {
-    this.el.className = 'dev-console';
-    this.el.placeholder = 'res 5000 · res sulfur 200 · spawn infantry 20 · raid  (Enter 보내기, ` 닫기)';
-    this.el.style.cssText = 'position:fixed;left:50%;top:70px;transform:translateX(-50%);width:420px;z-index:30;display:none;'
-      + 'font:14px monospace;padding:6px 10px;background:rgba(10,12,20,0.92);color:#d8f0c8;border:1px solid #5a8a50;outline:none';
+    this.box.className = 'dev-console';
+    this.box.style.display = 'none';
+    this.el.className = 'dev-input';
+    this.el.placeholder = 'res 5000 · spawn infantry 20 · raid';
+    this.el.autocomplete = 'off';
+    this.el.autocapitalize = 'off';
+    this.el.spellcheck = false;
+    this.el.enterKeyHint = 'send';
+    const go = document.createElement('button');
+    go.type = 'submit'; go.className = 'dev-go'; go.textContent = '실행';
+    const x = document.createElement('button');
+    x.type = 'button'; x.className = 'dev-x'; x.textContent = '✕';
+    x.addEventListener('click', () => { if (performance.now() - this.openedAt > 500) this.toggle(false); });   // 연 직후 (꾹 누른 손가락을 뗄 때의 클릭)는 무시
+    this.box.append(this.el, go, x);
+    this.box.addEventListener('submit', (e) => {                 // [실행]이나 Enter
+      e.preventDefault();
+      this.run(this.el.value.trim());
+      this.el.value = '';
+      this.el.focus();
+    });
+    for (const ev of ['pointerdown', 'mousedown', 'touchstart'] as const) this.box.addEventListener(ev, (e) => e.stopPropagation(), { passive: true });
     this.el.addEventListener('keydown', (e) => {
       e.stopPropagation();                                   // 게임 단축키로 가지 않게
-      if (e.key === 'Enter') { this.run(this.el.value.trim()); this.el.value = ''; }
-      else if (e.key === 'Escape' || e.key === '`') { e.preventDefault(); this.toggle(false); }
+      if (e.key === 'Escape' || e.key === '`') { e.preventDefault(); this.toggle(false); }
     });
-    document.body.appendChild(this.el);
+    document.body.appendChild(this.box);
   }
 
-  get open() { return this.el.style.display !== 'none'; }
+  private openedAt = 0;
+
+  get open() { return this.box.style.display !== 'none'; }
 
   toggle(on = !this.open) {
-    this.el.style.display = on ? '' : 'none';
+    if (on && !this.open) this.openedAt = performance.now();
+    this.box.style.display = on ? '' : 'none';
     if (on) setTimeout(() => this.el.focus(), 0); else this.el.blur();
   }
 
@@ -57,5 +78,5 @@ export class DevConsole {
     } else if (line) this.say(`개발: 모르는 명령 ${cmd}`);
   }
 
-  dispose() { this.el.remove(); }
+  dispose() { this.box.remove(); }
 }
