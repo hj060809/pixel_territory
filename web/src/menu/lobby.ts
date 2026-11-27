@@ -105,12 +105,8 @@ export class Lobby {
     button(col, '멀티 플레이', onMulti, { size: 20, w: 260, h: 50 });
     button(col, '튜토리얼', onTutorial, { size: 20, w: 260, h: 50 });
     button(col, '게임 방법', () => this.showHelp(), { size: 20, w: 260, h: 50 });
-    // 모바일만 (CSS: body.touch), 앱으로 열었으면 숨김: 오른쪽 위 [앱 설치하기] (커피·피드백 버튼과 같은 모양, 주소창 없이 전체 화면)
-    const ib = document.createElement('button');
-    ib.className = 'feedback-btn install-btn';
-    ib.textContent = '앱 설치하기';
-    ib.addEventListener('click', () => void installApp());
-    this.el.appendChild(ib);
+    // 모바일만 (CSS: body.touch), 앱으로 열었으면 숨김: 게임 방법 아래 [앱 설치하기] (같은 크기, 커피 버튼 같은 갈색·금색으로 눈에 띄게)
+    button(col, '앱 설치하기', () => void installApp(), { size: 20, w: 260, h: 50 }).classList.add('install-btn');
     div('footer', this.el, '자원지를 차지하고, 병사와 건물로 지키세요.');
     const cb = document.createElement('button');            // 오른쪽 아래: 개발자에게 커피
     cb.className = 'coffee-btn';

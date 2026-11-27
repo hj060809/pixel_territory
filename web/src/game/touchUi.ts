@@ -2,7 +2,7 @@
 //   위 오른쪽   [⏸] [×1] [☰]      일시정지(P), 속도(.), 메뉴 (조작 설명, 항복, 같은 지도로 새 판 F5, 새 지도 F6, 대기실로, 로비로)
 //   왼쪽        [1] [2] [3]        부대: 탭 = 부르기, 길게 = 지정 (Shift+숫자 / Ctrl+숫자)
 //   오른쪽      [⌂] [▣]            내 거점으로 (Space), 화면 안 내 병사 모두 고르기
-//   아래        고른 것 한 줄 + [⚔ 공격이동] [■ 정지] [+ 더 고르기] [✕ 풀기]   (A, S, Shift, Esc)
+//   아래        고른 것 한 줄 + [⚔ 공격이동] [■ 정지] [▦ 진형] [✕ 풀기]   (A, S, 진형 그리기, Esc)
 //   건물 놓기   건물 그림 옆에 [✓ 짓기] [✕]  (그림을 가리지 않게 아래, 화면 아래쪽이면 위)
 //   길게 누르기  그 자리 설명 카드 (손가락에 가리지 않게 위로)
 
@@ -53,7 +53,6 @@ export class TouchUi {
   private selLabel = el('div', 't-sellabel', this.selRow);
   private atkBtn: HTMLButtonElement;
   private stopBtn: HTMLButtonElement;
-  private addBtn: HTMLButtonElement;
   private formBtn: HTMLButtonElement;
   private confirm = el('div', 't-confirm', this.root);
   private okBtn: HTMLButtonElement;
@@ -78,7 +77,6 @@ export class TouchUi {
     btn(this.side, '▣', '', () => this.selectOnScreen()).title = '화면 안 내 병사 모두';
     this.atkBtn = btn(this.selRow, '⚔ 공격이동', 'warm', () => { const c = h.ctl(); if (c && c.sel.size) c.mode = c.mode === 'attack' ? null : 'attack'; });
     this.stopBtn = btn(this.selRow, '■ 정지', '', () => h.ctl()?.stop());
-    this.addBtn = btn(this.selRow, '+ 더 고르기', '', () => { h.touch.add = !h.touch.add; });
     this.formBtn = btn(this.selRow, '▦ 진형', '', () => h.ctl()?.toggleDrawForm());   // 켜면 한 손가락 끌기가 진형 선 (화면 이동은 두 손가락)
     btn(this.selRow, '✕', '', () => { const c = h.ctl(); if (c) { c.sel.clear(); c.selShips.clear(); c.selB = null; c.mode = null; } h.touch.add = false; });
     this.okBtn = btn(this.confirm, '✓ 짓기', 'ok', () => this.build());
@@ -188,7 +186,6 @@ export class TouchUi {
     this.atkBtn.style.display = c.sel.size ? '' : 'none';
     this.atkBtn.classList.toggle('on', c.mode === 'attack');
     this.stopBtn.style.display = c.sel.size || c.selShips.size ? '' : 'none';
-    this.addBtn.classList.toggle('on', this.h.touch.add);
     this.formBtn.style.display = c.sel.size >= 2 ? '' : 'none';
     this.formBtn.classList.toggle('on', c.drawForm);
     if (this.infoUntil && performance.now() > this.infoUntil) this.showInfo(-1, -1);

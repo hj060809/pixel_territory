@@ -144,7 +144,6 @@ export function fillTouchHelp(parent: HTMLElement, solo: boolean, lobby = false)
   row(right, tbtn('▣'), '화면 안의 내 병사 모두 고르기');
   row(right, tbtn('⚔ 공격이동', 'warm'), '고른 병사가 가다가 만나는 적과 싸운다');
   row(right, tbtn('■ 정지'), '멈춤');
-  row(right, tbtn('+ 더 고르기'), '켜 두면 지금 고른 것은 두고 탭·네모·▣로 고른 병사를 더한다 (다시 누르면 꺼짐)');
   row(right, `${tbtn('▦ 진형')}<span class="help-plus">→</span>${gesture('drag')}`, '진형 그리기: 켜면 한 손가락으로 그은 선을 따라 선다 (근접 앞, 궁수 뒤. 끝을 닫으면 둘레 방어선). 켜 둔 동안 화면 이동은 두 손가락');
   row(right, tbtn('✕'), '고른 것 풀기 · 취소');
   row(right, `${tbtn('건물')}<span class="help-plus">→</span>${tbtn('✓ 짓기', 'ok')}`, '아래 건물 버튼 → 그림을 끌어 자리에 놓고 ✓ (고른 병사가, 없으면 가까운 쉬는 병사가)');
