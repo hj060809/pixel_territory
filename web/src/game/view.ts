@@ -437,7 +437,7 @@ export class GameView {
     this.listen(document, 'mouseleave', () => { mouse = null; });
     this.listen(window, 'keyup', (e: KeyboardEvent) => keys.delete(e.key));
     this.listen(window, 'keydown', (e: KeyboardEvent) => {
-      if (e.code === 'Backquote' && st?.info.dev) {     // 개발용 숨은 콘솔 (서버 --dev일 때만)
+      if (e.code === 'Backquote' && st?.info.dev) {     // 개발용 숨은 콘솔 (혼자 하는 판, 또는 --dev 서버)
         e.preventDefault();
         this.dev ??= new DevConsole(net, (t) => st?.say(t), () => cam.toMap(window.innerWidth / 2, window.innerHeight / 2));   // 소환은 화면 가운데에
         this.dev.toggle();

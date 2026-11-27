@@ -30,6 +30,13 @@ def run(report, cache_dir='.cache'):
            a != b and starts[0]['me'] == a and starts[1]['me'] == b and w.nations[a].name == '가' and w.nations[b].name == '나'
            and len(w.nations) == 4 and m.humans == {a, b}, f'가 → {a}, 나 → {b}')
 
+    # 개발 명령 (` 콘솔): 사람이 여럿인 판에서는 --dev 서버가 아니면 받지 않는다 (혼자 하는 판은 배포 서버에서도 받는다)
+    res0 = list(w.nations[a].res)
+    gs.submit({'t': 'dev', 'cmd': 'res', 'add': [5000, 5000, 5000, 0]}, seat=0)
+    gs.step(0.05, 0)
+    report('개발 명령: 멀티 판에서는 --dev 서버가 아니면 콘솔도 명령도 없다',
+           gs.cfg.dev or (not starts[0]['dev'] and w.nations[a].res[0] < res0[0] + 1000), f"dev {starts[0]['dev']}, 식량 {res0[0]:.0f} → {w.nations[a].res[0]:.0f}")
+
     # 명령: 가가 나의 병사를 움직이려 하면 무시, 자기 병사는 움직인다
     u = w.units
     ua = [[int(i), int(u.gen[i])] for i in w.unit_ids(a)[:2]]

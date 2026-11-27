@@ -55,6 +55,10 @@ def run(report, cache_dir='.cache'):
     report('맞으면 깨어 싸우고, 체력이 깎이면 쓰러진다', woke and subdued, f'깸 {woke}, 쓰러짐 {subdued}, 체력 {a.hp:.2f}')
     report('쓰러진 동안은 맞지 않는다', bool(u.aboard[a.unit]))
     alive = [i for i in army if u.alive[i]]
+    k = min(alive, key=lambda j: np.hypot(u.x[j] - a.x, u.y[j] - a.y))   # 시험용: 가장 가까운 병사를 쓰러진 드래곤 옆으로 (멀리 떨어져 쓰러지기도 한다)
+    near = [(a.x + 1.5 * np.cos(t), a.y + 1.5 * np.sin(t)) for t in np.linspace(0, 2 * np.pi, 12, endpoint=False)]
+    px, py = next(((x, y) for x, y in near if gm.walk[int(y), int(x)]), (a.x, a.y))
+    u.x[k], u.y[k] = px, py
     got = wild.order_tame(0, alive, a.id, quiet=True)
     tamer = next(i for i, t in wild.tamers.items() if t.aid == a.id)      # 가장 가까운 한 명이 간다
     for _ in range(int(30 / 0.05)):                                    # 날다가 떨어진 자리까지 걸어가 길들인다

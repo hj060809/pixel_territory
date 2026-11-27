@@ -30,7 +30,7 @@ class ServerConfig:
     scene_cache: int = 3                                                            # 메모리에 둘 지도 장면 수
     year_length: float = 360.0                                                      # 1년 (게임 초)
     day_length: float = 240.0                                                       # 하루 (게임 초)
-    dev: bool = field(default_factory=lambda: _env('DEV', '0') == '1')             # 개발용 명령 (자원 받기 등). python -m server --dev
+    dev: bool = field(default_factory=lambda: _env('DEV', '0') == '1')             # 사람이 여럿인 판에서도 개발용 명령 (혼자 하는 판은 늘 열린다). python -m server --dev
 
     @property
     def sizes(self) -> list[int]:

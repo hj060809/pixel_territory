@@ -127,6 +127,11 @@ class GameSession:
         return len(self.seats) == 1
 
     @property
+    def dev(self) -> bool:
+        """개발 명령 (` 콘솔: 자원·소환·습격)을 받는 판: 혼자 하는 판은 배포 서버에서도, 사람이 여럿인 판은 --dev 서버에서만 (치트 막기)."""
+        return self.solo or bool(self.cfg.dev)
+
+    @property
     def away(self) -> bool:
         """접속한 사람이 아무도 없다 (판을 멈춘다)."""
         return all(s.away for s in self.seats)
@@ -211,7 +216,7 @@ class GameSession:
             'sites': [{'id': s.id, 'kind': s.kind, 'x': s.x, 'y': s.y, 'rich': round(s.rich, 2), 'cold': round(s.cold, 3), 'snow': s.snow} for s in w.sites],
             'lairs': [[lr.y, lr.x] for lr in w.wild.lairs],
             'year_length': self.cfg.year_length, 'day_length': self.cfg.day_length,
-            'rules': rules_info(), 'sid': self.sid, 'token': seat.token, 'resumed': self._resumed, 'dev': bool(self.cfg.dev),
+            'rules': rules_info(), 'sid': self.sid, 'token': seat.token, 'resumed': self._resumed, 'dev': self.dev,
         }
 
     def seat_of(self, token: str | None) -> int:
@@ -491,7 +496,7 @@ class GameSession:
             else:
                 raise ValueError(f'모르는 외교 {act}')
             s.diplo_v = -1
-        elif t == 'dev' and self.cfg.dev:                # 개발용 (서버를 --dev로 켰을 때만)
+        elif t == 'dev' and self.dev:                    # 개발 명령 (혼자 하는 판, 또는 --dev 서버)
             if m.get('cmd') == 'res':
                 add = [float(min(max(v, -1e6), 1e6)) for v in (list(m.get('add', [])) + [0, 0, 0, 0])[:4]]
                 nat = self.world.nations[nid]
