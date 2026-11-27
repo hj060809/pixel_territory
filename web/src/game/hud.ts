@@ -311,7 +311,7 @@ export class Hud {
       let building = false, taming = false;
       for (const s of ctl.sel.keys()) { const u = st.units.get(s); building ||= u?.state === 4; taming ||= u?.state === 5; }
       lines.push(unitCounts(st, ctl.sel.keys()) + (building ? '   (짓는 중)' : '') + (taming ? '   (길들이는 중)' : ''));
-      lines.push('오른쪽 클릭: 이동 · 공격 · 자원지에 짓기 · 야생말 길들이기 (바다 건너면 배)    A: 공격 이동    S: 정지    1~9: 이 병사들로 건물 짓기');
+      lines.push('오른쪽 클릭: 이동 · 공격 · 자원지에 짓기 · 야생말 길들이기 (바다 건너면 배)    오른쪽 끌기: 진형    A: 공격 이동    S: 정지    1~9: 이 병사들로 건물 짓기');
     }
     if (ctl.selShips.size) {
       const boats = [...ctl.selShips].map((id) => st.boats.get(id)!);

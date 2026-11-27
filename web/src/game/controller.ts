@@ -36,8 +36,9 @@ export class Controller {
   drag: { pts: [number, number][]; attack: boolean } | null = null;
   preview: Spot[] = [];
   previewClosed = false;
-  /** 방금 내린 진형의 자리 (잠깐 표시). */
+  /** 방금 내린 진형의 자리 (잠깐 표시). formSent: 지금까지 내린 진형 수 (튜토리얼). */
   formPings: { t0: number; spots: Spot[] }[] = [];
+  formSent = 0;
 
   constructor(private st: GameState, private net: Connection, readonly rules: TerrainRules) {}
 
@@ -361,6 +362,7 @@ export class Controller {
   private sendFormation(spots: Spot[], attack: boolean) {
     this.net.formation(spots.map((s) => [s.slot, s.gen, Math.round(s.x * 100) / 100, Math.round(s.y * 100) / 100]), attack);
     this.formPings.push({ t0: performance.now(), spots });
+    this.formSent++;
   }
 
   setGroup(n: number) {

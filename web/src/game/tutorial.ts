@@ -149,6 +149,13 @@ export class Tutorial {
         done: () => this.mine().some((u) => { const p = this.base.get(u.slot); return p && Math.hypot(u.x - p[0], u.y - p[1]) > 5; }),
       },
       {
+        title: '진형 서기',
+        pc: `병사를 둘 이상 고르고 ${mouse('right')} 오른쪽 버튼을 누른 채 끌어 선을 그어 보세요. 그 선을 따라 <b>보병은 앞</b>, <b>궁수는 뒤</b>에 고르게 섭니다. 끝을 시작점 가까이로 닫으면 둘레 방어선이 돼요.`,
+        touch: `병사를 둘 이상 고르고 ${tbtn('▦ 진형')}을 켠 뒤 ${gesture('drag')} 한 손가락으로 선을 그어 보세요. 그 선을 따라 <b>보병은 앞</b>, <b>궁수는 뒤</b>에 섭니다. 켜 둔 동안 화면 이동은 두 손가락이에요.`,
+        enter: () => { this.base = this.h.ctl()?.formSent ?? 0; },
+        done: () => (this.h.ctl()?.formSent ?? 0) > this.base,
+      },
+      {
         title: '자원지에 짓기',
         pc: `병사를 고르고 ${mouse('right')} 빈 <b>식량 자원지</b>(이삭 표시)를 오른쪽 클릭하면 농장을 짓습니다. 목재·석재 자원지도 같은 방법이에요.`,
         touch: `병사를 고르고 ${gesture('tap')} 빈 <b>식량 자원지</b>(이삭 표시)를 탭하면 농장을 짓습니다. 목재·석재 자원지도 같은 방법이에요.`,

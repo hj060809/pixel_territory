@@ -66,6 +66,7 @@ export function fillHelp(parent: HTMLElement, solo: boolean, lobby = false) {
   row(left, mouse('left'), '병사·건물 고르기 (Shift를 누르고 클릭: 더 고르기)');
   row(left, `${mouse('left')}<span class="help-drag">끌기</span>`, '네모로 여러 병사를 한꺼번에 고르기');
   row(left, mouse('right'), '이동 · 공격 · 자원지에 짓기 · 길들이기 (바다 건너는 배로)');
+  row(left, `${mouse('right')}<span class="help-drag">끌기</span>`, '진형: 그은 선을 따라 선다 (근접 앞, 궁수 뒤, 정면은 병사들 반대편). 끝을 닫으면 둘레 방어선 · A 다음 왼쪽 끌기: 싸우며 간다');
   row(left, mouse('wheel'), '굴리기: 확대 · 축소');
   row(left, `${mouse('wheel')}<span class="help-drag">끌기</span>`, '휠을 누른 채 끌기: 화면 옮기기');
 
@@ -144,6 +145,7 @@ export function fillTouchHelp(parent: HTMLElement, solo: boolean, lobby = false)
   row(right, tbtn('⚔ 공격이동', 'warm'), '고른 병사가 가다가 만나는 적과 싸운다');
   row(right, tbtn('■ 정지'), '멈춤');
   row(right, tbtn('+ 더 고르기'), '켜 두면 지금 고른 것은 두고 탭·네모·▣로 고른 병사를 더한다 (다시 누르면 꺼짐)');
+  row(right, `${tbtn('▦ 진형')}<span class="help-plus">→</span>${gesture('drag')}`, '진형 그리기: 켜면 한 손가락으로 그은 선을 따라 선다 (근접 앞, 궁수 뒤. 끝을 닫으면 둘레 방어선). 켜 둔 동안 화면 이동은 두 손가락');
   row(right, tbtn('✕'), '고른 것 풀기 · 취소');
   row(right, `${tbtn('건물')}<span class="help-plus">→</span>${tbtn('✓ 짓기', 'ok')}`, '아래 건물 버튼 → 그림을 끌어 자리에 놓고 ✓ (고른 병사가, 없으면 가까운 쉬는 병사가)');
   row(right, `${tbtn('보병')}${tbtn('궁수')}${tbtn('전함')}`, '만들기 (거점·항구를 골라 두면 그곳에서)');
