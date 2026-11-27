@@ -32,15 +32,15 @@ TRAINABLE = (INFANTRY, ARCHER)            # 거점에서 훈련하는 병종. �
 UNIT_STATS = {
     INFANTRY:     dict(hp=40.0, dmg=6.0, range=2.2, cd=1.0, speed=4.5, sight=14.0, cost=(40, 0, 0), time=7.0,
                        terrain=1.0, charge=1.0, upkeep=1.0, ranged=False, fly=False, splash=0.0),
-    ARCHER:       dict(hp=26.0, dmg=4.0, range=13.0, cd=1.5, speed=4.5, sight=16.0, cost=(30, 25, 0), time=9.0,
+    ARCHER:       dict(hp=26.0, dmg=4.0, range=13.0, cd=1.5, speed=4.5, sight=16.0, cost=(35, 30, 0), time=9.0,
                        terrain=1.0, charge=1.0, upkeep=1.0, ranged=True, fly=False, splash=0.0),
     LANCER:       dict(hp=40.0, dmg=9.0, range=2.4, cd=1.0, speed=8.1, sight=15.0, cost=(0, 0, 0), time=0.0,
                        terrain=1.0, charge=1.8, upkeep=1.5, ranged=False, fly=False, splash=0.0),     # 보병 + 말
-    HORSE_ARCHER: dict(hp=26.0, dmg=6.0, range=13.0, cd=1.5, speed=8.1, sight=17.0, cost=(0, 0, 0), time=0.0,
+    HORSE_ARCHER: dict(hp=26.0, dmg=6.0, range=13.0 * 1.2, cd=1.5, speed=8.1, sight=17.0, cost=(0, 0, 0), time=0.0,
                        terrain=1.0, charge=1.0, upkeep=1.5, ranged=True, fly=False, splash=0.0),      # 궁수 + 말
     DRAGON_RIDER: dict(hp=380.0, dmg=30.0, range=8.0, cd=2.5, speed=7.0, sight=18.0, cost=(0, 0, 0), time=0.0,
                        terrain=1.0, charge=1.0, upkeep=4.0, ranged=True, fly=True, splash=4.0),       # 병사 + 드래곤
-    WILD_DRAGON:  dict(hp=900.0, dmg=22.0, range=8.0, cd=3.5, speed=3.5, sight=16.0, cost=(0, 0, 0), time=0.0,
+    WILD_DRAGON:  dict(hp=1500.0, dmg=22.0, range=8.0, cd=3.5, speed=3.5, sight=16.0, cost=(0, 0, 0), time=0.0,
                        terrain=1.0, charge=1.0, upkeep=0.0, ranged=True, fly=False, splash=4.0),      # 둥지를 지키는 야생 드래곤
     TORTOISE:     dict(hp=600.0, dmg=5.0, range=2.2, cd=1.5, speed=4.0, sight=13.0, cost=(0, 0, 0), time=0.0,
                        terrain=1.0, charge=1.0, upkeep=3.0, ranged=False, fly=False, splash=0.0),     # 길든 거대 바위거북 (탱커)
@@ -125,7 +125,16 @@ WILDLIFE = {
                 mounts={INFANTRY: LANCER, ARCHER: HORSE_ARCHER}),
     DRAGON: dict(name='드래곤', habitat='lair', hostile=True, unit=WILD_DRAGON, cap=3, regrow=360.0, tame=15.0,
                  wake=8.0, guard=14.0, subdue=0.3, subdue_time=30.0, limit=2,
-                 mounts={k: DRAGON_RIDER for k in _ANY}),
+                 mounts={k: DRAGON_RIDER for k in _ANY},
+                 # 체력에 따라 늘어나는 기술 (sim/wildlife.py _lairs): 2단계 (체력 phase 아래) 눈보라 폭발, 3단계 날아오르기.
+                 #   nova: cd초마다, 자기를 치는 병사가 가장 많이 몰린 곳 (드래곤에서 reach칸 안, 반지름 r칸에 min명 넘게)을 골라
+                 #         땅에 원을 보이고 wind초 동안 입 앞에 빛을 모았다가 그곳으로 던진다 (fly초 날아가 터진다).
+                 #         원 안의 땅의 병사마다 그 자리에서 얼음이 터진다: 최대 체력의 dmg_frac (큰 유닛은 dmg_max까지), freeze초 얼어붙는다
+                 #   flight: 체력 phase 아래면 날아올라 쓰러질 때까지 둥지 둘레 r칸을 빙 돌며 난다 (근접 병사는 못 친다, 활·망루만).
+                 #         날며 breath초마다 가장 가까운 병사에게 서리 숨결 (드래곤 공격과 같은 피해·범위). 쓰러지면 땅으로 떨어진다.
+                 #         둘레에 병사가 idle초 넘게 없으면 내려앉아 둥지로 돌아간다
+                 nova=dict(phase=0.9, cd=12.0, wind=1.5, fly=0.45, reach=18.0, r=7.0, dmg_frac=0.65, dmg_max=60.0, freeze=2.0, min=3),
+                 flight=dict(phase=0.5, r=9.0, speed=6.0, breath=2.5, idle=4.0)),
     TORTOISE_W: dict(name='바위거북', habitat='desert', group=(1, 2), per_area=2500, cap=8, regrow=360.0, tame=4.0,
                      food=240, companion=TORTOISE, tamers=_ANY, calm=True),   # 먹이는 처음 한도(STORE_BASE + STORE_HALL) 안에서
     # 순록: 설원·툰드라의 평평한 곳에 촘촘한 무리로. 길들이지 않는다 (병사로 탈 수 없다: 목장에 들인다, docs/PASTURE_PLAN.md)

@@ -11,7 +11,7 @@ import { coffeeLink } from '../ui/coffee.ts';
 import { chatLine } from './chat.ts';
 import { SEASON_ICONS, icon } from '../ui/icons.ts';
 import { SEASON_NAMES } from '../sim/clock.ts';
-import { A_FIGHT, A_HELD, A_SLEEP, A_TAMING, animalAt, isHostile } from './wildlife.ts';
+import { A_FIGHT, A_FLY, A_HELD, A_NOVA, A_SLEEP, A_TAMING, animalAt, isHostile } from './wildlife.ts';
 
 /** 고른 병사 수: 병종마다 ('보병 3 · 창기병 2', 0인 병종은 뺀다). */
 export function unitCounts(st: GameState, slots: Iterable<number>, sep = '   '): string {
@@ -362,7 +362,12 @@ export class Hud {
       if (isHostile(R, an.kind)) {
         const rider = R.unit_names[Object.values(a.mounts as Record<string, number>)[0]], hp = `체력 ${Math.round(an.hp * 100)}%`;
         if (an.state === A_SLEEP) return `${a.name} · 잠 · ${hp} · 병사를 보내 치면 깨어 싸운다. 체력을 ${Math.round(a.subdue * 100)}% 아래로 깎으면 쓰러진다`;
-        if (an.state === A_FIGHT) return `${a.name} · 싸우는 중 · ${hp} · 서리 숨결 (범위 피해, 느려짐) · ${Math.round(a.subdue * 100)}% 아래면 쓰러진다`;
+        if (an.state === A_FIGHT) {
+          const ph = an.hp > (a.nova?.phase ?? 1) ? '' : an.hp > (a.flight?.phase ?? 0) ? ' · 눈보라를 쓴다' : ' · 곧 날아오른다';
+          return `${a.name} · 싸우는 중 · ${hp}${ph} · 서리 숨결 (범위 피해, 느려짐) · ${Math.round(a.subdue * 100)}% 아래면 쓰러진다`;
+        }
+        if (an.state === A_NOVA) return `${a.name} · 눈보라를 모은다! · ${hp} · 병사가 몰린 곳에 던진다: 땅의 원 밖으로 피하세요 (안에 있으면 체력의 65%를 잃고 얼어붙는다)`;
+        if (an.state === A_FLY) return `${a.name} · 날고 있다 · ${hp} · 궁수·기마궁수·망루만 맞힌다 · 쓰러질 때까지 날며 숨결을 뿜는다`;
         if (an.state === A_TAMING) return `${a.name} · 길들이는 중 ${Math.round(an.prog * 100)}% · 쓰러짐 ${an.sub}초 남음`;
         return `${a.name} · 쓰러짐 ${an.sub}초 · 병사를 고르고 ${act}하면 한 명이 가서 길들인다 (${Math.round(a.tame)}초) → ${rider} (나라마다 ${a.limit}기)`;
       }

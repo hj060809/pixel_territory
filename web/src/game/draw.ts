@@ -8,7 +8,7 @@ import type { TerrainScene } from '../terrain/scene.ts';
 import { type Controller, UNIT_ZOOM } from './controller.ts';
 import { F_OCEAN } from './terrainRules.ts';
 import type { BuildRec } from './protocol.ts';
-import { animalSpots, drawAnimals } from './wildlife.ts';
+import { animalSpots, drawAnimals, pixelOrb } from './wildlife.ts';
 import type { SpriteBank } from './sprites.ts';
 import { type Light, lightFrom, modelPoint } from './stack.ts';
 import { BREATH_REACH, DRAGON_MOUTH, DRAGON_SIZE } from './models.ts';
@@ -66,7 +66,9 @@ export class Overlay {
   private breathAt = new Map<number, number>();   // 숨결을 뿜은 화면 시각 (용기사)
   private spinAt = new Map<number, number>();     // 발 구르기를 한 화면 시각 (바위거북)
   private roarAt = new Map<number, number>();     // 낮은 포효를 한 화면 시각 (바위거북)
-  private rings: { x: number; y: number; at: number; kind: number }[] = [];   // 발 구르기·포효 표시
+  private rings: { x: number; y: number; at: number; kind: number }[] = [];   // 발 구르기·포효·눈보라 폭발 표시
+  private aims: { x: number; y: number; ox: number; oy: number; at: number; life: number; wind: number }[] = [];   // 드래곤이 눈보라를 겨눈 곳 (땅에 원), ox·oy: 겨눈 드래곤 자리
+  private throws: { x0: number; y0: number; x1: number; y1: number; at: number; life: number }[] = [];   // 날아가는 눈보라
   private flames: { x0: number; y0: number; x1: number; y1: number; at: number; weak: boolean }[] = [];   // 화염탑 불
 
   /** 화염탑 불 (0.6초): 분사구에서 목표로 뻗는 불꽃 줄기 (안쪽은 노랗고 바깥은 붉다), 맞은 자리에 불길과 그을음.
@@ -100,7 +102,7 @@ export class Overlay {
     }
     g.globalAlpha = 1;
   }
-  private breaths: { x: number; y: number; at: number }[] = [];   // 야생 드래곤이 숨결을 뿜은 자리
+  private breaths: { x: number; y: number; at: number; aid: number }[] = [];   // 야생 드래곤이 숨결을 뿜은 자리와 그 드래곤 (번호)
   private frost: { x0: number; y0: number; x1: number; y1: number; at: number; air: boolean; src: string }[] = [];   // 그리는 중인 숨결
   private mouths = new Map<string, number[]>();   // 이번 장면에서 숨결 자세로 그린 드래곤: [입 x, y, 숨결이 닿는 앞쪽 땅 x, y] (u칸 / a번호)
   private seenShots = new WeakSet<object>();       // 이미 본 공격 (처음 본 것만 효과를 시작한다: 화면이 느려도 놓치지 않게)
@@ -112,6 +114,23 @@ export class Overlay {
     const dot = (x: number, y: number, s: number) => g.fillRect(Math.round(x / P) * P, Math.round(y / P) * P, s, s);
     for (const r of this.rings) {
       const cx = sx(r.x), cy = sy(r.y);
+      if (r.kind === 10) {                                              // 드래곤 눈보라: 맞은 병사 자리에서 얼음이 터진다 (흰 섬광, 얼음 조각이 퍼진다)
+        const f = (now - r.at) / 800, rr = 2.4 * z * Math.min(1, f * 2.2);
+        if (f < 0.25) {
+          g.globalAlpha = 0.85 * (1 - f / 0.25);
+          g.fillStyle = 'rgb(235,248,255)';
+          g.beginPath(); g.arc(Math.round(cx), Math.round(cy), Math.round(1.4 * z), 0, TAU); g.fill();
+        }
+        g.globalAlpha = 0.9 * (1 - f);
+        const n = Math.max(14, Math.round(rr / P));
+        for (let i = 0; i < n; i++) {
+          const an = (i / n) * TAU, d = rr * (0.82 + ((i * 29) % 10) / 55);
+          g.fillStyle = i % 3 ? 'rgb(225,245,255)' : 'rgb(40,100,200)';   // 흰 얼음 조각과 진한 파랑 (설원에서도 보이게)
+          dot(cx + Math.cos(an) * d, cy + Math.sin(an) * d, i % 4 === 0 ? 2 * P : P);
+        }
+        g.globalAlpha = 1;
+        continue;
+      }
       if (r.kind === 4) {
         const e = (now - r.at) / 650, f = Math.max(0, (e - 0.42) / 0.58);   // 앞발을 든 동안은 아직, 내리찍은 뒤 퍼진다
         if (f <= 0) continue;
@@ -505,10 +524,29 @@ export class Overlay {
     }
     // 야생 동물 (멀리서는 작게)
     this.breaths = this.breaths.filter((b) => now - b.at < 900);      // 숨결을 뿜은 자리 (그 뒤 0.9초 동안 숨결 자세)
-    for (const s of fresh) if (s.kind === 3) this.breaths.push({ x: s.x0, y: s.y0, at: now });
-    const breathing = (x: number, y: number) => this.breaths.some((b) => Math.hypot(b.x - x, b.y - y) < 2.5);
+    for (const s of fresh) {                                          // 뿜은 드래곤을 번호로 기억한다 (날거나 걸어서 자리를 옮겨도 숨결 자세: 입에서 나가게)
+      if (s.kind !== 3) continue;
+      let aid = -1, bd = 4;
+      for (const an of st.animals.values()) { const d = Math.hypot(an.x - s.x0, an.y - s.y0); if (d < bd) { bd = d; aid = an.id; } }
+      this.breaths.push({ x: s.x0, y: s.y0, at: now, aid });
+    }
+    const breathing = (x: number, y: number, id: number) => this.breaths.some((b) => b.aid === id || (b.aid < 0 && Math.hypot(b.x - x, b.y - y) < 2.5));
     const spots = animalSpots(st, a, sx, sy).filter((p) => !herdIds.has(p.an.id));   // 멀리서 떼 그림이 된 말·순록은 빼고
-    const tameBars = z >= 1.2 ? drawAnimals(g, stack, L, spots, K, bigK(z), t, W, H, dt, tl, breathing, R, this.mouths) : [];
+    this.aims = this.aims.filter((m) => now - m.at < m.life);     // 눈보라를 겨눈 곳: 실제 피해 범위의 원 (땅에, 병사 아래)
+    for (const m of this.aims) {
+      const p = Math.min((now - m.at) / m.wind, 1), cx = Math.round(sx(m.x)), cy = Math.round(sy(m.y));
+      const rr = Math.round((R.wildlife?.[1]?.nova?.r ?? 7) * z), ri = Math.round(rr * p);
+      g.fillStyle = `rgba(50,120,215,${(0.16 + 0.14 * p).toFixed(3)})`;
+      g.beginPath(); g.arc(cx, cy, rr, 0, TAU); g.fill();
+      g.fillStyle = 'rgba(120,190,255,0.32)';
+      g.beginPath(); g.arc(cx, cy, ri, 0, TAU); g.fill();
+      g.lineWidth = Math.max(2, Math.round(K * 1.5)); g.strokeStyle = 'rgba(20,60,140,0.95)'; g.setLineDash([7, 5]);
+      g.beginPath(); g.arc(cx, cy, rr, 0, TAU); g.stroke(); g.setLineDash([]);
+      g.strokeStyle = 'rgba(225,245,255,0.9)'; g.lineWidth = 1;
+      g.beginPath(); g.arc(cx, cy, ri, 0, TAU); g.stroke();
+    }
+    const tameBars = z >= 1.2 ? drawAnimals(g, stack, L, spots, K, bigK(z), t, W, H, dt, tl, breathing, R, this.mouths,
+      (an) => { const m = this.aims.find((q) => Math.hypot(q.ox - an.x, q.oy - an.y) < 3); return m ? [m.x, m.y] : null; }) : [];   // 겨눈 쪽을 바라본다
     // 병사: 가까이서는 하나하나, 멀리서는 무리 배지
     const units = [...st.units.values()].filter((u) => !(u.bits & 2));
     if (z >= UNIT_ZOOM) {
@@ -547,6 +585,16 @@ export class Overlay {
         this.ang.set(u.slot, ang);
         const shake = pang && spun > STOMP_MS * 0.55 && spun < STOMP_MS ? (Math.floor(spun / 40) % 2 ? K : -K) : 0;   // 내리찍을 때 흔들림
         const rc = stack.draw(g, `u${u.kind}`, u.own, L, x + shake, y, K, { frame, dir: dirOf(ang), torch: tl(lerp(u.px, u.x, a), lerp(u.py, u.y, a)), shadow: !fly, rim: visOn() && u.own < st.info.nations.length });
+        if (u.bits & 8) {                                              // 얼어붙었다 (드래곤 눈보라): 발밑 얼음 고리와 반짝이
+          const kp = Math.max(1, Math.round(K)), fx = Math.round(x), fy = Math.round(y);
+          g.strokeStyle = 'rgba(200,236,255,0.9)'; g.lineWidth = kp;
+          g.beginPath(); g.ellipse(fx, fy, Math.round(rc.w * 0.45), Math.round(rc.w * 0.2), 0, 0, TAU); g.stroke();
+          g.fillStyle = 'rgb(230,246,255)';
+          for (let q = 0; q < 3; q++) {
+            const ph = (t * 2 + u.slot * 0.37 + q * 0.33) % 1;
+            if (ph < 0.5) g.fillRect(Math.round(rc.x + rc.w * (0.2 + 0.3 * q)), Math.round(rc.y + rc.h * (0.25 + 0.2 * ((q * 2) % 3))), kp, kp);
+          }
+        }
         if (dragon && DRAGON_MOUTH[frame]) {                            // 숨결이 나올 입 자리
           const [mx, my, mz] = DRAGON_MOUTH[frame], d = dirOf(ang);
           const [dx, dy] = modelPoint(DRAGON_SIZE[0], DRAGON_SIZE[1], mx, my, mz, d, 16, K);
@@ -590,6 +638,13 @@ export class Overlay {
         } else { g.strokeStyle = WAKE; g.lineWidth = 1; g.beginPath(); g.arc(bx, by, Math.max(2, Math.trunc(z)), 0, 7); g.stroke(); }
       } else if (s.kind === 6 || s.kind === 7) {                 // 화염탑: 불 (아래 flames에서)
         if (fresh.includes(s)) this.flames.push({ x0: s.x0, y0: s.y0, x1: s.x1, y1: s.y1, at: now, weak: s.kind === 7 });
+      } else if (s.kind === 12) {                                // 드래곤이 눈보라를 겨눴다: 그곳 땅에 원 (모으는 동안 차오르고, 날아가 터질 때까지)
+        const nv = R.wildlife?.[1]?.nova ?? { wind: 1.5, fly: 0.45 };
+        if (fresh.includes(s)) this.aims.push({ x: s.x1, y: s.y1, ox: s.x0, oy: s.y0, at: now, wind: nv.wind * 1000, life: (nv.wind + nv.fly) * 1000 + 120 });
+      } else if (s.kind === 13) {                                // 드래곤이 눈보라를 던졌다: 빛 구체가 겨눈 곳으로 날아간다
+        if (fresh.includes(s)) this.throws.push({ x0: s.x0, y0: s.y0, x1: s.x1, y1: s.y1, at: now, life: (R.wildlife?.[1]?.nova?.fly ?? 0.45) * 1000 });
+      } else if (s.kind === 10) {                                // 드래곤 눈보라: 맞은 병사 자리마다 얼음 폭발 (아래 rings에서)
+        if (fresh.includes(s)) this.rings.push({ x: s.x0, y: s.y0, at: now, kind: 10 });
       } else if (s.kind === 4 || s.kind === 5) {                 // 바위거북: 발 구르기 / 포효 (아래 rings에서)
         if (fresh.includes(s)) this.rings.push({ x: s.x0, y: s.y0, at: now, kind: s.kind });
       } else if (s.kind === 3) {                                 // 서리 숨결: 아래 frost에서 (더 오래, 굵게)
@@ -613,6 +668,14 @@ export class Overlay {
       }
     }
     this.drawFrost(sx, sy, K, z, now);
+    this.throws = this.throws.filter((b) => now - b.at < b.life);   // 날아가는 눈보라: 입 높이에서 겨눈 곳으로 포물선, 빛 구체 (픽셀 그림)
+    for (const b of this.throws) {
+      const f = (now - b.at) / b.life, h0 = 20 * K;                 // 입 높이에서 (입은 몸 가운데에서 겨눈 쪽으로 27점 앞)
+      const ux = b.x1 - b.x0, uy = b.y1 - b.y0, un = Math.max(Math.hypot(ux, uy), 1e-6);
+      const ax = sx(b.x0) + (ux / un) * 27 * K, ay = sy(b.y0) + (uy / un) * 27 * K * 0.7;
+      const px = ax + (sx(b.x1) - ax) * f, py = ay + (sy(b.y1) - ay) * f - h0 * (1 - f) - Math.sin(Math.PI * f) * 14 * K;
+      pixelOrb(g, Math.round(px), Math.round(py), Math.max(1, Math.round(K)), 0.75, t, 1);
+    }
     this.drawRings(sx, sy, K, z, now, R);
     this.drawFlames(sx, sy, K, z, now);
     for (const p of tameBars) this.bar(p.x, p.y, p.w, p.prog, p.col || undefined);   // 길들이기 진행, 드래곤 체력 (병사에 가리지 않게 나중에)

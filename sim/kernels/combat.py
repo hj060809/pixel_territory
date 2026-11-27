@@ -39,7 +39,7 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
          nb, bx, by, bkind, bown, bhp, br, bprog, bcd, balive,
          k_speed, k_range, k_dmg, k_cd, k_sight, k_ranged, k_terrain, k_charge, k_vs, k_splash,
          walk, speed_mul, cover, fields, ready, tower_kind, tower_range, tower_dmg, tower_cd, neutral,
-         shots, builders, friend, hurt, hits, blast, fx_speed, fx_take, fx_deal):
+         shots, builders, friend, hurt, hits, blast, fx_speed, fx_take, fx_deal, ufreeze):
     H, W = walk.shape
     gw = W // CELL + 1
     gh = H // CELL + 1
@@ -56,6 +56,10 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
 
     for i in range(n):
         if not ualive[i] or uaboard[i]:
+            umoving[i] = False
+            continue
+        if ufreeze[i] > 0:                           # 얼어붙었다 (드래곤 눈보라): 못 움직이고 못 친다
+            ufreeze[i] -= dt
             umoving[i] = False
             continue
         k = ukind[i]

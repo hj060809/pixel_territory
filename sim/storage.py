@@ -2,12 +2,13 @@
 
 - 한도: 자원마다 따로 (식량·목재·석재·유황). 기본 STORE_BASE + 다 지은 거점마다 모든 자원 +STORE_HALL
   + 다 지은 자원 건물마다 그 건물이 내는 자원 +STORE_SITE (농장 식량, 벌목장 목재, 채석장 석재, 유황 채취장 유황).
-  한도를 넘는 생산·선물·약탈은 버려진다.
+  한도는 자원 건물에서 들어오는 생산에만 건다 (add_income: 한도까지만 찬다). 개발 명령·선물로 받아 한도를 넘게 가진 것은 깎지 않는다
+  (그동안 생산은 더 쌓이지 않고, 먹는 양 같은 소비는 그대로 빠진다). 약탈은 받는 나라의 한도까지만.
 - 나눠 보관: 자원 k는 한도에 이바지한 비율대로 그 건물들에 나뉘어 있다 (기본 몫은 어디에도 없어 빼앗기지 않는다).
 - 빼앗기기: 거점·자원 건물이 무너지면 그 몫 (가진 양 × 그 건물의 이바지 / 한도)을 잃고, 마지막으로 친 나라가 가져간다
   (가져가는 나라의 한도를 넘는 만큼은 사라진다). 비율대로 나뉘어 있으므로 남은 자원은 언제나 남은 한도 안에 든다.
 
-World가 부른다: 걸음마다 update_caps → clamp, 건물이 무너질 때 loot.
+World가 부른다: 걸음마다 update_caps, 수입을 더할 때 add_income, 건물이 무너질 때 loot.
 """
 from __future__ import annotations
 
@@ -54,11 +55,11 @@ def update_caps(world) -> None:
         nat.caps = caps[nat.id]
 
 
-def clamp(nat) -> None:
-    """한도를 넘는 자원은 버린다."""
-    for k in range(NRES):
-        if have(nat, k) > nat.caps[k]:
-            _put(nat, k, nat.caps[k])
+def add_income(have_now: float, inc: float, cap: float) -> float:
+    """한 걸음의 수입을 더한다: 늘어나는 쪽은 한도까지만 (이미 넘게 가졌으면 그대로), 줄어드는 쪽(소비)은 그대로."""
+    if inc > 0:
+        return max(have_now, min(have_now + inc, cap))
+    return have_now + inc
 
 
 def loot(world, i: int, by: int) -> None:

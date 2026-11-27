@@ -52,6 +52,8 @@ from sim.terrain import GameMap
 from sim.world import World
 
 FLAGS_AT = 17                                    # 상태 메시지 머리에서 flags 바이트 자리 (protocol.encode: '<BIfffBBH')
+DEV_SPAWN_MAX = 200                              # 개발 명령: 한 번에 소환하는 병사 수 한도
+DEV_SPAWN_KINDS = (R.INFANTRY, R.ARCHER, R.LANCER, R.HORSE_ARCHER, R.DRAGON_RIDER, R.TORTOISE)   # 소환할 수 있는 병종 (야생 드래곤은 빼고)
 LEAVE_AFTER = 30.0                               # 사람이 2명 이상인 판: 이만큼 끊겨 있으면 그 나라는 조종자 없음
 CHAT_MAX = 80                                    # 대화 한 줄 글자 수
 CHAT_GAP = 0.7                                   # 대화 사이 최소 간격 (초, 도배 막기)
@@ -341,6 +343,26 @@ class GameSession:
             self._season_step, self._season_at = step, now
             self._season_job = self._season_pool.submit(self.gmap.compute_season, self.season.weights())
 
+    def _dev_spawn(self, nid: int, kind: int, n: int, x: float, y: float) -> int:
+        """(개발) kind 병사 n명을 (x, y)에서 가장 가까운 걸을 수 있는 칸부터 하나씩 (가운데가 물이면 가장 가까운 땅). 반환: 만든 수."""
+        w, m = self.world, self.world.map
+        x = float(np.clip(x, 0, m.W - 1)); y = float(np.clip(y, 0, m.H - 1))
+        for r in (6, 12, 24, 48, 96):
+            y0, y1, x0, x1 = max(int(y) - r, 0), min(int(y) + r + 1, m.H), max(int(x) - r, 0), min(int(x) + r + 1, m.W)
+            ys, xs = np.nonzero(m.walk[y0:y1, x0:x1] & m.land[y0:y1, x0:x1])
+            if len(ys) >= n or r == 96:
+                break
+        if not len(ys):
+            return 0
+        order = np.argsort((ys + y0 + 0.5 - y) ** 2 + (xs + x0 + 0.5 - x) ** 2)
+        hp = R.UNIT_STATS[kind]['hp']
+        got = 0
+        for k in range(n):
+            c = order[k % len(order)]
+            if w.units.add(nid, kind, float(xs[c] + x0) + 0.5, float(ys[c] + y0) + 0.5, hp) >= 0:
+                got += 1
+        return got
+
     def _send_messages(self, s: Seat):
         """그 자리의 나라에게 온 알림, 판 끝 (그 나라의 결과), 외교 상태 (바뀌었거나 1초 지났으면)."""
         w, m, nid = self.world, self.match, s.nid
@@ -478,5 +500,11 @@ class GameSession:
                 self.world.say('개발: 자원 ' + ', '.join(f'{n} {a:+.0f}' for n, a in zip(('식량', '목재', '석재', '유황'), add) if a), to=nid)
             elif m.get('cmd') == 'die':                      # 내 병사·건물을 모두 허문다 (진 뒤 관전 화면 시험)
                 self.world.ruin(nid)
+            elif m.get('cmd') == 'spawn':                    # 원하는 병사를 원하는 만큼: (x, y)에서 가장 가까운 걸을 수 있는 칸부터
+                kind, n = int(m.get('kind', -1)), int(min(max(int(m.get('n', 1)), 1), DEV_SPAWN_MAX))
+                if kind not in DEV_SPAWN_KINDS:
+                    raise ValueError(f'소환할 수 없는 병종 {kind}')
+                got = self._dev_spawn(nid, kind, n, float(m.get('x', 0)), float(m.get('y', 0)))
+                self.world.say(f'개발: {R.UNIT_NAMES[kind]} {got}명 소환', to=nid)
         else:
             raise ValueError(f'모르는 명령 {t}')

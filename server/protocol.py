@@ -97,7 +97,8 @@ class StateEncoder:
         a['own'], a['kind'] = u.own[:n], u.kind[:n]
         a['hp'] = np.clip(np.rint(u.hp[:n] / _U_HP[u.kind[:n]] * 255), 0, 255)
         a['state'] = u.state[:n]
-        a['bits'] = u.moving[:n].astype(np.uint8) | (u.aboard[:n].astype(np.uint8) << 1) | (u.air[:n].astype(np.uint8) << 2)
+        a['bits'] = (u.moving[:n].astype(np.uint8) | (u.aboard[:n].astype(np.uint8) << 1) | (u.air[:n].astype(np.uint8) << 2)
+                     | ((u.freeze[:n] > 0).astype(np.uint8) << 3))   # 8: 얼어붙었다 (드래곤 눈보라)
         return a, u.alive[:n] & (u.own[:n] < R.NEUTRAL)       # 야생 동물(드래곤)은 동물 칸으로 간다
 
     def _builds(self):

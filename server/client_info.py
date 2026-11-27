@@ -40,7 +40,8 @@ def rules_info() -> dict:
                               'companion': a.get('companion', -1), 'food': a.get('food', 0),
                               'tamers': sorted(R.tamers_of(a)), 'calm': bool(a.get('calm')),
                               'hostile': bool(a.get('hostile')), 'limit': a.get('limit', 0),
-                              'subdue': a.get('subdue', 0), 'subdue_time': a.get('subdue_time', 0)}
+                              'subdue': a.get('subdue', 0), 'subdue_time': a.get('subdue_time', 0),
+                              'nova': a.get('nova'), 'flight': a.get('flight')}
                      for k, a in R.WILDLIFE.items()},
         'build': {str(k): {'r': v['r'], 'cost': list(v['cost']), 'hp': v['hp'], 'sulfur': v.get('sulfur', 0)}
                   for k, v in R.BUILD_STATS.items()},

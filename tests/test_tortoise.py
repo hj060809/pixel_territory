@@ -32,7 +32,7 @@ def run(report, cache_dir='.cache'):
             break
     mine = [i for i in w.unit_ids(0) if u.kind[i] == R.TORTOISE]
     report('먹이를 주고 금방 길들인다 (병사는 그대로, 바위거북이 함께 싸운다)',
-           got >= 1 and len(mine) >= 1 and u.kind[inf] == R.INFANTRY and w.nations[0].res[R.FOOD] < 800 - 299,
+           got >= 1 and len(mine) >= 1 and u.kind[inf] == R.INFANTRY and w.nations[0].res[R.FOOD] <= 800 - R.WILDLIFE[R.TORTOISE_W]['food'] + 5,   # 먹이만큼 줄었다
            f'보냄 {got}, 바위거북 {len(mine)}, 식량 {w.nations[0].res[R.FOOD]:.0f}')
     p = mine[0]
 

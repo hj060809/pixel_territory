@@ -33,6 +33,8 @@ from sim import climate
 from sim.entities import IDLE, MOVE, TAME
 
 GRAZE, WALK, FLEE, HELD, TAMING, SLEEP, FIGHT, SUBDUED = range(8)    # 동물 상태 (화면에 그대로 간다)
+NOVA, FLY = 8, 9      # 드래곤: 눈보라를 모은다 (prog = 모은 정도), 날고 있다
+NOVA_SHOT, AIM_SHOT, THROW_SHOT = 10, 12, 13   # 공격 기록 kind: 눈보라 얼음 폭발 (x0, y0 = 터진 자리), 겨눈 곳 (x1, y1), 던짐 (x0, y0 → x1, y1)
 WILD = R.NEUTRAL + 1  # 깨어 싸우는 야생 동물의 나라 번호 (병사·망루가 저절로 덤빈다)
 STRUGGLE = (3.0, 4.0, 4.5)     # 쓰러진 사나운 동물의 몸부림: 간격(초), 피해, 반지름
 DRAGON_REACH = 3.4    # 큰 동물은 이만큼에서 길들인다
@@ -126,7 +128,8 @@ class Lair:
 
 
 class Animal:
-    __slots__ = ('id', 'kind', 'x', 'y', 'hx', 'hy', 'tx', 'ty', 'mode', 't', 'dir', 'prog', 'unit', 'hp', 'sub', 'lasthp', 'pen')
+    __slots__ = ('id', 'kind', 'x', 'y', 'hx', 'hy', 'tx', 'ty', 'mode', 't', 'dir', 'prog', 'unit', 'hp', 'sub', 'lasthp', 'pen',
+                 'nova_cd', 'tm', 'fang', 'bcd')
 
     def __init__(self, aid, kind, x, y, rng):
         self.id, self.kind = aid, kind
@@ -139,6 +142,10 @@ class Animal:
         self.hp = 1.0             # 체력 비율 (화면에)
         self.sub = 0.0            # 쓰러져 있는 남은 시간
         self.lasthp = 0.0
+        self.nova_cd = 0.0                  # 드래곤 기술: 다음 눈보라까지
+        self.tm = 0.0                       # 지금 기술의 남은 시간 (눈보라 모으기, 날기, 지침)
+        self.fang = 0.0                     # 날며 둥지를 도는 각도
+        self.bcd = 0.0                      # 날며 다음 숨결까지
         self.pen = -1             # 목장 몫 (짓는 중인 헛간 번호, sim/pasture.py): 울타리 안을 거닐고, 짓는 나라 병사에겐 놀라지 않는다
 
 
@@ -161,6 +168,7 @@ class Wildlife:
         self.home, self.cap, self.timer = {}, {}, {}
         self.lairs: list[Lair] = []
         self._struggle = 0.0
+        self.bombs: list = []                        # 날아가는 눈보라 [남은 초, x, y, 둥지 동물 종류]
         for k, a in R.WILDLIFE.items():
             if a.get('hostile'):                         # 둥지마다 하나
                 self.lairs += [Lair(k, y, x) for y, x in lairs_for(world.map, a['cap'])]
@@ -372,6 +380,7 @@ class Wildlife:
             if self.timer[k] <= 0:
                 self.timer[k] = info['regrow']
                 self._spawn_group(k)
+        self._bombs(dt)
         self._lairs(dt)
         self._tame(dt)
         self._fear_t -= dt
@@ -605,8 +614,10 @@ class Wildlife:
                         w.say(f'{R.josa(info["name"], "이", "가")} 다시 일어났습니다!', to=o)
                 a.lasthp = float(u.hp[i])
                 continue
-            if u.hp[i] <= maxhp * info['subdue']:        # 쓰러진다
+            if u.hp[i] <= maxhp * info['subdue']:        # 쓰러진다 (날고 있었으면 떨어진다)
                 a.mode, a.sub = SUBDUED, info['subdue_time']
+                u.air[i] = False
+                self._land_spot(lr, i)
                 u.aboard[i] = True
                 u.state[i], u.tgt[i], u.slot[i] = TAME, -1, -1
                 for o in self._near_nations(lr, info['guard'] + 6):
@@ -617,9 +628,17 @@ class Wildlife:
                 if hit or self._intruder(lr, info['wake'], a) >= 0:
                     a.mode = FIGHT
                     u.own[i] = WILD
+                    a.nova_cd = 6.0                               # 깨자마자 쓰지는 않는다
                 else:
                     u.hp[i] = min(maxhp, u.hp[i] + maxhp * 0.01 * dt)     # 자면서 낫는다
                     u.state[i] = TAME
+            if a.mode in (NOVA, FLY):                    # 기술을 쓰는 중
+                self._skill(lr, a, i, dt)
+                a.lasthp = float(u.hp[i])
+                continue
+            if a.mode == FIGHT and self._start_skill(lr, a, i, dt):
+                a.lasthp = float(u.hp[i])
+                continue
             if a.mode == FIGHT:
                 tgt = self._intruder(lr, info['guard'], a)
                 if tgt >= 0:
@@ -638,6 +657,147 @@ class Wildlife:
                         u.moving[i] = True
                         a.dir = 1 if lr.x + 0.5 >= u.x[i] else -1
             a.lasthp = float(u.hp[i])
+
+    # ------------------------------------------------------------- 드래곤 기술 (체력에 따라: rules.WILDLIFE[DRAGON] nova, flight)
+    def _foes_near(self, x: float, y: float, r: float) -> np.ndarray:
+        """(x, y)에서 r칸 안의 땅에 있는 나라 병사들 (배에 탔거나 나는 병사는 빼고)."""
+        w, u = self.w, self.w.units
+        ids = w.unit_ids()
+        if not len(ids):
+            return ids
+        ids = ids[(u.own[ids] < R.NEUTRAL) & ~u.air[ids] & ~u.aboard[ids]]
+        return ids[np.hypot(u.x[ids] - x, u.y[ids] - y) <= r] if len(ids) else ids
+
+    def _hurt(self, ids, dmg: float) -> None:
+        """드래곤 기술 피해 (배신자 배율, 기후 받는 피해 배율까지)."""
+        w, u = self.w, self.w.units
+        for j in np.atleast_1d(ids):
+            u.hp[j] -= dmg * w.diplo.hurt[u.own[j]] * u.fx_take[j]
+            if u.hp[j] <= 0:
+                u.alive[j] = False
+
+    def _start_skill(self, lr: Lair, a: Animal, i: int, dt: float) -> bool:
+        """싸우는 중: 체력이 깎일수록 기술이 는다. 3단계는 날아오르기, 2단계부터 눈보라 폭발. 시작했으면 True."""
+        w, u = self.w, self.w.units
+        info = R.WILDLIFE[lr.kind]
+        nova, fl = info.get('nova'), info.get('flight')
+        if not nova:
+            return False
+        a.nova_cd -= dt
+        ratio = float(u.hp[i]) / R.UNIT_STATS[info['unit']]['hp']
+        if fl and ratio <= fl['phase'] and self._intruder(lr, info['guard'], a) >= 0:   # 날아올라 쓰러질 때까지 난다
+            a.mode, a.tm, a.bcd = FLY, fl['idle'], fl['breath'] * 0.6
+            a.fang = float(np.arctan2(u.y[i] - lr.y - 0.5, u.x[i] - lr.x - 0.5))
+            u.air[i] = True
+            u.state[i], u.tgt[i], u.slot[i] = TAME, -1, -1
+            return True
+        if ratio <= nova['phase'] and a.nova_cd <= 0:
+            aim = self._nova_aim(a, nova)
+            if aim is not None:                                          # 병사가 가장 많이 몰린 곳을 겨눈다 (땅에 원)
+                a.mode, a.tm, a.prog = NOVA, nova['wind'], 0.0
+                a.tx, a.ty = aim
+                a.dir = 1 if aim[0] >= a.x else -1
+                w.recent.append((w.time, a.x, a.y, aim[0], aim[1], AIM_SHOT))
+                u.state[i], u.tgt[i], u.slot[i] = TAME, -1, -1
+                return True
+        return False
+
+    def _nova_aim(self, a: Animal, nova):
+        """눈보라를 던질 곳: 드래곤에서 reach칸 안의 땅의 병사들 자리 중, 반지름 r칸 안에 병사가 가장 많은 곳 (min명 넘어야). (x, y) 또는 None."""
+        u = self.w.units
+        foes = self._foes_near(a.x, a.y, nova['reach'])
+        if len(foes) < nova['min']:
+            return None
+        px, py = u.x[foes].astype(np.float64), u.y[foes].astype(np.float64)
+        cnt = (np.hypot(px[:, None] - px[None], py[:, None] - py[None]) <= nova['r']).sum(1)
+        k = int(np.argmax(cnt))
+        if cnt[k] < nova['min']:
+            return None
+        near = np.hypot(px - px[k], py - py[k]) <= nova['r']          # 그 무리의 가운데로
+        return float(px[near].mean()), float(py[near].mean())
+
+    def _bombs(self, dt: float) -> None:
+        """날아가는 눈보라: 닿으면 원 안의 땅의 병사마다 그 자리에서 얼음이 터지고 얼어붙는다."""
+        if not self.bombs:
+            return
+        w, u = self.w, self.w.units
+        left = []
+        for b in self.bombs:
+            b[0] -= dt
+            if b[0] > 0:
+                left.append(b)
+                continue
+            nova = R.WILDLIFE[b[3]]['nova']
+            w.recent.append((w.time, b[1], b[2], b[1], b[2], NOVA_SHOT))   # 떨어진 곳
+            hit = self._foes_near(b[1], b[2], nova['r'])
+            for j in hit:
+                w.recent.append((w.time, float(u.x[j]), float(u.y[j]), float(u.x[j]), float(u.y[j]), NOVA_SHOT))
+                self._hurt([j], min(nova['dmg_frac'] * float(w.k_hp[u.kind[j]]), nova['dmg_max']))
+            hit = hit[u.alive[hit]]
+            u.freeze[hit] = nova['freeze']
+            u.state[hit], u.tgt[hit], u.slot[hit] = IDLE, -1, -1
+        self.bombs = left
+
+    def _skill(self, lr: Lair, a: Animal, i: int, dt: float) -> None:
+        """기술을 쓰는 중: 눈보라 모으기 → 던짐, 날기 (쓰러질 때까지 둥지를 돌며 숨결, 아무도 없으면 내려앉는다)."""
+        w, u = self.w, self.w.units
+        info = R.WILDLIFE[lr.kind]
+        u.state[i], u.tgt[i], u.slot[i] = TAME, -1, -1                  # 움직임·공격은 여기서 정한다
+        a.tm -= dt
+        if a.mode == NOVA:
+            nova = info['nova']
+            a.prog = min(1.0, 1.0 - a.tm / nova['wind'])
+            if a.tm <= 0:                                                # 던진다: fly초 뒤 겨눈 곳에서 터진다 (그동안 다시 싸운다)
+                self.bombs.append([nova['fly'], a.tx, a.ty, lr.kind])
+                w.recent.append((w.time, a.x, a.y, a.tx, a.ty, THROW_SHOT))
+                a.mode, a.prog, a.nova_cd = FIGHT, 0.0, nova['cd']
+            return
+        if a.mode == FLY:
+            fl = info['flight']
+            cx, cy = lr.x + 0.5, lr.y + 0.5
+            a.fang += fl['speed'] / fl['r'] * dt                         # 둥지 둘레를 돈다 (쓰러질 때까지)
+            gx, gy = cx + np.cos(a.fang) * fl['r'], cy + np.sin(a.fang) * fl['r']
+            dx, dy = gx - u.x[i], gy - u.y[i]
+            d = float(np.hypot(dx, dy))
+            step = min(fl['speed'] * 1.4 * dt, d)
+            if d > 1e-6:
+                u.x[i] += dx / d * step
+                u.y[i] += dy / d * step
+                a.dir = 1 if dx >= 0 else -1
+            u.moving[i] = True
+            near = self._intruder(lr, info['guard'] + 4, a)
+            if near >= 0:
+                a.tm = fl['idle']                                        # 병사가 있는 동안은 계속 난다
+            a.bcd -= dt
+            if a.bcd <= 0:                                               # 날며 서리 숨결: 가장 가까운 병사 (드래곤 공격과 같은 피해·범위)
+                tgt = near
+                a.bcd = fl['breath'] if tgt >= 0 else 0.5
+                if tgt >= 0:
+                    st = R.UNIT_STATS[info['unit']]
+                    tx, ty = float(u.x[tgt]), float(u.y[tgt])
+                    splash = self._foes_near(tx, ty, st['splash'])
+                    for j in splash:
+                        self._hurt([j], st['dmg'] * (1.0 if j == tgt else 0.6))
+                    u.slow[splash[u.alive[splash]]] = 2.5
+                    w.recent.append((w.time, float(u.x[i]), float(u.y[i]), tx, ty, 3))
+            if a.tm <= 0:                                                # 둘레에 아무도 없다: 내려앉아 둥지로 (싸움으로 돌아가 걸어간다)
+                u.air[i] = False
+                self._land_spot(lr, i)
+                a.mode = FIGHT
+            return
+
+    def _land_spot(self, lr: Lair, i: int) -> None:
+        """내려앉을 자리: 지금 칸을 걸을 수 없으면 둥지 쪽으로 걸을 수 있는 칸까지."""
+        u, m = self.w.units, self.w.map
+        x, y = float(u.x[i]), float(u.y[i])
+        cx, cy = lr.x + 0.5, lr.y + 0.5
+        for k in range(40):
+            t = k / 40
+            px, py = x + (cx - x) * t, y + (cy - y) * t
+            if 0 <= int(py) < m.H and 0 <= int(px) < m.W and m.walk[int(py), int(px)]:
+                u.x[i], u.y[i] = px, py
+                return
+        u.x[i], u.y[i] = cx, cy
 
     def _intruder(self, lr: Lair, r: float, a: Animal) -> int:
         """둥지에서 r 안의 (야생이 아닌) 병사 중 이 동물에 가장 가까운 것. 없으면 -1."""

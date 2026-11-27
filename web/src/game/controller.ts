@@ -174,7 +174,7 @@ export class Controller {
     const foe = this.unitAt(x, y, Math.max(2.0, r));
     if (foe && foe.own !== this.me) return this.ping(x, y, PING.attack);
     const an = animalAt(this.st, x, y, Math.max(1.8, r));      // 야생 동물: 길들이러 (깨어 있거나 잠든 드래곤은 친다)
-    if (an && (an.state === 5 || an.state === 6)) return this.ping(an.x, an.y - 1, PING.attack);
+    if (an && [5, 6, 8, 9, 10].includes(an.state)) return this.ping(an.x, an.y - 1, PING.attack);   // 잠·싸움·드래곤 기술 중: 친다
     if (an && !attack && this.R().wildlife?.[an.kind]?.tamers?.length) return this.ping(an.x, an.y - 0.4, PING.tame);   // 길들이지 않는 동물(순록)은 그냥 그 자리로
     const b = this.buildingAt(x, y);
     if (b && b.own !== this.me) return this.ping(x, y, PING.attack);

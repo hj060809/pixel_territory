@@ -51,7 +51,7 @@ import numpy as np
 from sim import rules as R
 from sim.entities import AMOVE, BUILD, IDLE, TAME
 from sim import tribes
-from sim.wildlife import FIGHT, HELD, SLEEP, SUBDUED, TAMING, _desert, _grass
+from sim.wildlife import FIGHT, FLY, HELD, NOVA, SLEEP, SUBDUED, TAMING, _desert, _grass
 
 
 def dragon_tribes(w) -> set:
@@ -662,7 +662,23 @@ class Bot:
         if len(hunters) < max(4, int(self.hunt_need * 0.35)) or w.time > self.hunt_until:
             self._end_hunt(w, failed=True, home=home)
             return
-        if a.mode in (SLEEP, FIGHT):                        # 잠들었거나 싸우는 중: 친다 (쉬고 있는 사냥꾼만 다시)
+        if a.mode == NOVA:                                  # 눈보라를 겨눴다: 겨눈 곳 원 안의 사냥꾼은 바깥으로 피한다
+            r = R.WILDLIFE[R.DRAGON]['nova']['r'] + 2.5
+            close = hunters[np.hypot(u.x[hunters] - a.tx, u.y[hunters] - a.ty) < r]
+            if len(close):
+                dx, dy = float(u.x[close].mean()) - a.tx, float(u.y[close].mean()) - a.ty
+                n = float(np.hypot(dx, dy))
+                if n < 1e-3:                                # 한가운데: 드래곤 반대쪽으로
+                    dx, dy, n = a.tx - a.x, a.ty - a.y, max(float(np.hypot(a.tx - a.x, a.ty - a.y)), 1e-6)
+                ty, tx = a.ty + dy / n * (r + 3), a.tx + dx / n * (r + 3)
+                spot = w.fields.snap(ty, tx, 6)
+                if spot is not None:
+                    w.order_move(close, float(spot[0]), float(spot[1]))
+        elif a.mode == FLY:                                 # 날고 있다: 활만 닿는다 (쉬는 궁수만 다시 쏜다)
+            lazy = hunters[(u.state[hunters] == IDLE) & w.k_ranged[u.kind[hunters]]]
+            if len(lazy):
+                w.order_attack(lazy, unit=a.unit)
+        elif a.mode in (SLEEP, FIGHT):                      # 잠들었거나 싸우는 중: 친다 (쉬고 있는 사냥꾼만 다시)
             lazy = hunters[u.state[hunters] == IDLE]
             if len(lazy):
                 w.order_attack(lazy, unit=a.unit)

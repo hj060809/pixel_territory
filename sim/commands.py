@@ -74,7 +74,7 @@ class PlayerCommands:
             return 'attack'
         a = self._animal_at(y, x, max(1.8, r))
         an = w.wild.animals.get(a) if a is not None else None
-        if an is not None and an.unit >= 0 and an.mode in (5, 6):     # 잠들었거나 싸우는 사나운 동물: 친다
+        if an is not None and an.unit >= 0 and an.mode in (5, 6, 8, 9, 10):   # 잠들었거나 싸우는 사나운 동물 (기술 쓰는 중도): 친다
             w.order_attack(sel, unit=an.unit)
             return 'attack'
         if an is not None and not attack and R.tamers_of(R.WILDLIFE[an.kind]):   # 길들이지 않는 동물(순록)이면 그냥 그 자리로 간다

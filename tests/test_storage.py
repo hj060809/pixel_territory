@@ -21,11 +21,17 @@ def run(report, cache_dir='.cache'):
     start = R.STORE_BASE + R.STORE_HALL
     report('처음 한도 = 기본 + 거점 하나 (자원마다)', all(abs(c - start) < 1e-6 for c in me.caps), f'한도 {me.caps}')
 
-    me.res = [9999.0, 9999.0, 9999.0]
+    me.res = [9999.0, 9999.0, 9999.0]                          # 개발 명령·선물로 받은 것: 한도를 넘어도 깎지 않는다
     me.sulfur = 9999.0
     w.update(0.1)
-    report('한도를 넘는 자원은 버려진다', all(abs(me.res[k] - me.caps[k]) < 1e-3 for k in range(3)) and abs(me.sulfur - me.caps[3]) < 1e-3,
-           f'{me.res} 유황 {me.sulfur}')
+    kept = all(me.res[k] > 9999.0 - 5 for k in range(3)) and me.sulfur > 9999.0 - 5
+    me.res = [float(me.caps[k]) for k in range(3)]                # 한도에 찬 상태: 생산은 더 쌓이지 않는다
+    me.sulfur = float(me.caps[3])
+    me.rate = [1.0, 1.0, 1.0]
+    w.update(0.5)
+    full = all(me.res[k] <= me.caps[k] + 1e-3 for k in range(1, 3))
+    report('한도는 자원 건물 생산에만: 명령·선물로 넘게 가진 것은 그대로, 한도에 차면 생산은 더 안 쌓인다', kept and full,
+           f'넘게 가짐 그대로 {kept}, 한도에서 멈춤 {full} ({[round(v) for v in me.res]} / {[round(c) for c in me.caps[:3]]})')
 
     fs = R.BUILD_STATS[R.FARM]
     farm = b.add(0, R.FARM, b.x[hall] + 10, b.y[hall], fs['hp'], fs['r'], prog=0.5)

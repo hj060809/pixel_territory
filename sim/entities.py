@@ -43,6 +43,7 @@ class Units:
         self.fx_speed = np.ones(cap, np.float32)   # 기후 효과 배율 (sim/climate.py가 걸음마다): 이동, 받는 피해, 주는 피해
         self.fx_take = np.ones(cap, np.float32)
         self.fx_deal = np.ones(cap, np.float32)
+        self.freeze = np.zeros(cap, np.float32)   # 얼어붙은 남은 시간 (드래곤 눈보라): 못 움직이고 못 친다
         self.gen = np.zeros(cap, np.uint16)        # 칸을 새로 쓸 때마다 +1 (화면이 '같은 병사'인지 알게)
         self.n = 0                       # 쓴 적 있는 칸 수 (alive가 아닌 칸은 다시 쓴다)
 
@@ -62,6 +63,7 @@ class Units:
         self.anim[i] = np.random.random() * 4
         self.alive[i] = True
         self.fx_speed[i] = self.fx_take[i] = self.fx_deal[i] = 1.0
+        self.freeze[i] = 0.0
         self.aboard[i] = False
         self.tx[i], self.ty[i], self.slow[i] = x, y, 0.0
         self.air[i] = False

@@ -361,7 +361,7 @@ class World:
         fly = u.alive[:n] & self.k_fly[u.kind[:n]]
         busy = (u.state[:n] != IDLE) | (u.tgt[:n] >= 0) | (u.tgb[:n] >= 0) | u.moving[:n]
         wet = ~m.walk[u.y[:n].astype(int).clip(0, m.H - 1), u.x[:n].astype(int).clip(0, m.W - 1)]
-        u.air[:n] = fly & (busy | wet)
+        u.air[:n] = np.where(self.k_fly[u.kind[:n]], fly & (busy | wet), u.air[:n])   # 용기사만 (날아오른 야생 드래곤은 sim/wildlife.py가 정한다)
 
     def order_stop(self, ids) -> None:
         ids = self._mine(ids)
@@ -531,7 +531,7 @@ class World:
                             self.k_terrain, self.k_charge, self.k_vs, self.k_splash,
                             m.walk, m.speed_mul, m.cover, self.fields.fields, self.fields.ready, R.TOWER, R.TOWER_RANGE, R.TOWER_DMG,
                             R.TOWER_CD, R.NEUTRAL, self.shots, self._builders,
-                            self.diplo.friend, self.diplo.hurt, self.diplo.hits, b.last, u.fx_speed, u.fx_take, u.fx_deal)
+                            self.diplo.friend, self.diplo.hurt, self.diplo.hits, b.last, u.fx_speed, u.fx_take, u.fx_deal, u.freeze)
         if self.n_shots:                                    # 화면에 잠깐 그릴 공격 (화살, 칼부림)
             for row in self.shots[:self.n_shots].tolist():
                 self.recent.append((self.time, *row))
@@ -605,13 +605,12 @@ class World:
         for nat in self.nations:
             k = nat.id
             nat.rate[R.FOOD] -= (counts[k] + dry[k] * (R.CLIMATE['thirst_upkeep'] - 1)) * winter * R.UPKEEP
-            for r in range(3):
-                nat.res[r] += nat.rate[r] * dt
-            nat.sulfur += nat.sulfur_rate * (nat.bonus if nat.bonus != 1.0 else 1.0) * dt
+            for r in range(3):                          # 자원 건물에서 들어오는 것만 한도까지 (명령·선물로 넘게 가진 것은 깎지 않는다)
+                nat.res[r] = storage.add_income(nat.res[r], nat.rate[r] * dt, nat.caps[r])
+            nat.sulfur = storage.add_income(nat.sulfur, nat.sulfur_rate * (nat.bonus if nat.bonus != 1.0 else 1.0) * dt, nat.caps[3])
             nat.starving = nat.res[R.FOOD] < 0
             if nat.starving:
                 nat.res[R.FOOD] = 0.0
-            storage.clamp(nat)                          # 한도를 넘는 만큼은 버린다
         # 굶주림과 회복
         alive = np.flatnonzero(u.alive[:u.n])
         if len(alive):
