@@ -83,6 +83,11 @@ BUILD_STATS = {
 #   용기사(체력 380, 회복 초당 1.5, 숨결 30/2.5초)와 1대1 (눈이 없는 땅): 화염탑(체력 520)이 불 20번(38초)에 이기고
 #   그동안 숨결 16번(480)을 맞아 체력 약 40이 남는다 (아슬아슬하게). 눈 위에서는 용기사가 초당 4씩 회복해 용기사가 이긴다
 #   사거리가 궁수(13칸, 건물 가장자리에서 = 가운데에서 15칸)보다 길어서 궁수가 밖에서 일방적으로 치지 못한다
+# 진형 (sim/world.py order_formation, 자리 계산은 화면 web/src/game/formation.ts): 병사마다 제 자리.
+#   seg: 한 토막 (함께 길을 찾는 무리)의 넓이 (칸), direct: 제 자리에서 이 안이면 길 대신 곧장 간다,
+#   leash: 선 뒤 근접 병사가 제 자리에서 쫓는 거리, max: 한 번에 진형을 서는 병사 수
+FORMATION = dict(seg=9.0, direct=8.0, leash=5.0, max=200)
+
 FIRE = dict(cd=2.0, range=UNIT_STATS[ARCHER]['range'] * 1.25, dmg=14.0,     # 사거리: 궁수의 1.25배 (16.25칸, 탑 가운데에서)
             splash=4.0, splash_mul=0.6, weak=0.5, vs_dragon=1.6, vs_tortoise=0.7)
 

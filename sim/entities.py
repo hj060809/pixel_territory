@@ -8,6 +8,10 @@
 - BUILD: 건물 자리로 가서 짓는다
 - TAME: 야생 동물에게 곧장 다가가 길들인다 (sim/wildlife.py가 움직인다. 싸우지 않는다)
 
+진형 (form, World.order_formation): 병사마다 제 자리 (gx, gy)가 있다. 함께 길을 따라가다 제 자리 가까이서 곧장 가 선다.
+선 뒤 (IDLE)에도 진형을 지킨다: 근접 병사는 제 자리에서 leash칸 안의 적만 쫓고, 궁수는 사거리 안의 적만 쏜다, 밀리면 돌아온다.
+다른 명령을 받으면 풀린다.
+
 자연: 숲 속의 병사는 화살을 덜 맞는다 (cover). 걷는 속도는 지형을 따른다 (평지 1, 숲·습지·산은 느리다).
 """
 from __future__ import annotations
@@ -44,6 +48,12 @@ class Units:
         self.fx_take = np.ones(cap, np.float32)
         self.fx_deal = np.ones(cap, np.float32)
         self.freeze = np.zeros(cap, np.float32)   # 얼어붙은 남은 시간 (드래곤 눈보라): 못 움직이고 못 친다
+        self.form = np.zeros(cap, np.bool_)        # 진형 중 (제 자리 gx, gy). fslot: 진형으로 가는 거리 지도 슬롯 (바뀌면 다른 명령: 풀린다)
+        self.gx = np.zeros(cap, np.float32)
+        self.gy = np.zeros(cap, np.float32)
+        self.fslot = np.full(cap, -1, np.int16)
+        self.fpx = np.zeros(cap, np.float32)       # 진형: 지난번 점검 때 자리 (막혀 못 가면 그 자리를 제 자리로)
+        self.fpy = np.zeros(cap, np.float32)
         self.gen = np.zeros(cap, np.uint16)        # 칸을 새로 쓸 때마다 +1 (화면이 '같은 병사'인지 알게)
         self.n = 0                       # 쓴 적 있는 칸 수 (alive가 아닌 칸은 다시 쓴다)
 
@@ -64,6 +74,7 @@ class Units:
         self.alive[i] = True
         self.fx_speed[i] = self.fx_take[i] = self.fx_deal[i] = 1.0
         self.freeze[i] = 0.0
+        self.form[i], self.fslot[i] = False, -1
         self.aboard[i] = False
         self.tx[i], self.ty[i], self.slow[i] = x, y, 0.0
         self.air[i] = False

@@ -7,6 +7,8 @@
 //   길게 누르기          그 자리 설명 카드 (지형, 자원지, 배)
 //   길게 누른 뒤 끌기     선택 상자 (여러 명)
 //   건물 놓는 중         탭한 곳으로 건물 그림을 옮기고, 그림을 끌어서 옮기고, ✓ 로 짓는다 (touchUi)
+//   진형 그리기를 켜면 (touchUi 진형 버튼) 고른 병사가 둘 이상일 때
+//                       한 손가락 끌기 = 진형 선 그리기 (화면 이동은 두 손가락). 끝을 시작 가까이로 닫으면 둘레 방어선
 
 import type { Camera } from '../sim/camera.ts';
 import type { Controller } from './controller.ts';
@@ -23,7 +25,7 @@ export interface TouchHooks {
   changed(): void;                                          // 화면 정보를 바로 갱신
 }
 
-type Mode = 'none' | 'pending' | 'pan' | 'long' | 'box' | 'pinch' | 'ghost';
+type Mode = 'none' | 'pending' | 'pan' | 'long' | 'box' | 'pinch' | 'ghost' | 'draw';
 
 export class TouchInput {
   /** 놓을 건물 그림 자리 (지도 좌표). 건물 놓기를 시작하면 화면 가운데에 생긴다. */
@@ -47,6 +49,7 @@ export class TouchInput {
       this.mode = 'pending';
       this.timer = window.setTimeout(() => this.long(), LONG_MS);
     } else if (this.pts.size === 2) {
+      if (this.mode === 'draw') this.h.ctl()?.dragCancel();
       this.mode = 'pinch';
       this.h.box(null);
       const [a, b] = [...this.pts.values()];
@@ -62,8 +65,16 @@ export class TouchInput {
     const moved = Math.hypot(cur[0] - this.start[0], cur[1] - this.start[1]) > MOVE_PX;
     switch (this.mode) {
       case 'pending':
-        if (moved) { clearTimeout(this.timer); this.mode = 'pan'; this.cam.pan(cur[0] - prev[0], cur[1] - prev[1]); }
+        if (moved) {
+          clearTimeout(this.timer);
+          const ctl = this.h.ctl();
+          if (ctl && ctl.drawForm && ctl.dragStart(...this.cam.toMap(this.start[0], this.start[1]), ctl.mode === 'attack')) {
+            this.mode = 'draw';                                      // 진형 선 그리기
+            ctl.dragMove(...this.cam.toMap(cur[0], cur[1]));
+          } else { this.mode = 'pan'; this.cam.pan(cur[0] - prev[0], cur[1] - prev[1]); }
+        }
         break;
+      case 'draw': this.h.ctl()?.dragMove(...this.cam.toMap(cur[0], cur[1])); break;
       case 'pan': this.cam.pan(cur[0] - prev[0], cur[1] - prev[1]); break;
       case 'long': if (moved) { this.mode = 'box'; this.h.info(-1, -1); this.h.box([...this.start, ...cur]); } break;
       case 'box': this.h.box([...this.start, ...cur]); break;
@@ -86,11 +97,20 @@ export class TouchInput {
     const p = this.pts.get(e.pointerId);
     this.pts.delete(e.pointerId);
     clearTimeout(this.timer);
+    if (this.mode === 'draw' && this.pts.size) { this.h.ctl()?.dragCancel(); this.mode = 'pinch'; }   // 그리다 두 번째 손가락: 그만두고 확대·이동
     if (this.mode === 'pinch') { if (!this.pts.size) this.mode = 'none'; return; }   // 두 손가락을 다 뗄 때까지 아무것도
     if (this.pts.size || !p) return;
     const mode = this.mode;
     this.mode = 'none';
     if (mode === 'pending') this.tap(p[0], p[1]);
+    else if (mode === 'draw') {                                    // 진형 선을 다 그렸다
+      const ctl = this.h.ctl();
+      if (ctl) {
+        if (ctl.dragEnd()) { this.h.commanded(...this.cam.toMap(p[0], p[1])); if (ctl.mode === 'attack') ctl.mode = null; }
+        else ctl.dragCancel();
+        this.h.changed();
+      }
+    }
     else if (mode === 'box') {
       this.h.box(null);
       const ctl = this.h.ctl();
@@ -107,6 +127,7 @@ export class TouchInput {
   cancel(e: PointerEvent) {
     this.pts.delete(e.pointerId);
     clearTimeout(this.timer);
+    if (this.mode === 'draw') this.h.ctl()?.dragCancel();
     if (!this.pts.size) { this.mode = 'none'; this.h.box(null); }
   }
 

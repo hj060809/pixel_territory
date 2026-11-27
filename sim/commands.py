@@ -179,6 +179,23 @@ class PlayerCommands:
             return False
         return w.train(self.nid, min(halls, key=lambda i: len(b.queue[i])), kind)
 
+    def formation(self, spots, attack: bool = False) -> bool:
+        """진형: [(칸, 세대, x, y)] 병사마다 제 자리 (화면이 그린 선·대형을 따라 차례대로, web/src/game/formation.ts)."""
+        u = self.w.units
+        ids, gx, gy = [], [], []
+        for row in list(spots)[:R.FORMATION['max']]:
+            i, g, x, y = int(row[0]), int(row[1]), float(row[2]), float(row[3])
+            if not (0 <= i < u.n and u.alive[i] and u.own[i] == self.nid and not u.aboard[i] and int(u.gen[i]) == g):
+                continue
+            if not (np.isfinite(x) and np.isfinite(y)) or i in ids:
+                continue
+            ids.append(i)
+            gx.append(min(max(x, 0.0), self.w.map.W - 1.0))
+            gy.append(min(max(y, 0.0), self.w.map.H - 1.0))
+        if not ids:
+            return False
+        return self.w.order_formation(np.array(ids, np.int64), gx, gy, attack=attack)
+
     def stop(self, unit_refs) -> None:
         sel = self.units(unit_refs)
         self.w.order_stop(sel)

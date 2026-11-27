@@ -4,6 +4,8 @@
 날고 있는 병사 (uair, 움직이거나 싸우는 용기사): 지형·물을 무시하고 곧장 (utx, uty)로 간다. 근접 병종은 이들을 칠 수 없다.
 범위 피해 (k_splash): 맞은 자리 둘레의 적에게도 피해를 주고, 맞은 병사는 잠시 느려진다 (uslow).
 야생 (neutral 나라): 병사와 망루가 저절로 덤비지 않는다 (명령을 받아야 친다).
+진형 (uform): 제 자리 (ugx, ugy)에서 form_direct칸 안이면 거리 지도 대신 곧장 가 선다 (거리 지도 끝에 닿아도 제 자리까지).
+선 뒤 (IDLE)엔 제 자리를 지킨다: 근접은 제 자리에서 form_leash칸 안의 적만 쫓고, 궁수는 사거리 밖으로 쫓지 않는다, 밀리면 돌아온다.
 외교 (sim/diplomacy.py): friend[a, b]면 같은 편 (자기 나라, 동맹)이라 서로 치지 않는다. 받는 피해는 hurt[나라]배 (배신자).
 hits[a, b]에 a가 b에게 입힌 피해를 더한다 (관계에 반영).
 """
@@ -39,7 +41,8 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
          nb, bx, by, bkind, bown, bhp, br, bprog, bcd, balive,
          k_speed, k_range, k_dmg, k_cd, k_sight, k_ranged, k_terrain, k_charge, k_vs, k_splash,
          walk, speed_mul, cover, fields, ready, tower_kind, tower_range, tower_dmg, tower_cd, neutral,
-         shots, builders, friend, hurt, hits, blast, fx_speed, fx_take, fx_deal, ufreeze):
+         shots, builders, friend, hurt, hits, blast, fx_speed, fx_take, fx_deal, ufreeze,
+         ugx, ugy, uform, form_leash, form_direct):
     H, W = walk.shape
     gw = W // CELL + 1
     gh = H // CELL + 1
@@ -166,8 +169,43 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
                         ns += 1
             elif st == ATTACK and uslot[i] >= 0 and dist > sight and ready[uslot[i]]:
                 dx, dy, _, _ = _downhill(fields[uslot[i]], ux[i], uy[i], H, W)   # 멀면 길을 따라간다
+            elif uform[i] and st == IDLE:               # 진형을 지킨다: 근접은 제 자리 둘레 leash칸 안의 적만 쫓는다
+                sdx, sdy = tx - ugx[i], ty - ugy[i]
+                lim = form_leash + rad
+                if not k_ranged[k] and sdx * sdx + sdy * sdy <= lim * lim:
+                    dx, dy = ddx, ddy
+                else:                                   # 놓아 주고 (다시 찾는다) 제 자리로
+                    utgt[i] = -1
+                    utgb[i] = -1
+                    gdx, gdy = ugx[i] - ux[i], ugy[i] - uy[i]
+                    if gdx * gdx + gdy * gdy > 0.16:
+                        dx, dy = gdx, gdy
             else:
                 dx, dy = ddx, ddy
+        elif uform[i] and not fly and (st == MOVE or st == AMOVE or st == IDLE):   # 진형: 제 자리로
+            gdx, gdy = ugx[i] - ux[i], ugy[i] - uy[i]
+            sd2 = gdx * gdx + gdy * gdy
+            direct = True
+            if st != IDLE and sd2 > form_direct * form_direct and uslot[i] >= 0:   # 아직 멀다: 함께 길을 따라간다
+                if not ready[uslot[i]]:
+                    direct = False                      # 거리 지도를 계산하는 중: 기다린다
+                else:
+                    f = fields[uslot[i]]
+                    cur = f[int(uy[i]), int(ux[i])]
+                    if cur > 1.5 and cur < 1e29:
+                        ddx2, ddy2, _, better = _downhill(f, ux[i], uy[i], H, W)
+                        if better:
+                            dx, dy = ddx2, ddy2
+                            direct = False
+            if direct:
+                if st == IDLE:
+                    if sd2 > 0.16:                      # 밀렸다: 돌아온다
+                        dx, dy = gdx, gdy
+                elif sd2 <= 0.09:                       # 제 자리에 섰다
+                    ustate[i] = IDLE
+                    uslot[i] = -1
+                else:
+                    dx, dy = gdx, gdy
         elif fly and (st == MOVE or st == AMOVE):  # 날아서 곧장
             ddx, ddy = utx[i] - ux[i], uty[i] - uy[i]
             if ddx * ddx + ddy * ddy < 0.64:
@@ -227,6 +265,9 @@ def step(dt, n, ux, uy, uhp, uown, ukind, ustate, uslot, utgt, utgb, ubld, ucd, 
         vx, vy = 0.0, 0.0
         if L > 1e-6:
             vx, vy = dx / L * sp, dy / L * sp
+        if uform[i] and st == IDLE:                 # 진형에 선 병사는 지나가는 병사에게 덜 밀린다 (진형이 흐트러지지 않게)
+            sx *= 0.25
+            sy *= 0.25
         vx += sx * 2.0
         vy += sy * 2.0
         umoving[i] = L > 1e-6

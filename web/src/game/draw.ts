@@ -252,6 +252,65 @@ export class Overlay {
     g.globalAlpha = 1;
   }
 
+  /** 진형 선 (그리는 중), 설 자리 미리보기와 정면 화살표, 방금 내린 진형의 자리 (0.9초 동안 옅어진다). */
+  private formation(sx: (x: number) => number, sy: (y: number) => number, now: number, z: number) {
+    const g = this.g, ctl = this.ctl, me = this.st.info.nations[this.st.info.me];
+    const col = me ? me.color : [240, 240, 240];
+    const dot = (x: number, y: number, role: number, a: number) => {
+      const px = Math.round(sx(x)), py = Math.round(sy(y)), r = Math.max(3, Math.round(z * 0.5));
+      g.globalAlpha = a;
+      g.fillStyle = 'rgb(20,18,24)'; g.fillRect(px - r - 1, py - r - 1, 2 * r + 2, 2 * r + 2);
+      g.fillStyle = role === 0 ? `rgb(${col[0]},${col[1]},${col[2]})` : role === 1 ? 'rgb(235,240,235)' : 'rgb(170,200,240)';
+      g.fillRect(px - r, py - r, 2 * r, 2 * r);
+    };
+    if (ctl.drag) {
+      const pts = ctl.drag.pts;
+      g.globalAlpha = 0.85;
+      g.strokeStyle = ctl.drag.attack ? 'rgb(255,170,120)' : 'rgb(230,245,230)';
+      g.lineWidth = 2; g.setLineDash([6, 4]);
+      g.beginPath();
+      pts.forEach(([x, y], k) => (k ? g.lineTo(sx(x), sy(y)) : g.moveTo(sx(x), sy(y))));
+      if (ctl.previewClosed) g.closePath();
+      g.stroke(); g.setLineDash([]);
+      for (const s of ctl.preview) dot(s.x, s.y, s.role, 0.95);
+      const front = ctl.preview.filter((s) => s.role === 0), back = ctl.preview.filter((s) => s.role === 1);
+      if (!ctl.previewClosed && front.length && back.length) {      // 정면: 뒷줄 가운데 → 앞줄 가운데 쪽
+        const fx = front.reduce((a, s) => a + s.x, 0) / front.length, fy = front.reduce((a, s) => a + s.y, 0) / front.length;
+        const bx = back.reduce((a, s) => a + s.x, 0) / back.length, by = back.reduce((a, s) => a + s.y, 0) / back.length;
+        this.arrow(sx(fx), sy(fy), Math.atan2(fy - by, fx - bx), z);
+      } else if (!ctl.previewClosed && ctl.preview.length && pts.length >= 2) {   // 한 역할뿐: 선의 법선 중 병사들 반대편
+        const [x0, y0] = pts[0], [x1, y1] = pts[pts.length - 1];
+        const mx = ctl.preview.reduce((a, s) => a + s.x, 0) / ctl.preview.length, my = ctl.preview.reduce((a, s) => a + s.y, 0) / ctl.preview.length;
+        let ang = Math.atan2(x1 - x0, -(y1 - y0));
+        const us = [...ctl.sel.keys()].map((k) => this.st.units.get(k)).filter((u) => !!u);
+        if (us.length) {
+          const ux = us.reduce((a, u) => a + u!.x, 0) / us.length, uy = us.reduce((a, u) => a + u!.y, 0) / us.length;
+          if (Math.cos(ang) * (mx - ux) + Math.sin(ang) * (my - uy) < 0) ang += Math.PI;
+        }
+        this.arrow(sx(mx), sy(my), ang, z);
+      }
+      g.globalAlpha = 1;
+    }
+    ctl.formPings = ctl.formPings.filter((p) => now - p.t0 < 900);
+    for (const p of ctl.formPings) {
+      const a = 0.8 * (1 - (now - p.t0) / 900);
+      for (const s of p.spots) dot(s.x, s.y, s.role, a);
+    }
+    g.globalAlpha = 1;
+  }
+
+  /** 정면 화살표 (픽셀): (x, y)에서 ang 쪽으로. */
+  private arrow(x: number, y: number, ang: number, z: number) {
+    const g = this.g, L = Math.max(14, z * 4), c = Math.cos(ang), s = Math.sin(ang);
+    const tx = x + c * L, ty = y + s * L;
+    g.strokeStyle = 'rgb(20,18,24)'; g.lineWidth = 4;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(tx, ty); g.stroke();
+    g.strokeStyle = 'rgb(250,235,140)'; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(tx, ty); g.stroke();
+    g.fillStyle = 'rgb(250,235,140)';
+    g.beginPath(); g.moveTo(tx + c * 6, ty + s * 6); g.lineTo(tx - s * 5, ty + c * 5); g.lineTo(tx + s * 5, ty - c * 5); g.closePath(); g.fill();
+  }
+
   /** 서리 숨결 (0.9초): 입에서 굵은 얼음 줄기가 뻗어 나가 넓게 퍼지고, 맞은 자리에 서리 안개와 얼음 고리.
    *  얼음 알갱이는 점 크기(K)의 2배까지, 앞으로 갈수록 크게 흩어진다. */
   /** 더위·동상 (기후 확률 피해, sim/climate.py): 병사 머리 위의 정수 크기 점. 동상은 하늘색 눈송이가 내려앉고,
@@ -776,6 +835,8 @@ export class Overlay {
       const f = (now - p.t0) / 600;
       g.strokeStyle = p.col; g.lineWidth = 1; g.beginPath(); g.arc(Math.trunc(sx(p.x)), Math.trunc(sy(p.y)), Math.trunc(4 + 10 * f), 0, 7); g.stroke();
     }
+    // 진형: 그리는 중인 선과 설 자리 (근접 진하게, 원거리 옅게), 정면 화살표 / 방금 내린 진형의 자리 (잠깐)
+    this.formation(sx, sy, now, z);
     // 드래그 상자
     if (box) { g.strokeStyle = 'rgb(230,240,230)'; g.lineWidth = 1; g.strokeRect(Math.min(box[0], box[2]) + 0.5, Math.min(box[1], box[3]) + 0.5, Math.abs(box[2] - box[0]), Math.abs(box[3] - box[1])); }
     // 건물 자리 미리보기

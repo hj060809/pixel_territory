@@ -349,6 +349,7 @@ export class GameView {
     const keys = new Set<string>();
     let mouse: [number, number] | null = null, box: [number, number, number, number] | null = null;
     let midDrag = false, lifeClick: [number, number] | null = null, hudWait = 1;
+    let fdrag: { sx: number; sy: number; btn: number; attack: boolean; far: number } | null = null;   // 진형 선 그리기 (오른쪽 드래그 / A 다음 왼쪽 드래그). far: 누른 자리에서 가장 멀리 간 거리 (화면 픽셀)
     const pending = { speed: 1, speedAt: -1e9, pause: false, pauseAt: -1e9 };   // 방금 보낸 속도/일시정지 (답이 오기 전)
     const togglePause = () => {               // 서버 답을 기다리지 않고 마지막으로 요청한 값 기준으로
       if (!st || !solo()) return;
@@ -405,11 +406,15 @@ export class GameView {
       if (!ctl || fromTouch()) return;
       const [mx, my] = cam.toMap(e.clientX, e.clientY);
       if (e.button === 0) {
-        if (ctl.mode === 'attack') { ctl.command(mx, my, cam.zoom, true); ctl.mode = null; }
+        if (ctl.mode === 'attack') {                             // A 다음 왼쪽: 클릭이면 공격 이동, 끌면 그 선대로 공격 진형 (놓을 때)
+          if (ctl.dragStart(mx, my, true)) fdrag = { sx: e.clientX, sy: e.clientY, btn: 0, attack: true, far: 0 };
+          else { ctl.command(mx, my, cam.zoom, true); ctl.mode = null; }
+        }
         else if (typeof ctl.mode === 'number') { ctl.place(mx, my, cam.zoom, e.shiftKey); this.bar?.update(); }
         else box = [e.clientX, e.clientY, e.clientX, e.clientY];
       } else if (e.button === 2) {
         if (ctl.mode !== null) { ctl.mode = null; this.bar?.update(); }
+        else if (ctl.dragStart(mx, my, false)) fdrag = { sx: e.clientX, sy: e.clientY, btn: 2, attack: false, far: 0 };   // 끌면 진형 선 (놓을 때 정한다)
         else { ctl.command(mx, my, cam.zoom, false); lifeClick = [mx, my]; }
       } else if (e.button === 1) { midDrag = true; e.preventDefault(); }
       hudWait = 1;
@@ -427,11 +432,28 @@ export class GameView {
         hudWait = 1;
       }
       if (e.button === 1) midDrag = false;
+      if (fdrag && ctl && e.button === fdrag.btn) {               // 진형 선: 끄는 동안 조금도 벗어나지 않았으면 보통 클릭으로
+        const d = fdrag;
+        fdrag = null;
+        const [mx, my] = cam.toMap(d.sx, d.sy);
+        const moved = Math.max(d.far, Math.hypot(e.clientX - d.sx, e.clientY - d.sy)) >= 10;   // 놓은 자리가 아니라 끄는 동안 간 거리로 (둘레를 닫으며 시작점 가까이서 놓아도 진형)
+        if (!(moved && ctl.dragEnd())) {
+          ctl.dragCancel();
+          ctl.command(mx, my, cam.zoom, d.attack);
+          lifeClick = [mx, my];
+        }
+        if (d.attack) ctl.mode = null;
+        hudWait = 1;
+      }
     });
     this.listen(window, 'mousemove', (e: MouseEvent) => {
       if (fromTouch()) return;
       mouse = [e.clientX, e.clientY];
       if (box) { box[2] = e.clientX; box[3] = e.clientY; }
+      if (fdrag && ctl) {
+        fdrag.far = Math.max(fdrag.far, Math.hypot(e.clientX - fdrag.sx, e.clientY - fdrag.sy));
+        if (fdrag.far >= 10) ctl.dragMove(...cam.toMap(e.clientX, e.clientY));
+      }
       if (midDrag) cam.pan(e.movementX, e.movementY);
     });
     this.listen(document, 'mouseleave', () => { mouse = null; });

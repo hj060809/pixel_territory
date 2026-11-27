@@ -103,5 +103,10 @@ export class Connection {
     this.send({ t: 'command', id: this.nextId++, units, ships, x, y, attack, r });
   }
 
+  /** 진형: 병사마다 제 자리 [[칸, 세대, x, y]] (web/src/game/formation.ts). */
+  formation(spots: number[][], attack: boolean) {
+    this.send({ t: 'formation', spots, attack });
+  }
+
   close() { this.ended = true; this.ws.close(); }
 }

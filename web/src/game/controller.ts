@@ -8,6 +8,7 @@ import type { BuildRec } from './protocol.ts';
 import { type TerrainRules } from './terrainRules.ts';
 import { josa } from '../ui/device.ts';
 import { animalAt } from './wildlife.ts';
+import { type FUnit, type Spot, isClosed, layout, pathLength } from './formation.ts';
 
 export const UNIT_ZOOM = 2.6;        // 이보다 가까이 보면 병사 하나하나, 멀면 무리 배지
 const FLY_CELLS = 18 / 2.4;           // 날고 있는 병종이 떠 있는 높이 (지도 칸, draw.ts FLY_LIFT와 같다)
@@ -29,6 +30,14 @@ export class Controller {
   mode: Mode = null;
   pings: Ping[] = [];
   private turn: Record<string, number> = {};      // 훈련을 맡길 건물 차례 (종류마다)
+  /** 모바일 진형 그리기 (touchUi 진형 버튼): 켜면 한 손가락 끌기가 화면 이동 대신 진형 선 (PC는 오른쪽 드래그). */
+  drawForm = false;
+  /** 그리는 중인 진형 선 (지도 칸, 오른쪽 드래그 / A 다음 왼쪽 드래그). preview: 그 선대로 설 자리 (그리는 동안 보여 준다). */
+  drag: { pts: [number, number][]; attack: boolean } | null = null;
+  preview: Spot[] = [];
+  previewClosed = false;
+  /** 방금 내린 진형의 자리 (잠깐 표시). */
+  formPings: { t0: number; spots: Spot[] }[] = [];
 
   constructor(private st: GameState, private net: Connection, readonly rules: TerrainRules) {}
 
@@ -299,6 +308,60 @@ export class Controller {
   }
 
   stop() { this.net.send({ t: 'stop', units: this.refs() }); }
+
+  // ------------------------------------------------------------- 진형 (web/src/game/formation.ts, 서버 sim/world.py order_formation)
+  /** 모바일 진형 그리기 켜고 끄기. */
+  toggleDrawForm() {
+    this.drawForm = !this.drawForm;
+    this.st.say(this.drawForm ? '진형 그리기: 한 손가락으로 선을 그으면 그 선을 따라 선다 (화면 이동은 두 손가락)' : '진형 그리기 끔');
+  }
+
+  /** 고른 병사 (진형에 넣을). */
+  private formUnits(): FUnit[] {
+    this.prune();
+    const out: FUnit[] = [];
+    for (const [s, g] of this.sel) {
+      const u = this.st.units.get(s);
+      if (u && u.gen === g && !(u.bits & 2)) out.push({ slot: s, gen: g, kind: u.kind, x: u.x, y: u.y });
+    }
+    return out;
+  }
+
+  /** 진형 선 그리기 시작 (오른쪽 버튼을 누른 자리). 고른 병사가 둘 이상일 때만 (아니면 false: 보통 명령). */
+  dragStart(x: number, y: number, attack: boolean): boolean {
+    if (this.sel.size < 2) return false;
+    this.drag = { pts: [[x, y]], attack };
+    this.preview = [];
+    return true;
+  }
+
+  dragMove(x: number, y: number) {
+    const d = this.drag;
+    if (!d) return;
+    const [lx, ly] = d.pts[d.pts.length - 1];
+    if (Math.hypot(x - lx, y - ly) < 0.4) return;
+    d.pts.push([x, y]);
+    this.previewClosed = isClosed(d.pts);
+    this.preview = pathLength(d.pts) >= 1.5 ? layout(this.R(), this.formUnits(), d.pts, this.previewClosed) : [];
+  }
+
+  /** 다 그렸다: 선이 짧으면 false (보통 클릭으로), 아니면 그 선대로 진형을 보낸다. */
+  dragEnd(): boolean {
+    const d = this.drag;
+    this.drag = null;
+    const spots = this.preview;
+    this.preview = [];
+    if (!d || pathLength(d.pts) < 1.5 || !spots.length) return false;
+    this.sendFormation(spots, d.attack);
+    return true;
+  }
+
+  dragCancel() { this.drag = null; this.preview = []; }
+
+  private sendFormation(spots: Spot[], attack: boolean) {
+    this.net.formation(spots.map((s) => [s.slot, s.gen, Math.round(s.x * 100) / 100, Math.round(s.y * 100) / 100]), attack);
+    this.formPings.push({ t0: performance.now(), spots });
+  }
 
   setGroup(n: number) {
     this.groups.set(n, new Map(this.sel));

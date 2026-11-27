@@ -16,7 +16,7 @@ import numpy as np
 from sim import rules as R
 from sim import climate, storage, tribes
 from sim.boats import Fleet, _ferry_eval
-from sim.entities import AMOVE, ATTACK, BUILD, IDLE, MOVE, Buildings, Units
+from sim.entities import AMOVE, ATTACK, BUILD, IDLE, MOVE, TAME, Buildings, Units
 from sim.kernels import rng as kernel_rng
 from sim.kernels.combat import step
 from sim.pathing import _POOL, FieldCache
@@ -70,6 +70,7 @@ class World:
         self.units = Units()
         self.builds = Buildings()
         self.fields = FieldCache(gmap, slots=32)
+        self._form_t = 0.0                           # 진형 점검 (막힌 병사) 시계
         self._ferry_checks: list = []             # 보조 스레드에서 견주는 중인 걷기·배 (_split, _ferry_resolve)
         self.fleet = Fleet(self)
         self.shots = np.zeros((512, 5), np.float32)
@@ -371,8 +372,93 @@ class World:
         u.slot[ids] = u.tgt[ids] = u.tgb[ids] = u.bld[ids] = -1
 
     def _mine(self, ids):
+        """명령을 받을 병사 (살아 있는). 새 명령이니 진형은 풀린다."""
         ids = np.asarray(ids, np.int64)
-        return ids[self.units.alive[ids]] if len(ids) else ids
+        ids = ids[self.units.alive[ids]] if len(ids) else ids
+        if len(ids):
+            self.units.form[ids] = False
+        return ids
+
+    def order_formation(self, ids, gx, gy, attack: bool = False) -> bool:
+        """진형: 병사마다 제 자리 (gx[k], gy[k]). 자리는 가까운 걸을 수 있는 칸으로. 차례대로 (화면이 선을 따라 늘어놓은 차례)
+        seg칸 넓이의 토막으로 나눠 토막마다 함께 길을 찾아 가다가, 제 자리 가까이서 곧장 가 선다 (sim/kernels/combat.py).
+        나는 용기사, 바다 건너 (다른 땅) 병사는 진형 가운데로 그냥 간다 (용기사는 날아서, 나머지는 배로)."""
+        ids = np.asarray(ids, np.int64)
+        gx, gy = np.asarray(gx, np.float64), np.asarray(gy, np.float64)
+        ok = self.units.alive[ids] if len(ids) else np.zeros(0, bool)
+        ids, gx, gy = ids[ok], gx[ok], gy[ok]
+        ids = self._mine(ids)
+        if len(ids) == 0:
+            return False
+        self.wild.release(ids)
+        u, m = self.units, self.map
+        cy, cx = float(gy.mean()), float(gx.mean())
+        rest = []                                    # 진형 가운데로 그냥 가는 병사
+        seat = []                                    # (병사, 자리 x, 자리 y)
+        for i, x, y in zip(ids.tolist(), gx.tolist(), gy.tolist()):
+            if self.k_fly[u.kind[i]]:
+                rest.append(i)
+                continue
+            spot = self.fields.snap(y, x, 3)
+            if spot is None:
+                rest.append(i)
+                continue
+            if (int(y), int(x)) != spot:             # 걸을 수 없는 자리: 가까운 걸을 수 있는 칸 가운데로
+                y, x = spot[0] + 0.5, spot[1] + 0.5
+            if m.comp[int(u.y[i]), int(u.x[i])] != m.comp[spot]:
+                rest.append(i)
+                continue
+            seat.append((i, x, y))
+        ok = False
+        seg = R.FORMATION['seg']
+        k = 0
+        while k < len(seat):                         # 토막: 첫 자리에서 seg칸 안까지
+            j = k + 1
+            while j < len(seat) and np.hypot(seat[j][1] - seat[k][1], seat[j][2] - seat[k][2]) <= seg:
+                j += 1
+            part = seat[k:j]
+            k = j
+            pid = np.array([p[0] for p in part], np.int64)
+            px = np.array([p[1] for p in part], np.float32)
+            py = np.array([p[2] for p in part], np.float32)
+            s = self._route(pid, float(py.mean()), float(px.mean()))
+            if s < 0:
+                rest += pid.tolist()
+                continue
+            u.state[pid] = AMOVE if attack else MOVE
+            u.slot[pid] = s
+            u.tgt[pid] = u.tgb[pid] = u.bld[pid] = -1
+            u.form[pid], u.fslot[pid] = True, s
+            u.gx[pid], u.gy[pid] = px, py
+            u.fpx[pid], u.fpy[pid] = u.x[pid], u.y[pid]
+            ok = True
+        if rest:
+            ok |= self.order_move(np.array(rest, np.int64), cy, cx, attack=attack)
+        return ok
+
+    def _formations(self, dt) -> None:
+        """진형 점검: 다른 일을 하게 된 병사 (배에 탔다, 치러 간다, 짓는다, 길들인다, 다른 길로 간다)는 풀고,
+        0.5초마다 제 자리로 가는데 꼼짝 못 한 병사 (막혔다)는 지금 자리를 제 자리로."""
+        u = self.units
+        f = np.flatnonzero(u.form[:u.n])
+        if not len(f):
+            return
+        st = u.state[f]
+        bad = (~u.alive[f] | u.aboard[f] | u.air[f] | np.isin(st, (ATTACK, BUILD, TAME))
+               | (np.isin(st, (MOVE, AMOVE)) & (u.slot[f] != u.fslot[f])))
+        u.form[f[bad]] = False
+        self._form_t += dt
+        if self._form_t < 0.5:
+            return
+        self._form_t = 0.0
+        f = f[~bad]
+        far = np.hypot(u.gx[f] - u.x[f], u.gy[f] - u.y[f])
+        near = far <= R.FORMATION['direct']
+        free = (u.tgt[f] < 0) & (u.tgb[f] < 0) & (u.freeze[f] <= 0)
+        still = np.hypot(u.x[f] - u.fpx[f], u.y[f] - u.fpy[f]) < 0.05
+        stuck = f[near & free & still & (far > 0.5)]
+        u.gx[stuck], u.gy[stuck] = u.x[stuck], u.y[stuck]
+        u.fpx[f], u.fpy[f] = u.x[f], u.y[f]
 
     def can_afford(self, nid, cost, sulfur=0) -> bool:
         return all(self.nations[nid].res[k] >= cost[k] for k in range(3)) and self.nations[nid].sulfur >= sulfur
@@ -524,6 +610,7 @@ class World:
         self._economy(dt)
         self._training(dt)
         climate.update(self, dt)                            # 기후 효과: 병사마다 이동·피해 배율, 더위·동상 (sim/climate.py)
+        self._formations(dt)                                # 진형: 다른 일을 하게 된 병사는 풀고, 막혀 못 가는 병사는 그 자리에
         self.n_shots = step(dt, u.n, u.x, u.y, u.hp, u.own, u.kind, u.state, u.slot, u.tgt, u.tgb, u.bld, u.cd,
                             u.search, u.anim, u.moving, u.alive, u.aboard, u.tx, u.ty, u.slow, u.air,
                             b.n, b.x, b.y, b.kind, b.own, b.hp, b.r, b.prog, b.cd, b.alive,
@@ -531,7 +618,8 @@ class World:
                             self.k_terrain, self.k_charge, self.k_vs, self.k_splash,
                             m.walk, m.speed_mul, m.cover, self.fields.fields, self.fields.ready, R.TOWER, R.TOWER_RANGE, R.TOWER_DMG,
                             R.TOWER_CD, R.NEUTRAL, self.shots, self._builders,
-                            self.diplo.friend, self.diplo.hurt, self.diplo.hits, b.last, u.fx_speed, u.fx_take, u.fx_deal, u.freeze)
+                            self.diplo.friend, self.diplo.hurt, self.diplo.hits, b.last, u.fx_speed, u.fx_take, u.fx_deal, u.freeze,
+                            u.gx, u.gy, u.form, R.FORMATION['leash'], R.FORMATION['direct'])
         if self.n_shots:                                    # 화면에 잠깐 그릴 공격 (화살, 칼부림)
             for row in self.shots[:self.n_shots].tolist():
                 self.recent.append((self.time, *row))

@@ -14,6 +14,7 @@
 
 명령 (JSON, 't'로 구분)
     command  {units:[[칸,세대]...], ships:[번호...], x, y, attack, r}   오른쪽 클릭 (r: 클릭 반경, 화면 배율에 따라)
+    formation {spots:[[칸,세대,x,y]...], attack}                       진형: 병사마다 제 자리 (화면이 선·대형으로 계산)
     place    {kind:'tower'|'hall'|'harbor'|..., units, x, y}           건물 자리
     train    {kind:'infantry'|'archer'|'warship', buildings:[[칸,세대]...]}
     stop     {units}
@@ -452,6 +453,8 @@ class GameSession:
                               bool(m.get('attack')), float(m.get('r', 2.0)))
             if 'id' in m:
                 s.send({'t': 'ack', 'id': m['id'], 'shown': shown})
+        elif t == 'formation':                       # 진형: 병사마다 제 자리 [(칸, 세대, x, y)]
+            c.formation(m.get('spots', []), bool(m.get('attack')))
         elif t == 'place':
             c.place(m['kind'], m.get('units', []), float(m['x']), float(m['y']))
         elif t == 'train':

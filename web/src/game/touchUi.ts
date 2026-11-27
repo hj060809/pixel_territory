@@ -54,6 +54,7 @@ export class TouchUi {
   private atkBtn: HTMLButtonElement;
   private stopBtn: HTMLButtonElement;
   private addBtn: HTMLButtonElement;
+  private formBtn: HTMLButtonElement;
   private confirm = el('div', 't-confirm', this.root);
   private okBtn: HTMLButtonElement;
   private info = el('div', 't-info', this.root);
@@ -78,6 +79,7 @@ export class TouchUi {
     this.atkBtn = btn(this.selRow, '⚔ 공격이동', 'warm', () => { const c = h.ctl(); if (c && c.sel.size) c.mode = c.mode === 'attack' ? null : 'attack'; });
     this.stopBtn = btn(this.selRow, '■ 정지', '', () => h.ctl()?.stop());
     this.addBtn = btn(this.selRow, '+ 더 고르기', '', () => { h.touch.add = !h.touch.add; });
+    this.formBtn = btn(this.selRow, '▦ 진형', '', () => h.ctl()?.toggleDrawForm());   // 켜면 한 손가락 끌기가 진형 선 (화면 이동은 두 손가락)
     btn(this.selRow, '✕', '', () => { const c = h.ctl(); if (c) { c.sel.clear(); c.selShips.clear(); c.selB = null; c.mode = null; } h.touch.add = false; });
     this.okBtn = btn(this.confirm, '✓ 짓기', 'ok', () => this.build());
     btn(this.confirm, '✕', '', () => { const c = h.ctl(); if (c) c.mode = null; });
@@ -187,6 +189,8 @@ export class TouchUi {
     this.atkBtn.classList.toggle('on', c.mode === 'attack');
     this.stopBtn.style.display = c.sel.size || c.selShips.size ? '' : 'none';
     this.addBtn.classList.toggle('on', this.h.touch.add);
+    this.formBtn.style.display = c.sel.size >= 2 ? '' : 'none';
+    this.formBtn.classList.toggle('on', c.drawForm);
     if (this.infoUntil && performance.now() > this.infoUntil) this.showInfo(-1, -1);
   }
 

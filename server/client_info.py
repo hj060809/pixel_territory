@@ -35,6 +35,8 @@ def rules_info() -> dict:
         'unit_dmg': [R.UNIT_STATS[k]['dmg'] for k in range(len(R.UNIT_STATS))],
         'trainable': list(R.TRAINABLE), 'mounted': sorted(R.MOUNTED),
         'unit_fly': [R.UNIT_STATS[k]['fly'] for k in range(len(R.UNIT_STATS))],
+        'unit_ranged': [R.UNIT_STATS[k]['ranged'] for k in range(len(R.UNIT_STATS))],   # 진형: 원거리는 뒷줄 (web/src/game/formation.ts)
+        'formation': dict(R.FORMATION),
         'stomp_r': R.STOMP['r'], 'taunt_r': R.TAUNT['r'],
         'wildlife': {str(k): {'name': a['name'], 'tame': a.get('tame', 0), 'mounts': {str(u): v for u, v in a.get('mounts', {}).items()},
                               'companion': a.get('companion', -1), 'food': a.get('food', 0),
