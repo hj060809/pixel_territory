@@ -366,7 +366,7 @@ export class Hud {
           const ph = an.hp > (a.nova?.phase ?? 1) ? '' : an.hp > (a.flight?.phase ?? 0) ? ' · 눈보라를 쓴다' : ' · 곧 날아오른다';
           return `${a.name} · 싸우는 중 · ${hp}${ph} · 서리 숨결 (범위 피해, 느려짐) · ${Math.round(a.subdue * 100)}% 아래면 쓰러진다`;
         }
-        if (an.state === A_NOVA || an.state === A_AIR_NOVA) return `${a.name} · 눈보라를 모은다! · ${hp} · 병사가 가장 몰린 곳이나 용기사에게 던져 터뜨린다 (맞으면 체력의 65%를 잃고 얼어붙는다)`;
+        if (an.state === A_NOVA || an.state === A_AIR_NOVA) return `${a.name} · 눈보라를 모은다! · ${hp} · 병사가 가장 몰린 곳이나 용기사에게 던져 터뜨린다 (맞으면 체력의 55%를 잃고 얼어붙는다)`;
         if (an.state === A_RAID) return `${a.name} · 겨울 습격 중! · ${hp} · 설원의 병사와 건물을 친다 (거점은 치지 않는다) · 길들일 수 없다 · 체력 30% 아래면 둥지로 돌아간다`;
         if (an.state === A_HOMEWARD) return `${a.name} · 둥지로 돌아간다 · ${hp} · 길들일 수 없다`;
         if (an.state === A_FLY) return `${a.name} · 날고 있다 · ${hp} · 궁수·기마궁수·망루·용기사만 맞힌다 · 사거리 밖으로 빠졌다가 돌아와 숨결을 뿜는다`;

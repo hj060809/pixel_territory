@@ -7,6 +7,8 @@ import { touchMode } from '../ui/device.ts';
 import { fillHelp, fillTouchHelp } from '../game/help.ts';
 import { installApp } from '../ui/install.ts';
 import { busyBox, coffeeLink, cupIcon } from '../ui/coffee.ts';
+import { LATEST, PATCHES, dateLabel, rememberSeen, shouldShowPatch } from './patchNotes.ts';
+import { patchBanner } from './patchBanner.ts';
 
 export const HOW_TO: [string, string[]][] = [
   ['목표', ['다른 나라의 거점과 병사를 모두 없애면 승리.', '내 거점과 병사를 모두 잃으면 패배.']],
@@ -48,9 +50,9 @@ export const HOW_TO: [string, string[]][] = [
     '함께 싸우는 튼튼한 동료가 된다. 화살에 강하고, 둘레 적을 치며 적의 주의를 끈다.']],
   ['드래곤', ['넓은 설원의 둥지에서 잠들어 있다 (지도 만들기 화면에 표시). 다가가면 깨어 공격한다.',
     '체력을 많이 깎으면 잠시 쓰러진다. 그때 병사가 다가가 길들이면 용기사가 된다.',
-    '체력이 깎일수록 기술이 는다: 90% 아래면 눈보라 (병사가 가장 많이 몰린 곳이나 용기사에게 빛 구체를 던져 크게 터뜨린다: 폭발 안의 병사는 용기사까지 체력의 65%를 잃고 2초 얼어붙는다. 병사를 한데 뭉쳐 두지 마라),'
+    '체력이 깎일수록 기술이 는다: 90% 아래면 눈보라 (병사가 가장 많이 몰린 곳이나 용기사에게 빛 구체를 던져 크게 터뜨린다: 폭발 안의 병사는 용기사까지 체력의 55%를 잃고 2초 얼어붙는다. 병사를 한데 뭉쳐 두지 마라),'
     + ' 50% 아래면 날아올라 쓰러질 때까지 치고 빠진다: 병사들 반대쪽으로 사거리 밖까지 물러났다가 돌아보고 날아와 숨결을 뿜는다, 날면서도 눈보라를 던진다 (날 때는 궁수·기마궁수·망루·용기사만 맞힌다). 쓰러지면 땅에 떨어져 길들일 수 있다.',
-    '겨울 습격: 1~3년에 한 번, 겨울이 오면 잠든 드래곤 하나가 깨어나 둥지와 이어진 설원 중 제 몫 (한 설원에 둥지가 여럿이면 가까운 쪽으로 나눈다) 어디든 병사와 건물을 날아다니며 친다 (거점은 치지 않는다). 체력이 30% 아래로 떨어지거나 겨울이 끝나면 둥지로 돌아간다. 습격 중인 드래곤은 길들일 수 없다: 둥지에서 깨워 쓰러뜨렸을 때만.',
+    '겨울 습격: 1~2년에 한 번, 겨울이 오면 잠든 드래곤 하나가 깨어나 둥지와 이어진 설원 중 제 몫 (한 설원에 둥지가 여럿이면 가까운 쪽으로 나눈다) 어디든 병사와 건물을 날아다니며 친다 (거점은 치지 않는다). 체력이 30% 아래로 떨어지거나 겨울이 끝나면 둥지로 돌아간다. 습격 중인 드래곤은 길들일 수 없다: 둥지에서 깨워 쓰러뜨렸을 때만.',
     '용기사는 날아서 산과 바다를 넘고 넓은 범위를 공격한다. 나는 동안은 원거리 공격만 맞는다. 나라마다 2기까지.']],
   ['화염탑과 유황', ['화염탑은 넓은 범위에 불을 뿜는다. 드래곤에게 특히 강하다.',
     '불을 제대로 뿜으려면 유황이 필요하다. 사막의 유황 웅덩이에 채취장을 지어 모은다.']],
@@ -77,10 +79,22 @@ function bubbleIcon(size: number): string {
   </svg>`;
 }
 
+/** 패치노트 아이콘 (도트: 말린 종이에 글줄, 금빛 끈). */
+function scrollIcon(size: number): string {
+  return `<svg width="${size}" height="${size}" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
+    <path d="M3 2h9v1h1v10h-1v1H3v-1H2V3h1z" fill="rgb(250,244,228)"/>
+    <path d="M2 2h2v2H2zM12 12h2v2h-2z" fill="rgb(200,190,170)"/>
+    <path d="M5 5h6v1H5zM5 7h6v1H5zM5 9h4v1H5z" fill="rgb(120,72,40)"/>
+    <path d="M10 10h3v4h-1v-1h-1v1h-1z" fill="rgb(255,214,120)"/>
+  </svg>`;
+}
+
 export class Lobby {
   readonly el = div('menu lobby');
   private help: HTMLDivElement | null = null;
   private coffee: HTMLDivElement | null = null;
+  private patch: HTMLDivElement | null = null;
+  private patchShown = false;                     // 페이지를 열고 이미 보였나 (판에서 돌아올 때마다 다시 띄우지 않게)
   private busyOpen = false;
 
   constructor(onStart: () => void, onMulti: () => void, onTutorial: () => void) {
@@ -104,6 +118,12 @@ export class Lobby {
     cb.innerHTML = cupIcon(26);
     cb.addEventListener('click', () => this.showCoffee());
     this.el.appendChild(cb);
+    const pb = document.createElement('button');            // 오른쪽 위: 패치노트 (커피 버튼과 같은 동그란 아이콘 버튼)
+    pb.className = 'coffee-btn patch-btn';
+    pb.title = '패치노트';
+    pb.innerHTML = scrollIcon(26);
+    pb.addEventListener('click', () => this.showPatch());
+    this.el.appendChild(pb);
     const fb = document.createElement('button');            // 커피 버튼 왼쪽: 피드백 → 소개 창 → 구글 폼 (새 탭)
     fb.className = 'feedback-btn';
     fb.innerHTML = `${bubbleIcon(22)}<span>피드백 하기</span>`;
@@ -124,6 +144,55 @@ export class Lobby {
   }
 
   closeCoffee() { this.coffee?.remove(); this.coffee = null; }
+
+  /** 로비에 들어올 때: 페이지를 열고 처음이고, 그만보기로 지금 버전을 넘기지 않았으면 패치노트. */
+  maybeShowPatch() {
+    if (this.patchShown || !shouldShowPatch()) return;
+    this.patchShown = true;
+    this.showPatch();
+  }
+
+  /** 패치노트 창 (커피 창 모양을 넓게): 왼쪽 위 제목과 버전, 날짜마다 그림과 바뀐 점 (아래로 내리면 이전 패치),
+   *  아래 [그만보기] 토글과 [닫기]. 그만보기를 켜고 닫으면 새 패치가 올라올 때까지 보이지 않는다 (쿠키). */
+  showPatch() {
+    if (this.patch) return;
+    const back = (this.patch = div('modal-back patch-back', this.el));
+    const box = div('modal coffee patch', back);
+    const head = div('patch-head', box);
+    const pt = pixelTitle('패치노트', 2);               // 로비 제목과 같은 도트 글꼴
+    pt.classList.add('patch-title');
+    head.appendChild(pt);
+    div('patch-ver', head, `v${LATEST}`);
+    const body = div('patch-body', box);
+    for (const p of PATCHES) {
+      const sec = div('patch-sec', body);
+      const h = div('patch-date', sec, dateLabel(p.date));
+      div('patch-tag', h, `v${p.version}`);
+      sec.appendChild(patchBanner(p, p === PATCHES[0]));      // 꾸민 배너: 게임 화면 + 도트 글꼴 제목·태그 (menu/patchBanner.ts)
+      const ul = document.createElement('ul');
+      ul.className = 'patch-list';
+      for (const t of p.items) {                                // '기능: 설명 (수치)' → 기능 이름은 굵게
+        const li = document.createElement('li'), k = t.indexOf(': ');
+        if (k > 0 && k < 14) { const b = document.createElement('b'); b.textContent = t.slice(0, k); li.append(b, ': ' + t.slice(k + 2)); }
+        else li.textContent = t;
+        ul.appendChild(li);
+      }
+      sec.appendChild(ul);
+    }
+    const foot = div('patch-foot', box);
+    const tog = document.createElement('label');
+    tog.className = 'patch-toggle';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    tog.append(cb, Object.assign(document.createElement('span'), { className: 'patch-switch' }), Object.assign(document.createElement('span'), { textContent: '그만보기' }));
+    tog.title = '켜고 닫으면 새 패치노트가 올라올 때까지 보이지 않아요';
+    foot.appendChild(tog);
+    const close = () => { rememberSeen(cb.checked); this.closePatch(); };
+    button(foot, '닫기', close, { w: 120, h: 38 });
+    back.addEventListener('mousedown', (e) => { if (e.target === back) close(); });
+  }
+
+  closePatch() { this.patch?.remove(); this.patch = null; }
 
   /** [피드백 하기]: 커피 창과 같은 모양의 소개 창. 안의 버튼을 눌러야 구글 폼으로 (새 탭). */
   showFeedback() {

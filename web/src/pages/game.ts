@@ -102,7 +102,7 @@ class App {
     if (screen === 'game') return;            // 메뉴 배경은 게임이 첫 장면을 그릴 때까지 남겨 둔다 (hideArt)
     this.artCanvas.style.display = '';
     this.startArt();
-    if (screen === 'lobby') { document.body.appendChild(this.lobby.el); void this.lobby.checkBusy(); return; }
+    if (screen === 'lobby') { document.body.appendChild(this.lobby.el); void this.lobby.checkBusy(); this.lobby.maybeShowPatch(); return; }   // 패치노트: 페이지를 열고 처음 한 번
     await this.artLoad;
     if (screen === 'multi') {
       this.multi ??= new MultiMenu(this.settings, this.lobbyInfo, () => void this.show('lobby'),

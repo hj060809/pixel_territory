@@ -426,6 +426,8 @@ body.touch .help-col:not(.mouse) .help-row { grid-template-columns: 160px 1fr; }
   display: flex; align-items: center; justify-content: center; background: rgb(58, 40, 28); border: 2px solid rgb(255, 214, 120);
   box-shadow: 0 0 0 3px rgb(10, 10, 14), 0 4px 10px rgba(0, 0, 0, 0.5); transition: transform 0.12s; }
 .coffee-btn:hover { transform: scale(1.08); background: rgb(84, 58, 38); }
+.coffee-btn.patch-btn { top: 24px; bottom: auto; }   /* 오른쪽 위: 패치노트 (커피 버튼과 같은 모양) */
+.coffee-btn.patch-btn svg { image-rendering: pixelated; }
 .coffee-btn svg, .coffee-icon svg, .coffee-link svg { image-rendering: pixelated; }
 .modal.coffee { width: min(420px, calc((100vw - 40px) / var(--ui-scale, 1))); height: auto; text-align: center; padding: 26px 30px 22px;
   display: flex; flex-direction: column; align-items: center; }
@@ -440,6 +442,29 @@ body.touch .help-col:not(.mouse) .help-row { grid-template-columns: 160px 1fr; }
 .coffee-link:active { transform: translateY(2px); box-shadow: 0 2px 0 rgb(150, 120, 0); }
 .coffee-link svg path[fill="rgb(250,244,228)"] { fill: rgb(255, 255, 255); }
 .coffee-close { margin-top: 16px; }
+/* 패치노트 (menu/lobby.ts showPatch): 커피 창 모양을 넓게, 가운데가 스크롤 */
+.modal.coffee.patch { width: min(900px, calc((100vw - 40px) / var(--ui-scale, 1))); max-height: calc((100vh - 32px) / var(--ui-scale, 1)); background: rgb(16, 18, 24);
+  text-align: left; align-items: stretch; padding: 20px 24px 16px; overflow: hidden; }
+.patch-head { display: flex; align-items: center; gap: 12px; flex: none; margin-bottom: 10px; }
+.patch-title { position: static !important; image-rendering: pixelated; height: 46px; width: auto; }
+.modal.coffee.patch .modal-title { margin-bottom: 12px; }
+.patch-ver { font-size: 15px; font-weight: bold; color: rgb(30, 22, 12); background: var(--gold); border-radius: 10px; padding: 1px 9px; }
+.patch-body { flex: 1; min-height: 0; overflow-y: auto; padding-right: 8px; border-top: 1px solid rgba(255, 214, 120, 0.25); }
+.patch-sec { padding: 14px 0 6px; border-bottom: 1px solid rgba(255, 214, 120, 0.12); }
+.patch-date { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: bold; color: var(--gold); text-shadow: 1px 2px 0 #000; margin-bottom: 8px; }
+.patch-tag { font-size: 12px; color: var(--dim); border: 1px solid rgba(255, 214, 120, 0.4); border-radius: 8px; padding: 0 6px; text-shadow: none; }
+.patch-img { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; margin-bottom: 10px; background: rgb(24, 28, 36); image-rendering: pixelated; }
+.patch-list { margin: 0; padding-left: 20px; }
+.patch-list li { font-size: 15px; line-height: 1.65; color: rgb(214, 208, 192); word-break: keep-all; margin-bottom: 4px; }
+.patch-list li b { color: var(--gold); }
+.patch-foot { flex: none; display: flex; align-items: center; justify-content: space-between; padding-top: 12px; }
+.patch-toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 15px; color: var(--dim); user-select: none; }
+.patch-toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+.patch-switch { position: relative; width: 40px; height: 22px; border-radius: 11px; background: rgb(60, 62, 72); border: 2px solid rgb(10, 10, 14); transition: background 0.15s; }
+.patch-switch::after { content: ''; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: rgb(214, 208, 192); transition: transform 0.15s; }
+.patch-toggle input:checked + .patch-switch { background: var(--gold); }
+.patch-toggle input:checked + .patch-switch::after { transform: translateX(18px); background: rgb(30, 22, 12); }
+.patch-toggle input:checked ~ span:last-child { color: var(--gold); }
 .hud-banner .banner-coffee { display: flex; flex-direction: column; align-items: center; gap: 7px; margin: 12px auto 0; padding-top: 10px;
   border-top: 1px solid rgba(255, 214, 120, 0.25); font-size: 13px; color: rgb(214, 208, 192); pointer-events: auto; white-space: normal; }
 .coffee-mini { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 12px; text-decoration: none; text-shadow: none;
@@ -522,6 +547,7 @@ body.touch .tut-title { font-size: 15px; margin: 2px 0 4px; }
 .lobby .feedback-btn.install-btn, body.touch .lobby .feedback-btn.install-btn {
   top: 24px; right: 28px; bottom: auto; width: 260px; height: 50px; padding: 0; border-radius: 25px; border-width: 2px;
   justify-content: center; font-size: 20px; }
+body.touch .lobby .feedback-btn.install-btn { right: 136px; top: calc(24px + (92px - 50px) / 2); }   /* 오른쪽 위 패치노트 버튼 (92px) 왼쪽, 높이는 그대로 50px, 가운데를 맞춘다 */
 /* 대화 (game/chat.ts): 알림 줄(hud-msgs)에 함께, PC는 그 아래 입력바, 모바일은 오른쪽 위 💬 → 큰 대화창 */
 .hud-msgs .msg.chat { color: rgb(238, 232, 214); max-width: 420px; word-break: break-all; white-space: normal; }
 .hud-msgs .chat-name { font-weight: bold; }
@@ -615,3 +641,18 @@ body.touch .modal.coffee .coffee-link svg { width: 38px; height: 38px; }
 body.touch .modal.coffee .coffee-close { width: 200px !important; height: 66px !important; font-size: 27px; margin-top: 26px; }
 body.touch .modal.coffee .server-plea { font-size: 26px; gap: 16px; padding-top: 24px; margin-bottom: 26px; }
 body.touch .modal.coffee .busy-btns .btn { min-width: 180px; height: 64px; font-size: 26px; }
+/* 모바일 패치노트: 화면 거의 전체, 글자·버튼은 모바일 배율에 맞춰 크게 */
+body.touch .modal.coffee.patch { width: min(1040px, calc((100vw - 40px) / var(--ui-scale, 1))); max-height: calc((100vh - 32px) / var(--ui-scale, 1)); padding: 24px 32px 20px; }
+body.touch .patch-title { height: 76px; }
+body.touch .patch-ver { font-size: 26px; padding: 2px 16px; border-radius: 16px; }
+body.touch .patch-date { font-size: 32px; margin-bottom: 12px; }
+body.touch .patch-tag { font-size: 20px; padding: 0 10px; }
+body.touch .patch-list { padding-left: 34px; }
+body.touch .patch-list li { font-size: 26px; line-height: 1.6; margin-bottom: 8px; }
+body.touch .patch-body { padding-right: 14px; }
+body.touch .patch-foot { padding-top: 18px; }
+body.touch .patch-toggle { font-size: 28px; gap: 14px; }
+body.touch .patch-switch { width: 70px; height: 38px; border-radius: 19px; }
+body.touch .patch-switch::after { width: 26px; height: 26px; left: 4px; top: 4px; }
+body.touch .patch-toggle input:checked + .patch-switch::after { transform: translateX(32px); }
+body.touch .patch-foot .btn { width: 200px !important; height: 66px !important; font-size: 27px; }
