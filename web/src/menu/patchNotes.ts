@@ -9,6 +9,19 @@ export interface Patch { version: string; date: string; image?: string; focus?: 
 
 export const PATCHES: Patch[] = [
   {
+    version: '0.7', date: '2026-11-28', image: '/patch/0.7.webp', focus: 0.52, accent: [255, 150, 70],
+    title: 'SULFUR & SHADOWS', sub: 'Fire in the fog of war', tags: ['GRENADIER', 'FOG OF WAR', 'PIONEER', 'WARSHIP'],
+    items: [
+      '유황 척탄병: 거점에서 불붙인 유황 단지를 던지는 병사를 뽑습니다. 떨어진 자리에 불이 붙어 둘레의 적을 태웁니다. (E키, 식량 30·목재 25·유황 15, 사거리 9)',
+      '척탄기마병: 척탄병이 말에 오르면 더 빠르게 달리고 더 멀리 던집니다. (사거리 1.2배)',
+      '전장의 안개: 게임 설정에서 켜면 내 병사·건물 둘레만 보입니다. 가려진 곳의 적은 보이지 않고, 적 건물은 마지막으로 본 모습으로 남습니다. (동맹과 시야 공유, 게임 중엔 못 바꿈)',
+      '개척: 다른 기후 지역에 거점을 세우면 그 땅의 부족으로 바꿀 수 있습니다. 스스로 버린 기후는 다시 고를 수 없습니다.',
+      '전함 해안 포격: 적 배가 없으면 바닷가의 적 병사와 건물을 포격합니다. 거리를 두고 옆구리를 돌려 쏘며, 포탄이 떨어지는 순간 맞습니다. (건물 1.5배)',
+      '땅에서 배로: 궁수·척탄병이 사거리 안의 적 배를 쏘고, 적 배를 눌러 공격시킬 수 있습니다. 원거리 병사는 가장 세게 맞는 적을 먼저 노립니다.',
+      '예쁜 스크린샷: F12를 누르면 판 전체 지도를 한 장에 담습니다.',
+    ],
+  },
+  {
     version: '0.6', date: '2026-11-27', image: '/patch/0.6.webp', accent: [140, 200, 255],
     title: 'FORMATIONS & WINTER RAIDS', sub: 'Draw the line. Hold the line.', tags: ['FORMATION', 'DRAGON UP', 'WINTER RAID'],
     items: [
