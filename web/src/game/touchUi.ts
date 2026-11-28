@@ -32,6 +32,7 @@ export interface TouchUiHooks {
   canSurrender(): boolean;
   room(): (() => void) | null;         // 판이 끝났고 방에서 시작했으면: 대기실로
   devConsole(): boolean;               // ☰ 메뉴 버튼을 꾹 누름: 개발용 명령어 창 (열었으면 true, 개발 명령이 없는 판이면 false)
+  shot(): void;                        // 사진 찍기 (예쁜 스크린샷)
   changed(): void;
 }
 
@@ -145,6 +146,7 @@ export class TouchUi {
     if (this.h.canSurrender()) item('항복하기', () => this.h.surrender());
     const toRoom = this.h.room();
     if (toRoom) item('대기실로', toRoom);
+    item('사진 찍기', () => this.h.shot());
     item('로비로', () => this.h.lobby());
     if (canFullscreen() && !isStandalone() && !document.fullscreenElement) item('전체 화면', () => void enterFullscreen());
     item('닫기', () => {});

@@ -87,7 +87,7 @@ export function fillHelp(parent: HTMLElement, solo: boolean, lobby = false) {
     row(right, `${kbd('F5')}${or}${kbd('F6')}`, '같은 지도로 새 판 · 새 지도' + only);
   }
   if (!solo || lobby) row(right, kbd('Enter'), '대화 입력 (멀티) · 💬 빠른 대화 · 안 쓰면 왼쪽 아래 💬로 접힌다');
-  row(right, `${kbd('F1')}${or}${kbd('F12')}`, lobby ? '게임 중 조작 설명 · 화면 저장' : '이 설명 · 화면 저장');
+  row(right, `${kbd('F1')}${or}${kbd('F12')}`, lobby ? '게임 중 조작 설명 · 지도 전체 사진 (HP바·아이콘 없이)' : '이 설명 · 지도 전체 사진 (HP바·아이콘 없이, 메뉴에도 있다)');
 }
 
 // ------------------------------------------------------------- 터치

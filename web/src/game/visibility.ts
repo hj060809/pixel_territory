@@ -14,8 +14,13 @@ function write(store: Storage, key: string, on: boolean) {
 
 let on = read(sessionStorage, GAME) ?? read(localStorage, PREF) ?? true;
 
-/** 지금 그리기에 쓰는 값. */
-export const visOn = () => on;
+let clean = false;
+
+/** 지금 그리기에 쓰는 값 (예쁜 스크린샷을 찍는 동안은 꺼진다). */
+export const visOn = () => on && !clean;
+
+/** 예쁜 스크린샷 (view.ts): 찍는 한 장면 동안 고리·테두리를 끈다. */
+export function setCleanShot(v: boolean) { clean = v; }
 
 /** 싱글 기본값 (설정 화면). */
 export const visPref = () => read(localStorage, PREF) ?? true;

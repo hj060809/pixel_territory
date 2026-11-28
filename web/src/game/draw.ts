@@ -398,8 +398,12 @@ export class Overlay {
     return (d * 4 + ((b.slot + b.gen) % 2 ? BTILT : BDIRS - BTILT)) % BDIRS;   // 가로·세로 모두 자리마다 22.5° 또는 반대로 -22.5°
   }
 
+  /** 예쁜 스크린샷 (view.ts): 건물·병사·자연·동물·효과만 (HP바·글자·아이콘·고른 표시·명령 표시·미리보기 없이). */
+  clean = false;
+
   private text(s: string, x: number, y: number, size: number, col: string, bold = false,
                align: CanvasTextAlign = 'left', base: CanvasTextBaseline = 'middle') {
+    if (this.clean) return;
     const g = this.g;
     g.font = `${bold ? 'bold ' : ''}${size}px 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif`;
     g.textAlign = align; g.textBaseline = base;
@@ -408,6 +412,7 @@ export class Overlay {
   }
 
   private bar(cx: number, y: number, w: number, frac: number, col?: string) {
+    if (this.clean) return;
     frac = Math.min(Math.max(frac, 0), 1);
     col ??= `rgb(${Math.trunc(230 - 150 * frac)},${Math.trunc(70 + 160 * frac)},60)`;
     const x0 = Math.trunc(cx - w / 2), g = this.g;
@@ -538,6 +543,7 @@ export class Overlay {
     // 자원지 (확대할수록 커진다. 멀리서도 2배 아래로는 줄지 않는다)
     const taken = st.siteTaken(), ks = Math.max(2, Math.round(z * 0.6));
     for (const s of st.info.sites) {
+      if (this.clean) break;                                         // 예쁜 스크린샷: 자원지 아이콘 없이
       if (taken.has(s.id)) continue;
       const x = sx(s.x), y = sy(s.y);
       if (!vis(x, y)) continue;
@@ -547,7 +553,7 @@ export class Overlay {
     // 목장을 지을 수 있는 동물 떼 (말·순록, min_herd마리부터): 멀리서는 (병사 무리 배지처럼) 떼마다 자원지 같은 그림 하나.
     // 그보다 작은 떼는 동물을 그대로 그린다
     const herdIds = new Set<number>();
-    if (z < UNIT_ZOOM && R.pasture) {
+    if (z < UNIT_ZOOM && R.pasture && !this.clean) {                 // (예쁜 스크린샷: 떼 그림 대신 동물을 그대로)
       const kinds = new Set(Object.keys(R.pasture.food ?? {}).map(Number));
       for (const h of herdGroups(st, a, kinds, R.pasture.herd_r)) {
         if (h.n < R.pasture.min_herd) continue;
@@ -601,7 +607,7 @@ export class Overlay {
           g.globalAlpha = 1;
           stack.draw(g, name, b.own, L, x, y, K, { dir, dirs, cut: Math.max(b.prog, 0.06), shadow: false, rim: visOn() });
         } else box = stack.draw(g, name, b.own, L, x, y, K, { dir, dirs, torch: Math.max(tl(b.x, b.y), night * 0.45), rim: visOn() });   // 제 횃불이 비춘다
-        if (selB && selB[0] === b.slot) { g.strokeStyle = SEL; g.lineWidth = 1; g.strokeRect(box.x - 2.5, box.y - 2.5, box.w + 4, box.h + 4); }
+        if (selB && selB[0] === b.slot && !this.clean) { g.strokeStyle = SEL; g.lineWidth = 1; g.strokeRect(box.x - 2.5, box.y - 2.5, box.w + 4, box.h + 4); }
         const bw = Math.max(box.w, 14);
         if (!done) this.bar(box.x + box.w / 2, box.y + box.h + 3, bw, b.prog, 'rgb(120,200,255)');
         else if (b.hp < 0.999) this.bar(box.x + box.w / 2, box.y - 4, bw, b.hp);
@@ -636,7 +642,7 @@ export class Overlay {
     for (const b of yards) this.shipyard(b, sx, sy, z, now);    // 항구 앞바다의 전함 건조 (건물에 가리지 않게 나중에)
     // 공격 요청 (나와 내 동맹이 함께 치자고 한 나라): 그 나라의 거점들 위에 붉은 과녁
     const marked = new Set((st.diplo?.targets ?? []).map((t) => t[1]));
-    if (marked.size) {
+    if (marked.size && !this.clean) {
       const pulse = 0.6 + 0.4 * Math.sin(now / 250);
       for (const b of st.builds.values()) {
         if (b.kind !== R.kinds.HALL || !marked.has(b.own)) continue;
@@ -668,7 +674,7 @@ export class Overlay {
         for (const k of [1, 2]) g.fillRect(Math.round(x - c * (back + k * 3 * K)), Math.round(y - s * (back + k * 3 * K)), Math.round(K), Math.round(K));
       }
       const rc = stack.draw(g, ferry ? 'ferry' : 'warship', b.own, L, x, y + bob * K, K, { dir: dirOf(ang), torch: tl(bx, by), rim: visOn() });
-      if (this.ctl.selShips.has(b.id)) { g.strokeStyle = SEL; g.lineWidth = 1; g.strokeRect(rc.x - 2.5, rc.y - 2.5, rc.w + 4, rc.h + 4); }
+      if (this.ctl.selShips.has(b.id) && !this.clean) { g.strokeStyle = SEL; g.lineWidth = 1; g.strokeRect(rc.x - 2.5, rc.y - 2.5, rc.w + 4, rc.h + 4); }
       if (b.hp < 0.999) this.bar(rc.x + rc.w / 2, rc.y - 4, Math.max(rc.w, 12), b.hp);
       if (ferry && b.cargo) this.text(`${b.cargo}`, rc.x + rc.w + 2, rc.y + rc.h / 2, 12, 'white', true);
     }
@@ -745,10 +751,10 @@ export class Overlay {
           const [ex, ey] = modelPoint(DRAGON_SIZE[0], DRAGON_SIZE[1], mx + BREATH_REACH, my, 0, d, 16, K);   // 입 앞쪽의 땅
           this.mouths.set(`u${u.slot}`, [x + dx, y + dy, x + ex, y0 + ey]);
         }
-        if (this.ctl.sel.has(u.slot)) { g.strokeStyle = 'rgb(235,250,235)'; g.lineWidth = 1; g.beginPath(); g.moveTo(rc.x, rc.y + rc.h + 1.5); g.lineTo(rc.x + rc.w, rc.y + rc.h + 1.5); g.stroke(); }
+        if (this.ctl.sel.has(u.slot) && !this.clean) { g.strokeStyle = 'rgb(235,250,235)'; g.lineWidth = 1; g.beginPath(); g.moveTo(rc.x, rc.y + rc.h + 1.5); g.lineTo(rc.x + rc.w, rc.y + rc.h + 1.5); g.stroke(); }
         if (u.hp < 0.99) this.bar(rc.x + rc.w / 2, rc.y - 3, Math.max(rc.w - 2, 8), u.hp);
       }
-    } else {
+    } else if (!this.clean) {                                        // (예쁜 스크린샷: 멀리서는 무리 배지 없이)
       const cell = 34, groups = new Map<string, { own: number; n: number; x: number; y: number; sel: boolean }>();
       for (const u of units) {
         const x = sx(lerp(u.px, u.x, a)), y = sy(lerp(u.py, u.y, a));
@@ -825,6 +831,7 @@ export class Overlay {
     }
     this.drawRings(sx, sy, K, z, now, R);
     this.drawFlames(sx, sy, K, z, now);
+    if (this.clean) return;                                           // 예쁜 스크린샷: 아래 막대·말풍선·명령 표시·미리보기는 그리지 않는다
     for (const p of tameBars) this.bar(p.x, p.y, p.w, p.prog, p.col || undefined);   // 길들이기 진행, 드래곤 체력 (병사에 가리지 않게 나중에)
     for (const p of tameBars) if (p.label) this.text(p.label, p.x, p.y - 8, 11, 'rgb(205,232,255)', true, 'center');
     // 거점 위 말풍선: 대기열에 있는 병사 아이콘 (맨 앞은 훈련 진행 막대)

@@ -10,7 +10,7 @@ import { Camera } from '../sim/camera.ts';
 import { TerrainScene } from '../terrain/scene.ts';
 import { Loading } from '../ui/loading.ts';
 import { ActionBar, TRAIN_KEYS } from './actionBar.ts';
-import { Controller } from './controller.ts';
+import { Controller, UNIT_ZOOM } from './controller.ts';
 import { Overlay } from './draw.ts';
 import { Hud } from './hud.ts';
 import { Connection, type Handlers, type JoinOptions } from './net.ts';
@@ -30,7 +30,7 @@ import { BuildInfoUi } from './buildInfo.ts';
 import { TribeButton } from './tribeUi.ts';
 import { Chat } from './chat.ts';
 import { setTouchMode, touchMode } from '../ui/device.ts';
-import { toggleVis, visOn } from './visibility.ts';
+import { setCleanShot, toggleVis, visOn } from './visibility.ts';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -308,11 +308,36 @@ export class GameView {
       net.hold();
       this.hooks.room(net);
     };
+    const prettyShot = () => {                         // 예쁜 스크린샷: 판 전체 지도를 정사각형 한 장에 꽉 채워, 건물·병사·자연·동물만 (HP바·아이콘·고른 표시 없이)
+      if (!st || !draw) return;
+      const MW = st.info.W, MH = st.info.H, side = Math.min(MW, MH);   // 직사각형 지도면 가운데를 정사각형으로
+      const z = Math.max(2048 / side, UNIT_ZOOM + 0.2);                // 2048px 정도, 병사가 하나하나 보이는 배율 이상
+      const S = Math.round(side * z);
+      const keep = { x: cam.x, y: cam.y, zoom: cam.zoom, zt: cam.zoomTarget };
+      draw.clean = true; setCleanShot(true);
+      try {
+        for (const c of [canvas, overlay]) { c.width = S; c.height = S; }
+        cam.resize(S, S);
+        cam.zoom = cam.zoomTarget = z;
+        cam.x = (MW - side) / 2; cam.y = (MH - side) / 2;
+        scene.draw(S, S, cam.x, cam.y, z, life);
+        g.setTransform(1, 0, 0, 1, 0, 0);
+        g.clearRect(0, 0, S, S);
+        draw.draw(cam, performance.now(), null, null);
+        screenshot(canvas, overlay);
+      } finally {
+        draw.clean = false; setCleanShot(false);
+        resize();                                                      // 화면 크기·카메라를 되돌린다 (다음 장면부터 평소대로)
+        cam.x = keep.x; cam.y = keep.y; cam.zoom = keep.zoom; cam.zoomTarget = keep.zt;
+      }
+      st.say('지도 전체 사진을 저장했습니다');
+    };
     const openMenu = () => {                           // 오른쪽 위 [메뉴]
       const items: MenuItem[] = [{ label: '계속하기', fn: () => {} }, { label: '설명', fn: () => helpBox(solo()) }];
       if (canSurrender()) items.push({ label: '항복하기', fn: surrender, warm: true });
       if (fresh()) items.push({ label: '같은 지도로 새 판', fn: () => net.send({ t: 'restart' }) }, { label: '새 지도', fn: () => this.hooks.newMap(nextSeedKey(key)) });
       if (st?.ended && st.info.room) items.push({ label: '대기실로', fn: toRoom });
+      items.push({ label: '사진 찍기 (F12)', fn: () => requestAnimationFrame(prettyShot) });   // 메뉴 창이 닫힌 뒤에
       items.push({ label: '로비로 나가기', fn: exit });
       menuBox('메뉴', items, '', false, (box) => visRow(box, visOn(), () => toggleVis(solo())));   // 버튼 아래: 시인성 강조 (사람마다 따로, 멀티도 각자)
     };
@@ -379,6 +404,7 @@ export class GameView {
       restart: () => net.send({ t: 'restart' }), newMap: () => this.hooks.newMap(nextSeedKey(key)), lobby: exit,
       surrender, canSurrender, room: () => (st?.ended && st.info.room ? toRoom : null),
       devConsole: () => { if (!st?.info.dev) return false; openDev().toggle(true); return true; },
+      shot: () => requestAnimationFrame(prettyShot),
       changed: () => { hudWait = 1; },
     });
     let lastTouch = -1e9;                     // 터치 뒤 브라우저가 흉내 내 보내는 마우스 이벤트는 무시한다
@@ -500,7 +526,7 @@ export class GameView {
         case '.': cycleSpeed(); break;
         case 'f1': if (!closeMenu()) helpBox(solo()); break;
         case 'f5': if (fresh()) net.send({ t: 'restart' }); break;
-        case 'f12': screenshot(canvas, overlay); break;
+        case 'f12': prettyShot(); break;
       }
     });
 
