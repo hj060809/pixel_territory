@@ -257,6 +257,23 @@ export class GameView {
       msg(items) { for (const t of items) st?.say(t); hudWait = 1; },
       over(result) { if (st) st.over = result; hudWait = 1; },
       diplo: (m) => { if (st) { st.diplo = m; this.diplo?.render(); } },
+      other: (m) => {
+        if (m.t === 'fog' && st) {                             // 전장의 안개 격자 (길이로 줄인 것): 끄면 (관전·판 끝) 모두 보인다
+          if (m.off) {                                         // 걷는다: 모두 보이는 쪽으로 천천히 사그라든 뒤 없앤다 (draw.ts drawFog)
+            if (st.fog) st.fog = { ...st.fog, lv: new Uint8Array(st.fog.gw * st.fog.gh).fill(2), v: st.fog.v + 1, off: true };
+            return;
+          }
+          const lv = new Uint8Array(m.gw * m.gh), rle = m.rle as number[];
+          for (let i = 0, p = 0; i < rle.length; i += 2) { lv.fill(rle[i], p, p + rle[i + 1]); p += rle[i + 1]; }
+          st.fog = { gw: m.gw, gh: m.gh, cell: m.cell, lv, v: (st.fog?.v ?? 0) + 1 };
+          return;
+        }
+        if (m.t !== 'tribe' || !st) return;                   // 개척: 나라마다 부족, 내 카드 (sim/tribes.py Pioneer)
+        (m.tribes as number[]).forEach((t, i) => { const n = st!.info.nations[i]; if (n) n.tribe = t; });
+        st.tribe = { offers: m.offers ?? [], dropped: m.dropped ?? [] };
+        this.tribeBtn?.sync();
+        hudWait = 1;
+      },
       seats(m) { if (st) st.seats = m; hudWait = 1; },
       chat: (m) => { if (st) { st.chatSay(m.from, m.text); this.chat?.received(m.from, m.text); } hudWait = 1; },
       status(text) { loading.set(text); },
@@ -337,7 +354,6 @@ export class GameView {
       if (canSurrender()) items.push({ label: '항복하기', fn: surrender, warm: true });
       if (fresh()) items.push({ label: '같은 지도로 새 판', fn: () => net.send({ t: 'restart' }) }, { label: '새 지도', fn: () => this.hooks.newMap(nextSeedKey(key)) });
       if (st?.ended && st.info.room) items.push({ label: '대기실로', fn: toRoom });
-      items.push({ label: '사진 찍기 (F12)', fn: () => requestAnimationFrame(prettyShot) });   // 메뉴 창이 닫힌 뒤에
       items.push({ label: '로비로 나가기', fn: exit });
       menuBox('메뉴', items, '', false, (box) => visRow(box, visOn(), () => toggleVis(solo())));   // 버튼 아래: 시인성 강조 (사람마다 따로, 멀티도 각자)
     };
@@ -346,7 +362,7 @@ export class GameView {
     mb.textContent = '☰ 메뉴';
     mb.addEventListener('click', (e) => { e.stopPropagation(); openMenu(); });
     document.body.appendChild(mb);
-    this.tribeBtn = new TribeButton(() => st, () => this.hud?.panels()[0] ?? null);   // 자원 HUD 오른쪽
+    this.tribeBtn = new TribeButton(() => st, () => this.hud?.panels()[0] ?? null, (accept) => net.send({ t: 'tribe', accept }));   // 자원 HUD 오른쪽
     this.listen(document, 'visibilitychange', () => {   // 탭을 숨기면 일시정지, 돌아오면 이어 간다 (싱글만)
       if (!st || st.over || !solo()) return;
       if (document.hidden && !st.paused) { autoPaused = true; net.send({ t: 'pause', on: true, auto: true }); }
@@ -404,7 +420,6 @@ export class GameView {
       restart: () => net.send({ t: 'restart' }), newMap: () => this.hooks.newMap(nextSeedKey(key)), lobby: exit,
       surrender, canSurrender, room: () => (st?.ended && st.info.room ? toRoom : null),
       devConsole: () => { if (!st?.info.dev) return false; openDev().toggle(true); return true; },
-      shot: () => requestAnimationFrame(prettyShot),
       changed: () => { hudWait = 1; },
     });
     let lastTouch = -1e9;                     // 터치 뒤 브라우저가 흉내 내 보내는 마우스 이벤트는 무시한다
@@ -512,7 +527,7 @@ export class GameView {
         return;
       }
       const train = TRAIN_KEYS.find(([key]) => key === k);
-      if (train && !e.ctrlKey) { ctl.train(train[1]); this.bar?.update(); return; }   // Q 보병, W 궁수, E 전함
+      if (train && !e.ctrlKey) { ctl.train(train[1]); this.bar?.update(); return; }   // Q 보병, W 궁수, E 척탄병, R 전함
       switch (k) {
         case 'escape':
           if (this.diplo?.isOpen) this.diplo.close();

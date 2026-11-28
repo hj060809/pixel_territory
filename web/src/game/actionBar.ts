@@ -8,14 +8,14 @@ import type { SpriteBank } from './sprites.ts';
 import type { GameState } from './state.ts';
 
 /** 버튼 순서 = 숫자 키 1~9 → 건물 종류 번호 (sim/rules.py: 거점 0, 농장 1, 벌목장 2, 채석장 3, 망루 4, 항구 5, 유황 채취장 6,
- *  화염탑 7, 목장 8). 거점, 자원 건물, 공격 건물, 항구 순:
- *  1 거점, 2 농장, 3 벌목장, 4 채석장, 5 유황 채취장, 6 목장, 7 망루, 8 화염탑, 9 항구. */
-export const BUILD_KEYS = [0, 1, 2, 3, 6, 8, 4, 7, 5];
+ *  화염탑 7, 목장 8). 거점, 항구, 자원 건물, 공격 건물 순:
+ *  1 거점, 2 항구, 3 농장, 4 벌목장, 5 채석장, 6 유황 채취장, 7 목장, 8 망루, 9 화염탑. */
+export const BUILD_KEYS = [0, 5, 1, 2, 3, 6, 8, 4, 7];
 /** 건물 버튼 i번째의 키 글자 (1~9). */
 export const buildKeyLabel = (i: number) => String(i + 1);
-/** Q W E (R T Y는 나중 병종용). 기병(창기병, 기마궁수)은 버튼이 없다: 병사로 야생말을 길들인다. */
-export const TRAIN_KEYS: [string, TrainKind][] = [['q', 'infantry'], ['w', 'archer'], ['e', 'warship']];
-const UNIT_OF: Record<string, number> = { infantry: 0, archer: 1 };
+/** Q 보병, W 궁수, E 유황 척탄병, R 전함 (T Y는 나중 병종용). 기병(창기병, 기마궁수, 척탄기마병)은 버튼이 없다: 병사로 야생말을 길들인다. */
+export const TRAIN_KEYS: [string, TrainKind][] = [['q', 'infantry'], ['w', 'archer'], ['e', 'grenadier'], ['r', 'warship']];
+const UNIT_OF: Record<string, number> = { infantry: 0, archer: 1, grenadier: 7 };
 
 const ICON = 40;      // 아이콘 칸 (CSS 픽셀)
 
@@ -66,9 +66,10 @@ export class ActionBar {
       const img = what === 'warship' ? bank.ship('warship', me, 1) : bank.unit(ui, me, 0, 1);
       const cost = what === 'warship' ? R.warship_cost : R.unit_cost[ui];
       const name = what === 'warship' ? '전함' : R.unit_names[ui];
-      const el = make(gu, key, img, name, cost);
+      const sul = what === 'warship' ? 0 : (R.unit_sulfur?.[ui] ?? 0);   // 유황 척탄병: 유황도 든다
+      const el = make(gu, key, img, name, cost, sul ? `유황 ${sul}` : '');
       el.addEventListener('click', () => this.ctl.train(what));
-      this.btns.push({ el, cost, train: what });
+      this.btns.push({ el, cost, train: what, sulfur: sul });
     }
     document.body.appendChild(this.el);
   }

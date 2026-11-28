@@ -31,14 +31,20 @@ class FireTowers:
                 continue
             o = b.own[t]
             foes = ids[(w.diplo.friend[o, u.own[ids]] == 0) & (u.own[ids] != R.NEUTRAL)] if len(ids) else ids   # 동맹은 빼고
-            if not len(foes):
-                b.cd[t] = 0.3
+            d = np.hypot(u.x[foes] - b.x[t], u.y[foes] - b.y[t]) if len(foes) else np.zeros(0)
+            if not len(foes) or d.min() > F['range']:
+                boat = w.fleet.foe_boat_near(o, float(b.x[t]), float(b.y[t]), F['range'])   # 병사가 없으면 사거리 안의 적 배
+                if boat is not None:
+                    strong = w.nations[o].sulfur >= 1
+                    if strong:
+                        w.nations[o].sulfur -= 1
+                    b.cd[t] = F['cd']
+                    w.recent.append((w.time, float(b.x[t]), float(b.y[t]), boat.x, boat.y, 6 if strong else 7))
+                    w.fleet.hit_boat(boat, F['dmg'] * (1.0 if strong else F['weak']), int(o))
+                else:
+                    b.cd[t] = 0.3
                 continue
-            d = np.hypot(u.x[foes] - b.x[t], u.y[foes] - b.y[t])
             k = int(np.argmin(d))
-            if d[k] > F['range']:
-                b.cd[t] = 0.3
-                continue
             tgt = int(foes[k])
             nat = w.nations[o]
             strong = nat.sulfur >= 1

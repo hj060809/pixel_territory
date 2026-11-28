@@ -359,7 +359,7 @@ class Pastures:
         left = self.spare(p)
         if not ids or left <= 0:
             if not quiet:
-                w.say(f'목장의 {info["name"]}은 {keep}마리는 남깁니다 (새끼를 치게)' if left <= 0 else '보병·궁수만 말을 탈 수 있습니다', to=nid)
+                w.say(f'목장의 {info["name"]}은 {keep}마리는 남깁니다 (새끼를 치게)' if left <= 0 else '보병·궁수·척탄병만 말을 탈 수 있습니다', to=nid)
             return 0
         gy, gx = self.gate(p)
         ids.sort(key=lambda i: np.hypot(u.x[i] - gx, u.y[i] - gy))

@@ -44,7 +44,7 @@ POS = 64.0                         # 위치 단위 (1/64칸)
 BOAT_STATES = {'idle': 0, 'move': 1, 'hunt': 2, 'pickup': 3, 'wait': 4, 'cross': 5, 'return': 6,
                'load': 7, 'ahead': 8, 'anchor': 9}     # 나룻배: 항구에서 태우는 중 / 앞바다로 / 기다림
 _U_HP = np.array([R.UNIT_STATS[k]['hp'] for k in range(len(R.UNIT_STATS))], np.float32)
-_QUEUE_KIND = {R.INFANTRY: 0, R.ARCHER: 1, R.WARSHIP: 2}    # 대기열 병종 번호
+_QUEUE_KIND = {R.INFANTRY: 0, R.ARCHER: 1, R.WARSHIP: 2, R.GRENADIER: 3}    # 대기열 병종 번호 (3비트: 0~6)
 
 
 def _q(v, scale=POS):
@@ -67,8 +67,11 @@ class StateEncoder:
     PEN = struct.Struct('<HHBBffBBB')             # 목장 하나의 머리 (sim/pasture.py Pen)
     NATION = struct.Struct('<12f2HBB')         # 자원 3, 수입 3, 유황, 유황 수입, 자원마다 한도 4 (sim/storage.py), 병사 수, 건물 수, 살아 있음, 굶주림
 
-    def __init__(self, world):
+    def __init__(self, world, nid=None):
+        """nid: 전장의 안개 판에서 이 나라가 보는 것만 보낸다 (encode의 fog). None이면 모두."""
         self.w = world
+        self.nid = nid
+        self.memo = np.zeros(0, self.BUILD_DT)             # 안개: 남의 건물은 마지막으로 본 모습 (gen 0 = 본 적 없음)
         self.prev_units = np.zeros(0, self.UNIT_DT)
         self.prev_builds = np.zeros(0, self.BUILD_DT)
         self.prev_animals: dict = {}
@@ -85,6 +88,7 @@ class StateEncoder:
         self.prev_animals = {}
         self.shot_time = -1.0
         self.pen_v = -1
+        self.memo = np.zeros(0, self.BUILD_DT)
 
     # ------------------------------------------------------------- 지금 상태 → 배열
     def _units(self):
@@ -138,13 +142,34 @@ class StateEncoder:
         return changed, gone, kept
 
     # ------------------------------------------------------------- 메시지
-    def encode(self, header: dict, nations: bool, sim_ms: float) -> bytes:
+    def _remember(self, cur, alive, fr, V):
+        """안개: 지금 보이는 (또는 내 편) 건물은 지금 모습으로, 아니면 마지막으로 본 모습 그대로 (그새 무너졌어도)."""
+        b, n = self.w.builds, len(cur)
+        if len(self.memo) < n:
+            grown = np.zeros(n, self.BUILD_DT)
+            grown[:len(self.memo)] = self.memo
+            self.memo = grown
+        see = (fr[b.own[:n]] != 0) | V.visible(self.nid, b.x[:n], b.y[:n])
+        m = self.memo[:n]
+        m[see & alive] = cur[see & alive]
+        m[see & ~alive] = np.zeros(1, self.BUILD_DT)
+        return m.copy(), m['gen'] > 0
+
+    def encode(self, header: dict, nations: bool, sim_ms: float, fog: bool = False) -> bytes:
+        """fog: 이 나라 (self.nid)가 보는 것만 (sim/vision.py). 내 편 (동맹 포함)은 늘 보인다."""
         w = self.w
+        V = w.vision if fog and self.nid is not None and getattr(w, 'vision', None) is not None else None
+        fr = w.diplo.friend[self.nid] if V is not None else None
         self.tick += 1
         parts = [struct.pack('<BIfffBBH', MSG_STATE, self.tick, w.time, header['hour'], header['year'],
                              header['flags'], int(round(header['speed'] * 10)), min(int(sim_ms * 100), 65535))]
         for cur_fn, attr in ((self._units, 'prev_units'), (self._builds, 'prev_builds')):
             cur, alive = cur_fn()
+            if V is not None and attr == 'prev_units':          # 안개: 남의 병사는 보이는 칸에서만
+                u, n = w.units, len(cur)
+                alive = alive & ((fr[u.own[:n]] != 0) | V.visible(self.nid, u.x[:n], u.y[:n]))
+            elif V is not None:
+                cur, alive = self._remember(cur, alive, fr, V)
             changed, gone, kept = self._diff(cur, alive, getattr(self, attr))
             ch = cur[changed]
             parts.append(struct.pack('<H', len(ch)) + ch.tobytes())
@@ -153,6 +178,9 @@ class StateEncoder:
             setattr(self, attr, kept)
         # 배
         boats = [b for b in w.fleet.boats if b.alive]
+        if V is not None and boats:
+            see = V.visible(self.nid, [b.x for b in boats], [b.y for b in boats])
+            boats = [b for b, v in zip(boats, see) if fr[b.own] or v]
         a = np.zeros(len(boats), self.BOAT_DT)
         for i, b in enumerate(boats):
             a[i] = (b.id, 1 if b.kind == 'warship' else 0, b.own, _q(b.x), _q(b.y),
@@ -163,13 +191,21 @@ class StateEncoder:
         new = [r for r in w.recent if r[0] > self.shot_time]
         if w.recent:
             self.shot_time = max(self.shot_time, w.recent[-1][0])
+        if V is not None and new:                          # 안개: 쏜 자리나 맞은 자리가 보이는 것만
+            a0 = V.visible(self.nid, [r[1] for r in new], [r[2] for r in new])
+            a1 = V.visible(self.nid, [r[3] for r in new], [r[4] for r in new])
+            new = [r for r, p, q in zip(new, a0, a1) if p or q]
         s = np.zeros(len(new), self.SHOT_DT)
         for i, (_, x0, y0, x1, y1, kind) in enumerate(new):
             s[i] = (_q(x0), _q(y0), _q(x1), _q(y1), int(kind))
         parts.append(struct.pack('<H', len(s)) + s.tobytes())
         # 야생 동물: 바뀐 것과 사라진 것
         cur = {}
-        for an in w.wild.animals.values():
+        wild = list(w.wild.animals.values())
+        if V is not None and wild:                         # 안개: 보이는 칸의 동물만
+            see = V.visible(self.nid, [an.x for an in wild], [an.y for an in wild])
+            wild = [an for an, v in zip(wild, see) if v]
+        for an in wild:
             cur[an.id] = (an.id, an.kind, int(_q(an.x)), int(_q(an.y)), an.mode, int(min(an.prog, 1.0) * 255), an.dir,
                           int(np.clip(round(an.hp * 255), 0, 255)), int(np.clip(np.ceil(an.sub), 0, 255)))
         ch = [r for k, r in cur.items() if self.prev_animals.get(k) != r]

@@ -318,7 +318,7 @@ export class Hud {
       const war = boats.filter((b) => b.kind === 1), fer = boats.filter((b) => b.kind === 0);
       if (war.length) {
         const hp = war.reduce((s, b) => s + b.hp, 0);
-        lines.push(`전함 ${war.length}척  체력 ${Math.round((hp / war.length) * 100)}%    오른쪽 클릭: 물 → 이동, 적 배 → 공격`);
+        lines.push(`전함 ${war.length}척  체력 ${Math.round((hp / war.length) * 100)}%    오른쪽 클릭: 물 → 이동, 적 배 → 공격, 해안의 적 병사·건물 → 포격`);
       }
       if (fer.length) {
         lines.push(`나룻배 ${fer.length}척 (병사 ${fer.reduce((s, b) => s + b.cargo, 0)}명)    오른쪽 클릭: 물 → 그 자리에서 기다림, 땅 → 가까운 해안에 내려 줌`);
@@ -328,16 +328,16 @@ export class Hud {
     if (b) {
       const maxhp = R.build[b.kind].hp;
       let s = `${R.build_names[b.kind]}  체력 ${Math.round(b.hp * maxhp)}/${Math.round(maxhp)}`;
-      const qname = b.qkind === 2 ? '' : `${R.unit_names[b.qkind]} `;   // 대기열 번호: 0 보병, 1 궁수, 2 전함
+      const qname = b.qkind === 2 ? '' : `${R.unit_names[b.qkind === 3 ? 7 : b.qkind]} `;   // 대기열 번호: 0 보병, 1 궁수, 2 전함, 3 척탄병
       const qtxt = b.qlen ? ` (${qname}${Math.round(b.qtime)}초)` : '';
       if (b.prog < 1) s += `  짓는 중 ${Math.round(b.prog * 100)}%`;
       else if (b.kind === R.kinds.HALL) {
         lines.push(s + `  훈련 대기 ${b.qlen}` + qtxt);
-        s = `Q: 보병 (식량 ${R.unit_cost[0][0]})    W: 궁수 (식량 ${R.unit_cost[1][0]}, 목재 ${R.unit_cost[1][1]})    이 거점에서 만든다 (기병은 야생말을 길들여서)`;
+        s = `Q: 보병 (식량 ${R.unit_cost[0][0]})    W: 궁수 (식량 ${R.unit_cost[1][0]}, 목재 ${R.unit_cost[1][1]})    E: 척탄병 (식량 ${R.unit_cost[7][0]}, 목재 ${R.unit_cost[7][1]}, 유황 ${R.unit_sulfur[7]})    이 거점에서 만든다 (기병은 야생말을 길들여서)`;
       } else if (b.kind === R.kinds.HARBOR) {
         const ships = [...st.boats.values()].filter((x) => x.own === st.info.me && x.kind === 1).length;
         lines.push(s + `  전함 ${ships}척  만드는 중 ${b.qlen}` + qtxt);
-        s = `E: 전함 (목재 ${R.warship_cost[1]}, 석재 ${R.warship_cost[2]})    바다 건너로 보낸 이 땅의 병사들이 여기 모여 차례로 배를 탄다`;
+        s = `R: 전함 (목재 ${R.warship_cost[1]}, 석재 ${R.warship_cost[2]})    바다 건너로 보낸 이 땅의 병사들이 여기 모여 차례로 배를 탄다`;
       } else if (b.site >= 0 && R.yield_res[b.kind] !== undefined) {
         const site = st.info.sites[b.site];
         s += `  ${R.res_names[R.yield_res[b.kind]]} 풍부함 ${site.rich.toFixed(1)}`;
@@ -377,7 +377,7 @@ export class Hud {
         if (an.state === A_TAMING) return `먹이를 받아먹는 ${a.name} · ${Math.round(an.prog * 100)}%`;
         return `야생 ${a.name} · 병사를 고르고 ${act}하면 한 명이 가서 먹이를 준다 (식량 ${a.food}, ${Math.round(a.tame)}초) → 함께 싸우는 탱커 (발 구르기, 낮은 포효, 껍질 숨기)`;
       }
-      if (!a.tamers?.length) return `야생 ${a.name} · 설원에 무리 지어 산다 · 사람이 다가가면 달아난다 (길들일 수 없다) · 목장(6)을 골라 떼를 누르면 목장에 들인다`;
+      if (!a.tamers?.length) return `야생 ${a.name} · 설원에 무리 지어 산다 · 사람이 다가가면 달아난다 (길들일 수 없다) · 목장(7)을 골라 떼를 누르면 목장에 들인다`;
       if (an.state === A_TAMING) return `길들이는 중인 ${a.name} · ${Math.round(an.prog * 100)}%`;
       if (an.state === A_HELD) return `야생${a.name} · 병사가 길들이러 오는 중`;
       return `야생${a.name} · 병사를 고르고 ${touchMode() ? '탭' : '오른쪽 클릭'}하면 말마다 한 명씩 가서 길들인다 (${Math.round(a.tame)}초) · ${into}`;

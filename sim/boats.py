@@ -2,7 +2,7 @@
 
 나룻배 (바다 건너로 명령받은 병사들은 알아서 배를 타고 건넌다)
   1. 병사들이 있는 땅의 내 항구 중 (걸어가는 거리 + 바닷길)이 가장 짧은 항구로 모두 모인다.
-     그 땅에 항구가 없으면 건널 수 없다 (H: 항구 짓기).
+     그 땅에 항구가 없으면 건널 수 없다 (2: 항구 짓기).
   2. 항구 앞에 나룻배 한 척이 대어 있고, 도착한 병사가 한 명씩 차례로 탄다.
      한 척(BOAT_CAPACITY명)이 차면 앞바다로 조금 나가 기다리고, 다음 배가 항구에 댄다.
   3. 모두 타면 (또는 오던 병사가 한동안 아무도 안 오면) 모든 배가 함께 출발해 내릴 곳 둘레에 내리고,
@@ -15,8 +15,14 @@
 (비켜난 자리가 배가 다닐 수 있는 물일 때만). 화면과 규칙은 둘을 더한 자리(y, x)를 쓴다.
 
 전함
-- 항구에서 만든다. 선택해서 물 위로 움직인다 (오른쪽 클릭: 물 → 이동, 적 배 → 쫓아가 공격).
-- 사거리 안의 다른 나라 나룻배와 전함을 자동으로 쏜다.
+- 항구에서 만든다. 선택해서 물 위로 움직인다 (오른쪽 클릭: 물 → 이동, 적 배 → 쫓아가 공격,
+  해안의 적 병사·건물 → 사거리 안까지 다가가 포격).
+- 사거리 안의 다른 나라 나룻배와 전함을 자동으로 쏜다. 적 배가 없으면 해안의 적 병사·건물을 포격한다 (rules.SHORE).
+- 포탄은 날아간다: 쏜 뒤 WARSHIP_FLY초 지나 떨어진 자리에서 맞는다 (화면의 포탄과 맞는 순간이 같게).
+  배는 그대로 맞고, 노린 병사는 그새 WARSHIP_HIT_R칸 밖으로 달아났으면 빗나간다 (둘레 병사는 떨어진 자리 기준).
+- 거리를 둔다: 적 전함이나 포격하는 목표가 사거리 × keep_min보다 가까우면 사거리 × keep_lo~keep_hi 떨어진 바다로
+  물러나며 계속 쏜다 (이동 명령을 받은 동안은 빼고). 포격하러 갈 때도 그 거리까지만 다가간다.
+- 땅의 원거리 병사·망루·화염탑도 칠 것이 없으면 사거리 안의 적 배를 쏜다 (shore_fire, 화염탑은 sim/firetower.py).
 """
 from __future__ import annotations
 
@@ -26,7 +32,7 @@ import numpy as np
 
 from sim import rules as R
 from sim.kernels.flow import INF, sea_path
-from sim.entities import IDLE, MOVE
+from sim.entities import AMOVE, ATTACK, IDLE, MOVE
 
 FERRY, WARSHIP = 'ferry', 'warship'
 BOARD_GAP = 0.25           # 항구에서 한 명이 타는 데 걸리는 시간 (초)
@@ -59,7 +65,13 @@ class Boat:
     dir: float = 1.0               # 보는 방향 (왼쪽 -1 / 오른쪽 1)
     cd: float = 0.0
     target: object = None          # 전함이 쫓는 배
+    tu: int = -1                   # 전함이 포격하라고 받은 땅의 적 병사 (칸, 세대 tg) / 건물 (tb)
+    tg: int = 0
+    tb: int = -1
+    aim: tuple = ()                # 마지막으로 포격한 땅의 자리 (x, y, 반지름)와 시각 (거리 두기)
+    aim_t: float = -1e9
     repath: float = 0.0
+    backing: bool = False          # 거리를 두려고 물러나는 중
     alive: bool = True
     id: int = 0                    # 배 번호 (화면이 같은 배를 계속 따라가게)
     by: float = -1.0               # 길 위의 자리 (y, x는 여기에 비켜난 거리를 더한 것)
@@ -146,6 +158,7 @@ class Fleet:
         self.docks: dict[int, tuple] = {}
         self._next_id = 1
         self.want_harbor: dict[int, tuple] = {}     # 나라 → 항구가 있어야 할 해안 (나룻배를 못 띄웠을 때, AI가 참고)
+        self.shells: list = []     # 날아가는 포탄: (맞는 시각, 쏜 나라, 'u'/'b'/'s', 목표, 병사 gen, 떨어질 x, y)
         self.log = {'ferries': 0, 'landed': 0, 'sunk_ferries': 0, 'sunk_warships': 0, 'drowned': 0}   # 기록 (시험용)
 
     # ------------------------------------------------------------- 항구
@@ -374,7 +387,7 @@ class Fleet:
                 if embark is not None:
                     self.want_harbor[own] = embark
             if not quiet:
-                w.say('바다 건너로 가려면 병사들이 있는 땅에 항구가 있어야 합니다 (H: 항구 짓기)'
+                w.say('바다 건너로 가려면 병사들이 있는 땅에 항구가 있어야 합니다 (2: 항구 짓기)'
                       if not self.harbors_on(own, src_comp) else '이 땅의 항구에서 그쪽 바다로 갈 수 없습니다', to=own)
             return False
         _, h, route, gather = best
@@ -400,6 +413,7 @@ class Fleet:
 
     # ------------------------------------------------------------- 진행
     def update(self, dt) -> None:
+        self._land_shells()
         for c in self.convoys:
             self._gather(c, dt)
         self.convoys = [c for c in self.convoys if not c.done]
@@ -654,6 +668,205 @@ class Fleet:
     def hunt(self, ships, target) -> None:
         for s in ships:
             s.state, s.target, s.repath = 'hunt', target, 0.0
+            s.tu = s.tb = -1
+
+    def bombard(self, ships, unit=-1, building=-1) -> None:
+        """전함들이 땅의 적 병사 (unit)나 건물 (building)을 포격하러 간다 (사거리 안의 바다까지)."""
+        u = self.w.units
+        for s in ships:
+            s.state, s.target, s.repath = 'siege', None, 0.0
+            s.tu, s.tb = int(unit), int(building)
+            s.tg = int(u.gen[unit]) if unit >= 0 else 0
+
+    def _siege_target(self, s):
+        """포격하라고 받은 목표가 아직 있으면 그 자리 (x, y, 반지름), 없으면 None."""
+        u, b = self.w.units, self.w.builds
+        if s.tu >= 0:
+            if u.alive[s.tu] and int(u.gen[s.tu]) == s.tg and not u.aboard[s.tu]:
+                return float(u.x[s.tu]), float(u.y[s.tu]), 0.0
+        elif s.tb >= 0 and b.alive[s.tb]:
+            return float(b.x[s.tb]), float(b.y[s.tb]), float(b.r[s.tb])
+        return None
+
+    def _land_foe(self, s, r):
+        """사거리 r 안의 가장 가까운 땅의 적: ('u', 병사) / ('b', 건물) / None. 날고 있는 병사는 빼고."""
+        w, u, b = self.w, self.w.units, self.w.builds
+        nn, best, bd = len(w.nations), None, r
+        ids = w.unit_ids()
+        if len(ids):
+            ids = ids[(u.own[ids] < nn) & ~u.aboard[ids] & ~u.air[ids]]
+            ids = ids[w.diplo.friend[s.own, u.own[ids]] == 0] if len(ids) else ids
+            if len(ids):
+                d = np.hypot(u.x[ids] - s.x, u.y[ids] - s.y)
+                k = int(np.argmin(d))
+                if d[k] <= bd:
+                    best, bd = ('u', int(ids[k])), float(d[k])
+        bs = np.flatnonzero(b.alive[:b.n])
+        if len(bs):
+            bs = bs[(b.own[bs] < nn) & (w.diplo.friend[s.own, b.own[bs]] == 0)]
+            if len(bs):
+                d = np.hypot(b.x[bs] - s.x, b.y[bs] - s.y) - b.r[bs]
+                k = int(np.argmin(d))
+                if d[k] < bd:
+                    best = ('b', int(bs[k]))
+        return best
+
+    def _shell(self, s, kind, i) -> None:
+        """전함이 땅의 적 병사 (kind 'u')나 건물 ('b') i를 쏜다: WARSHIP_FLY초 뒤 떨어진다 (_land_shells)."""
+        w, u, b = self.w, self.w.units, self.w.builds
+        if kind == 'u':
+            tx, ty = float(u.x[i]), float(u.y[i])
+            s.aim, s.aim_t = (tx, ty, 0.0), w.time
+        else:
+            tx, ty = float(b.x[i]), float(b.y[i])
+            s.aim, s.aim_t = (tx, ty, float(b.r[i])), w.time
+        self._launch(s, kind, i, tx, ty)
+
+    def _launch(self, s, kind, tgt, tx, ty) -> None:
+        """포탄을 쏜다: 화면에 그릴 기록 (2)과 맞을 때까지 날아가는 포탄."""
+        w = self.w
+        w.recent.append((w.time, s.x, s.y - 2, tx, ty, 2))
+        gen = int(w.units.gen[tgt]) if kind == 'u' else 0
+        self.shells.append((w.time + R.WARSHIP_FLY, s.own, kind, tgt, gen, tx, ty))
+
+    def _land_shells(self) -> None:
+        """때가 된 포탄이 떨어진다."""
+        if not self.shells:
+            return
+        now, keep = self.w.time, []
+        for sh in self.shells:
+            if sh[0] > now + 1e-9:
+                keep.append(sh)
+            else:
+                self._impact(*sh[1:])
+        self.shells = keep
+
+    def _impact(self, own, kind, i, gen, tx, ty) -> None:
+        """포탄이 떨어졌다: 배 ('s')는 그대로 맞고, 땅이면 노린 병사·건물과 둘레의 적 병사 (덜)가 맞는다."""
+        w, u, b, S = self.w, self.w.units, self.w.builds, R.SHORE
+        if kind == 's':
+            if i.alive:
+                d = R.WARSHIP_DMG * w.diplo.hurt[i.own]
+                i.hp -= d
+                w.diplo.hits[own, i.own] += d
+                if i.hp <= 0:
+                    self._sink(i)
+            return
+        if kind == 'u':
+            if u.alive[i] and int(u.gen[i]) == gen and not u.aboard[i] and np.hypot(u.x[i] - tx, u.y[i] - ty) <= R.WARSHIP_HIT_R:
+                d = R.WARSHIP_DMG * w.diplo.hurt[u.own[i]] * u.fx_take[i]
+                u.hp[i] -= d
+                w.diplo.hits[own, u.own[i]] += d
+                if u.hp[i] <= 0:
+                    u.alive[i] = False
+        elif b.alive[i]:
+            d = R.WARSHIP_DMG * S['vs_build'] * w.diplo.hurt[b.own[i]]
+            b.hp[i] -= d
+            w.diplo.hits[own, b.own[i]] += d
+            b.last[i] = own
+        ids = w.unit_ids()
+        if len(ids):
+            near = ids[(np.hypot(u.x[ids] - tx, u.y[ids] - ty) <= S['splash']) & ~u.air[ids] & ~u.aboard[ids]
+                       & (u.own[ids] < len(w.nations))]
+            near = near[w.diplo.friend[own, u.own[near]] == 0] if len(near) else near
+            for j in near:
+                if kind == 'u' and j == i:
+                    continue
+                d = R.WARSHIP_DMG * S['splash_mul'] * w.diplo.hurt[u.own[j]] * u.fx_take[j]
+                u.hp[j] -= d
+                w.diplo.hits[own, u.own[j]] += d
+                if u.hp[j] <= 0:
+                    u.alive[j] = False
+
+    def _range_goal(self, x, y, reach):
+        """(x, y)에서 reach칸 안의 배가 다닐 바다 칸."""
+        m = self.w.map
+        goal = np.zeros(m.nav.shape, bool)
+        r = int(reach) + 1
+        y0, y1, x0, x1 = max(int(y) - r, 0), min(int(y) + r + 1, m.H), max(int(x) - r, 0), min(int(x) + r + 1, m.W)
+        yy, xx = np.mgrid[y0:y1, x0:x1]
+        goal[y0:y1, x0:x1] = np.hypot(yy + 0.5 - y, xx + 0.5 - x) <= reach
+        return goal & m.nav
+
+    def _ring_goal(self, x, y, r0, r1):
+        """(x, y)에서 r0~r1칸 떨어진 배가 다닐 바다 칸 (거리 두기)."""
+        return self._range_goal(x, y, r1) & ~self._range_goal(x, y, r0)
+
+    def foe_boat_near(self, own, x, y, r):
+        """(x, y)에서 r 안의 가장 가까운 적 배 (나라 own에게)."""
+        best, bd = None, r
+        for o in self.boats:
+            if o.alive and self.w.diplo.foe(own, o.own):
+                d = float(np.hypot(o.x - x, o.y - y))
+                if d <= bd:
+                    best, bd = o, d
+        return best
+
+    def hit_boat(self, boat, dmg, by) -> None:
+        """땅에서 배를 맞혔다 (by: 친 나라)."""
+        d = dmg * self.w.diplo.hurt[boat.own]
+        boat.hp -= d
+        self.w.diplo.hits[by, boat.own] += d
+        if boat.hp <= 0 and boat.alive:
+            self._sink(boat)
+
+    def kernel_arrays(self, dt) -> dict:
+        """전투 커널 (sim/kernels/combat.py)에 넘길 살아 있는 배 배열과 병사마다 노리는 배 (배 id → 이번 걸음의 번호).
+        배 공격 명령을 받은 병사는 배가 사거리 밖으로 가면 이따금 다시 길을 찾는다."""
+        w, u = self.w, self.w.units
+        live = [b for b in self.boats if b.alive]
+        n = u.n
+        ush = np.full(max(n, 1), -1, np.int32)
+        pos = {b.id: k for k, b in enumerate(live)}
+        has = np.flatnonzero(u.alive[:n] & (u.ship[:n] >= 0))
+        for i in has:
+            k = pos.get(int(u.ship[i]), -1)
+            ush[i] = k
+            if k < 0:
+                u.ship[i] = -1
+        order = has[(ush[has] >= 0) & (u.state[has] == ATTACK) & ~u.air[has] & ~u.aboard[has]] if len(has) else has
+        if len(order):                                  # 배 공격 명령: 배가 사거리 밖이면 다시 길을 찾는다
+            u.ship_t[order] -= dt
+            for k in np.unique(ush[order]):
+                g = order[(ush[order] == k) & (u.ship_t[order] <= 0)]
+                b = live[k]
+                g = g[np.hypot(u.x[g] - b.x, u.y[g] - b.y) > w.k_range[u.kind[g]]]
+                if len(g):
+                    u.ship_t[g] = 2.0
+                    w.ship_route(g, b)
+        return dict(ush=ush, n=len(live), live=live,
+                    x=np.array([b.x for b in live] or [0.0], np.float32), y=np.array([b.y for b in live] or [0.0], np.float32),
+                    own=np.array([b.own for b in live] or [0], np.int16), hp=np.array([b.hp for b in live] or [0.0], np.float32),
+                    alive=np.ones(max(len(live), 1), np.bool_) & (len(live) > 0))
+
+    def kernel_back(self, sb) -> None:
+        """커널이 깎은 배 체력을 돌려받아 가라앉히고, 노리는 배를 배 id로 적는다."""
+        u, live, n = self.w.units, sb['live'], self.w.units.n
+        for k, b in enumerate(live):
+            if sb['hp'][k] < np.float32(b.hp) - 1e-6:
+                b.hp = float(sb['hp'][k])
+                if b.hp <= 0 and b.alive:
+                    self._sink(b)
+        ush = sb['ush'][:n]
+        ids = np.array([b.id for b in live] or [-1], np.int32)
+        u.ship[:n] = np.where(ush >= 0, ids[np.maximum(ush, 0)], -1)
+
+    def shore_fire(self) -> None:
+        """땅에서 배로 (걸음마다, 커널 다음): 칠 병사가 없는 망루가 사거리 안의 적 배를 쏜다 (원거리 병사는 커널이 배도 표적으로 견준다)."""
+        w, bl = self.w, self.w.builds
+        foes = [o for o in self.boats if o.alive]
+        if not foes:
+            return
+        nn = len(w.nations)
+        for o in foes:
+            for t in np.flatnonzero(bl.alive[:bl.n] & (bl.kind[:bl.n] == R.TOWER) & (bl.prog[:bl.n] >= 1) & (bl.cd[:bl.n] <= 0)):
+                if bl.own[t] >= nn or w.diplo.friend[bl.own[t], o.own] or np.hypot(bl.x[t] - o.x, bl.y[t] - o.y) > R.TOWER_RANGE:
+                    continue
+                bl.cd[t] = R.TOWER_CD
+                w.recent.append((w.time, float(bl.x[t]), float(bl.y[t]) - 3, o.x, o.y, 1))
+                self.hit_boat(o, R.TOWER_DMG, int(bl.own[t]))
+                if not o.alive:
+                    break
 
     def _warship(self, s, dt):
         s.cd -= dt
@@ -671,11 +884,40 @@ class Fleet:
                         foe, fd = o, d
         if foe is not None and s.cd <= 0:
             s.cd = R.WARSHIP_CD
-            foe.hp -= R.WARSHIP_DMG * self.w.diplo.hurt[foe.own]
-            self.w.diplo.hits[s.own, foe.own] += R.WARSHIP_DMG
-            self.w.recent.append((self.w.time, s.x, s.y - 2, foe.x, foe.y, 2))
-            if foe.hp <= 0:
-                self._sink(foe)
+            self._launch(s, 's', foe, foe.x, foe.y)     # WARSHIP_FLY초 뒤 맞는다
+        elif foe is None and s.cd <= 0:                 # 적 배가 없으면 땅을 포격: 받은 목표가 사거리 안이면 그것, 아니면 가장 가까운 적
+            tgt = None
+            st = self._siege_target(s) if s.state == 'siege' else None
+            if st is not None and np.hypot(st[0] - s.x, st[1] - s.y) - st[2] <= R.WARSHIP_RANGE:
+                tgt = ('u', s.tu) if s.tu >= 0 else ('b', s.tb)
+            if tgt is None:
+                tgt = self._land_foe(s, R.WARSHIP_RANGE)
+            if tgt is not None:
+                s.cd = R.WARSHIP_CD
+                self._shell(s, *tgt)
+        # 거리 두기: 상대 전함이나 포격하는 목표가 너무 가까우면 물러나며 쏜다 (이동 명령 중은 빼고)
+        S, RG = R.SHORE, R.WARSHIP_RANGE
+        eng = None
+        if foe is not None and foe.kind == WARSHIP:
+            eng = (foe.x, foe.y, 0.0)
+        elif s.state == 'siege':
+            eng = self._siege_target(s)
+        if eng is None and s.aim and self.w.time - s.aim_t < 3.0:
+            eng = s.aim
+        if eng is not None and s.state in ('idle', 'hunt', 'siege') \
+                and np.hypot(eng[0] - s.x, eng[1] - s.y) - eng[2] < RG * S['keep_min']:
+            s.repath -= dt
+            if s.repath <= 0 or s.path is None or not s.backing:
+                s.repath = 1.0
+                p = self._path(s.y, s.x, self._ring_goal(eng[0], eng[1], RG * S['keep_lo'] + eng[2], RG * S['keep_hi'] + eng[2]))
+                if p is not None:
+                    self._set_path(s, p, s.state)
+                    s.backing = True
+            if s.path is not None and s.backing and self._sail(s, dt):
+                s.path, s.backing = None, False
+            return
+        if s.backing:                                   # 충분히 물러났다
+            s.path, s.backing = None, False
         # 움직임
         if s.state == 'hunt':
             t = s.target
@@ -693,6 +935,23 @@ class Fleet:
         elif s.state == 'move':
             if self._sail(s, dt):
                 s.state, s.path = 'idle', None
+        elif s.state == 'siege':                       # 땅의 목표를 포격하러: 사거리 안의 바다까지 간다
+            st = self._siege_target(s)
+            if st is None:
+                s.state, s.path, s.tu, s.tb = 'idle', None, -1, -1
+            elif np.hypot(st[0] - s.x, st[1] - s.y) - st[2] > R.WARSHIP_RANGE * 0.85:
+                s.repath -= dt
+                if s.repath <= 0 or s.path is None:
+                    s.repath = 1.5
+                    p = self._path(s.y, s.x, self._ring_goal(st[0], st[1], RG * S['keep_lo'] + st[2], RG * S['keep_hi'] + st[2]))   # 거리를 두고
+                    if p is not None:
+                        self._set_path(s, p, 'siege')
+                    elif s.path is None:                # 닿을 바다가 없다
+                        s.state, s.tu, s.tb = 'idle', -1, -1
+                if s.path is not None:
+                    self._sail(s, dt)
+            else:
+                s.path = None
 
     def _sink(self, b):
         w, u = self.w, self.w.units

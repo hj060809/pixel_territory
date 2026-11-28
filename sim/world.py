@@ -52,7 +52,10 @@ class Nation:
     n_buildings: int = 0
     caps: list = field(default_factory=lambda: [R.STORE_BASE + R.STORE_HALL] * 4)   # 자원마다 한도 (식량·목재·석재·유황, sim/storage.py)
     idle: bool = False               # 조종자 없음 (사람이 떠났다): 판 끝을 셀 때 남은 나라로 치지 않는다
-    tribe: int = 0                   # 부족 (sim/tribes.py: 0 온대, 1 설원, 2 사막). 시작 거점 자리로 한 번 정한다
+    tribe: int = 0                   # 부족 (sim/tribes.py: 0 온대, 1 설원, 2 사막). 시작 거점 자리로 정하고, 개척으로 바꿀 수 있다
+    start_tribe: int = 0             # 시작 부족
+    dropped: list = field(default_factory=list)   # 스스로 버린 기후 (다시 고를 수 없다, sim/tribes.py Pioneer)
+    offers: list = field(default_factory=list)    # 기다리는 부족 바꾸기 카드 [(기후, 거점 번호, 거점 gen)]
 
 
 class World:
@@ -74,6 +77,8 @@ class World:
         self._ferry_checks: list = []             # 보조 스레드에서 견주는 중인 걷기·배 (_split, _ferry_resolve)
         self.fleet = Fleet(self)
         self.shots = np.zeros((512, 5), np.float32)
+        self.pots = np.zeros((256, 8), np.float32)                           # 이번 걸음에 던진 유황 단지 (커널이 적는다)
+        self.npot = np.zeros(1, np.int32)
         self.n_shots = 0
         self.recent: deque = deque(maxlen=600)
         self.messages: deque = deque(maxlen=256)      # 알림 (글, 시각, 받는 나라 | None = 모두, 빼는 나라들)
@@ -99,6 +104,8 @@ class World:
             self.k_vs[a, b] = v
         self.k_fly = np.array([s['fly'] for s in ks])
         self.k_splash = np.array([s['splash'] for s in ks], np.float32)
+        self.k_pot = np.array([s.get('pot', False) for s in ks])            # 유황 척탄병: 단지를 던진다 (sim/grenade.py)
+        self.k_boat = np.array([(R.SHORE['vs_pot'] if s.get('pot') else 1.0) if s.get('ranged') else 0.0 for s in ks], np.float32)   # 배에 주는 피해 배율
         self.k_upkeep = np.array([s['upkeep'] for s in ks], np.float32)
         self.k_hp = np.array([s['hp'] for s in ks], np.float32)
         n = max(1, min(int(n), len(R.COLORS)))
@@ -122,7 +129,11 @@ class World:
         from sim.companions import Companions
         self.companions = Companions(self)
         from sim.firetower import FireTowers
+        from sim.grenade import Grenades
         self.fire = FireTowers(self)
+        self.grenades = Grenades(self)                     # 유황 척탄병의 단지와 불 (sim/grenade.py)
+        self.pioneer = tribes.Pioneer(self)                # 개척: 다른 기후의 거점 → 부족 바꾸기 (sim/tribes.py)
+        self.vision = None                                 # 전장의 안개 판이면 sim/vision.py Vision (server/session.py가 둔다)
         from sim.pasture import Pastures
         self.pastures = Pastures(self)                     # 목장 (야생 동물보다 먼저: 새 무리가 울타리 안에 생기지 않게)
         from sim.wildlife import Wildlife
@@ -377,7 +388,61 @@ class World:
         ids = ids[self.units.alive[ids]] if len(ids) else ids
         if len(ids):
             self.units.form[ids] = False
+            self.units.ship[ids] = -1
         return ids
+
+    def order_ship_attack(self, ids, boat) -> bool:
+        """땅의 원거리 병사 (궁수·기마궁수·척탄병·용기사)가 적 배를 친다: 해안의 사거리 안 자리까지 가서 쏜다 (용기사는 날아서).
+        근접 병사는 그대로 둔다. 닿을 해안이 없으면 알린다."""
+        ids = np.asarray(ids, np.int64)
+        u = self.units
+        ids = ids[u.alive[ids]] if len(ids) else ids
+        if len(ids) == 0:
+            return False
+        own = int(u.own[ids[0]])
+        ids = ids[self.k_ranged[u.kind[ids]]]
+        if len(ids) == 0:
+            self.say('배는 원거리 병사 (궁수·척탄병·용기사)만 칠 수 있습니다', to=own)
+            return False
+        ids = self._mine(ids)
+        self.wild.release(ids)
+        fly = self.k_fly[u.kind[ids]]
+        fl, walk = ids[fly], ids[~fly]
+        if len(fl):
+            u.air[fl] = True
+            u.state[fl] = ATTACK
+            u.slot[fl] = u.tgt[fl] = u.tgb[fl] = u.bld[fl] = -1
+            u.ship[fl] = boat.id
+        if len(walk) and not self.ship_route(walk, boat):
+            self.say('배를 칠 수 있는 해안이 없습니다', to=own)
+            return len(fl) > 0
+        return True
+
+    def ship_route(self, ids, boat) -> bool:
+        """병사들을 배에서 사거리 - 1칸 안의 걸을 수 있는 땅 (같은 땅에서 무리 한가운데에 가장 가까운 칸)으로 보낸다 (배 공격 명령)."""
+        u, m = self.units, self.map
+        r = float(self.k_range[u.kind[ids]].min()) - 1.0
+        y0, y1 = max(int(boat.y - r), 0), min(int(boat.y + r) + 1, m.H)
+        x0, x1 = max(int(boat.x - r), 0), min(int(boat.x + r) + 1, m.W)
+        pts = np.argwhere(m.walk[y0:y1, x0:x1])
+        if len(pts) == 0:
+            return False
+        py, px = pts[:, 0] + y0 + 0.5, pts[:, 1] + x0 + 0.5
+        comp = np.bincount(m.comp[u.y[ids].astype(int), u.x[ids].astype(int)]).argmax()
+        ok = (np.hypot(py - boat.y, px - boat.x) <= r) & (m.comp[py.astype(int), px.astype(int)] == comp)
+        if not ok.any():
+            return False
+        py, px = py[ok], px[ok]
+        k = int(np.argmin(np.hypot(py - u.y[ids].mean(), px - u.x[ids].mean())))
+        s = self._route(ids, float(py[k]), float(px[k]))
+        if s < 0:
+            return False
+        u.state[ids] = ATTACK
+        u.slot[ids] = s
+        u.tgt[ids] = u.tgb[ids] = u.bld[ids] = -1
+        u.ship[ids] = boat.id
+        u.ship_t[ids] = 2.0
+        return True
 
     def order_formation(self, ids, gx, gy, attack: bool = False) -> bool:
         """진형: 병사마다 제 자리 (gx[k], gy[k]). 자리는 가까운 걸을 수 있는 칸으로. 차례대로 (화면이 선을 따라 늘어놓은 차례)
@@ -536,12 +601,13 @@ class World:
             if not quiet:
                 self.say('훈련 대기열이 가득 찼습니다', to=nid)
             return False
-        if not self.can_afford(nid, st['cost']):
+        sul = st.get('sulfur', 0)                                   # 유황 척탄병은 유황도 든다
+        if not self.can_afford(nid, st['cost'], sul):
             if not quiet:
-                need = ', '.join(f'{R.RES_NAMES[k]} {st["cost"][k]}' for k in range(3) if st['cost'][k])
+                need = ', '.join([f'{R.RES_NAMES[k]} {st["cost"][k]}' for k in range(3) if st['cost'][k]] + ([f'유황 {sul}'] if sul else []))
                 self.say(f'{name}: 자원이 모자랍니다 ({need})', to=nid)
             return False
-        self._pay(nid, st['cost'])
+        self._pay(nid, st['cost'], sul)
         t = st['time'] * (R.CLIMATE['temperate_train'] if self.nations[nid].tribe == 0 and kind != R.WARSHIP else 1.0)   # 온대 부족: 병사만 (sim/tribes.py TEMPERATE)
         b.queue[hall].append([kind, t])
         return True
@@ -611,6 +677,8 @@ class World:
         self._training(dt)
         climate.update(self, dt)                            # 기후 효과: 병사마다 이동·피해 배율, 더위·동상 (sim/climate.py)
         self._formations(dt)                                # 진형: 다른 일을 하게 된 병사는 풀고, 막혀 못 가는 병사는 그 자리에
+        self.npot[0] = 0
+        sb = self.fleet.kernel_arrays(dt)                     # 배: 원거리 병사의 표적 후보 (sim/boats.py)
         self.n_shots = step(dt, u.n, u.x, u.y, u.hp, u.own, u.kind, u.state, u.slot, u.tgt, u.tgb, u.bld, u.cd,
                             u.search, u.anim, u.moving, u.alive, u.aboard, u.tx, u.ty, u.slow, u.air,
                             b.n, b.x, b.y, b.kind, b.own, b.hp, b.r, b.prog, b.cd, b.alive,
@@ -619,7 +687,10 @@ class World:
                             m.walk, m.speed_mul, m.cover, self.fields.fields, self.fields.ready, R.TOWER, R.TOWER_RANGE, R.TOWER_DMG,
                             R.TOWER_CD, R.NEUTRAL, self.shots, self._builders,
                             self.diplo.friend, self.diplo.hurt, self.diplo.hits, b.last, u.fx_speed, u.fx_take, u.fx_deal, u.freeze,
-                            u.gx, u.gy, u.form, R.FORMATION['leash'], R.FORMATION['direct'])
+                            u.gx, u.gy, u.form, R.FORMATION['leash'], R.FORMATION['direct'],
+                            self.k_pot, self.pots, self.npot,
+                            sb['ush'], sb['n'], sb['x'], sb['y'], sb['own'], sb['hp'], sb['alive'], self.k_boat)
+        self.fleet.kernel_back(sb)                          # 깎인 배 체력, 노리는 배를 돌려받는다
         if self.n_shots:                                    # 화면에 잠깐 그릴 공격 (화살, 칼부림)
             for row in self.shots[:self.n_shots].tolist():
                 self.recent.append((self.time, *row))
@@ -628,6 +699,10 @@ class World:
         self._lift()                                        # 용기사: 움직이거나 싸울 때만 난다
         self.companions.update(dt)                          # 바위거북: 발 구르기, 낮은 포효, 껍질 숨기
         self.fire.update(dt)                                # 화염탑: 불을 뿜는다
+        self.fleet.shore_fire()                             # 땅에서 배로: 칠 것이 없는 망루가 적 배를 쏜다 (병사는 커널에서)
+        if self.npot[0]:                                    # 유황 척탄병이 던진 단지 → 날아가 맞고 불 (sim/grenade.py)
+            self.grenades.throw(self.pots[:self.npot[0]].tolist())
+        self.grenades.update(dt)
         self.wild.update(dt)                                # 야생 동물, 길들이기 (병사가 움직인 다음에)
         # 짓기
         for i in np.flatnonzero(self._builders[:b.n]):
@@ -638,11 +713,14 @@ class World:
                 b.hp[i] = min(b.hp[i] + add * b.maxhp[i], b.maxhp[i])
                 if b.prog[i] >= 1 and b.kind[i] != R.PASTURE:        # 목장은 들어온 동물 수와 함께 따로 알린다
                     self.say(f'{R.BUILD_NAMES[int(b.kind[i])]} 완성', to=int(b.own[i]))
+                if b.prog[i] >= 1 and b.kind[i] == R.HALL:            # 개척: 다른 기후의 거점이면 부족 바꾸기 카드
+                    self.pioneer.hall_done(int(i))
         self.fleet.update(dt)
         self.pastures.update(dt)                            # 목장: 다 지으면 동물이 든다, 새끼, 무너지면 풀려난다
         self.diplo.update(dt)                               # 외교: 관계, 동맹 기간, 배신자
         # 무너진 건물
         dead = np.flatnonzero(b.alive[:b.n] & (b.hp[:b.n] <= 0))
+        lost_halls = [int(b.own[i]) for i in dead if b.kind[i] == R.HALL]
         for i in dead:
             storage.loot(self, i, int(b.last[i]))              # 거점·자원 건물: 그 몫을 마지막으로 친 나라에게
             b.alive[i] = False
@@ -652,6 +730,8 @@ class World:
                 self.sites[b.site[i]].building = -1
             if b.own[i] < len(self.nations):
                 self.say(f'{R.josa(R.BUILD_NAMES[int(b.kind[i])], "이", "가")} 무너졌습니다!', to=int(b.own[i]))
+        if lost_halls:                                      # 개척: 지금 부족 기후의 거점을 모두 잃으면 부족이 바뀐다
+            self.pioneer.halls_lost(lost_halls)
         self._slow += dt
         if self._slow >= 0.5:
             self._slow = 0.0

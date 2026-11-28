@@ -75,8 +75,8 @@ export function fillHelp(parent: HTMLElement, solo: boolean, lobby = false) {
   el('div', 'help-head', right, '키보드');
   row(right, kbd('A'), '공격 이동 (가다가 만나는 적과 싸운다)');
   row(right, kbd('S'), '멈춤');
-  row(right, `${kbd('1')}<span class="help-plus">~</span>${kbd('9')}`, '건물 짓기: 1 거점 · 2~5 자원 건물 · 6 목장 (말·순록 떼에) · 7 망루 · 8 화염탑 · 9 항구 (고른 병사가, 없으면 가까운 쉬는 병사가)');
-  row(right, `${kbd('Q')}${kbd('W')}${kbd('E')}`, '보병 · 궁수 · 전함 만들기');
+  row(right, `${kbd('1')}<span class="help-plus">~</span>${kbd('9')}`, '건물 짓기: 1 거점 · 2 항구 · 3~6 자원 건물 · 7 목장 (말·순록 떼에) · 8 망루 · 9 화염탑 (고른 병사가, 없으면 가까운 쉬는 병사가)');
+  row(right, `${kbd('Q')}${kbd('W')}${kbd('E')}${kbd('R')}`, '보병 · 궁수 · 유황 척탄병 · 전함 만들기');
   row(right, `${kbd('Ctrl')}${plus}${kbd('1~9')}`, '고른 병사를 부대로 지정');
   row(right, `${kbd('Shift')}${plus}${kbd('1~9')}`, '그 부대를 부르기');
   row(right, kbd('Space'), '내 거점으로 화면 옮기기');
@@ -87,7 +87,7 @@ export function fillHelp(parent: HTMLElement, solo: boolean, lobby = false) {
     row(right, `${kbd('F5')}${or}${kbd('F6')}`, '같은 지도로 새 판 · 새 지도' + only);
   }
   if (!solo || lobby) row(right, kbd('Enter'), '대화 입력 (멀티) · 💬 빠른 대화 · 안 쓰면 왼쪽 아래 💬로 접힌다');
-  row(right, `${kbd('F1')}${or}${kbd('F12')}`, lobby ? '게임 중 조작 설명 · 지도 전체 사진 (HP바·아이콘 없이)' : '이 설명 · 지도 전체 사진 (HP바·아이콘 없이, 메뉴에도 있다)');
+  row(right, `${kbd('F1')}${or}${kbd('F12')}`, lobby ? '게임 중 조작 설명 · 지도 전체 사진 (HP바·아이콘 없이)' : '이 설명 · 지도 전체 사진 (HP바·아이콘 없이)');
 }
 
 // ------------------------------------------------------------- 터치
@@ -147,7 +147,7 @@ export function fillTouchHelp(parent: HTMLElement, solo: boolean, lobby = false)
   row(right, `${tbtn('▦ 진형')}<span class="help-plus">→</span>${gesture('drag')}`, '진형 그리기: 켜면 한 손가락으로 그은 선을 따라 선다 (근접 앞, 궁수 뒤. 끝을 닫으면 둘레 방어선). 켜 둔 동안 화면 이동은 두 손가락');
   row(right, tbtn('✕'), '고른 것 풀기 · 취소');
   row(right, `${tbtn('건물')}<span class="help-plus">→</span>${tbtn('✓ 짓기', 'ok')}`, '아래 건물 버튼 → 그림을 끌어 자리에 놓고 ✓ (고른 병사가, 없으면 가까운 쉬는 병사가)');
-  row(right, `${tbtn('보병')}${tbtn('궁수')}${tbtn('전함')}`, '만들기 (거점·항구를 골라 두면 그곳에서)');
+  row(right, `${tbtn('보병')}${tbtn('궁수')}${tbtn('척탄병')}${tbtn('전함')}`, '만들기 (거점·항구를 골라 두면 그곳에서)');
   if (solo) row(right, `${tbtn('⏸')}${tbtn('×1')}`, '일시정지 · 속도' + (lobby ? ' (싱글)' : ''));
   if (!solo || lobby) row(right, tbtn('💬'), '대화창 (멀티): 빠른 대사 · 입력');
   row(right, tbtn('☰'), lobby ? '메뉴: 조작 설명 · 항복 · 나가기' : '메뉴');

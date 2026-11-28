@@ -54,6 +54,8 @@ class Units:
         self.fslot = np.full(cap, -1, np.int16)
         self.fpx = np.zeros(cap, np.float32)       # 진형: 지난번 점검 때 자리 (막혀 못 가면 그 자리를 제 자리로)
         self.fpy = np.zeros(cap, np.float32)
+        self.ship = np.full(cap, -1, np.int32)      # 노리는 배 (배 id, sim/boats.py): 원거리 병사가 사거리 안의 배를 쏜다 / 배 공격 명령
+        self.ship_t = np.zeros(cap, np.float32)    # 배 공격 명령: 다시 길을 찾기까지 남은 시간
         self.gen = np.zeros(cap, np.uint16)        # 칸을 새로 쓸 때마다 +1 (화면이 '같은 병사'인지 알게)
         self.n = 0                       # 쓴 적 있는 칸 수 (alive가 아닌 칸은 다시 쓴다)
 
@@ -75,6 +77,7 @@ class Units:
         self.fx_speed[i] = self.fx_take[i] = self.fx_deal[i] = 1.0
         self.freeze[i] = 0.0
         self.form[i], self.fslot[i] = False, -1
+        self.ship[i], self.ship_t[i] = -1, 0.0
         self.aboard[i] = False
         self.tx[i], self.ty[i], self.slow[i] = x, y, 0.0
         self.air[i] = False

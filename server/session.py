@@ -19,13 +19,14 @@
     train    {kind:'infantry'|'archer'|'warship', buildings:[[칸,세대]...]}
     stop     {units}
     diplo    {act, to, ...}  외교 (상대 나라 번호 to)
+    tribe    {accept}        개척 카드: 새 기후 부족으로 바꾸기 / 지금 부족 지키기 (sim/tribes.py Pioneer)
     surrender {}             항복 (내 나라를 모두 허물고 관전)
     leave    {}              판을 떠난다 (사람이 여럿인 판: 30초를 기다리지 않고 바로 조종자 없음)
     chat     {text}          대화 (판의 모든 사람에게 그대로: CHAT_MAX글자, CHAT_GAP초에 하나. 진 사람도. 기록은 남기지 않는다)
     pause    {on, auto?}     speed {value: 1|2|4}            restart {}  (같은 지도로 새 판) — 사람 1명인 판에서만
 
-보내는 것 (JSON): start, msg, over, diplo, ack, error, seats {away:[나라], gone:[나라]} (사람 나라의 접속 상태가 바뀔 때),
-                 chat {from: 나라, text}
+보내는 것 (JSON): start, msg, over, diplo, ack, error, fog {gw, gh, cell, rle | off} (전장의 안개 판: 0 안 가 봄, 1 가 봄, 2 보임), seats {away:[나라], gone:[나라]} (사람 나라의 접속 상태가 바뀔 때),
+                 chat {from: 나라, text}, tribe {tribes: [나라마다 부족], offers: [내 카드의 기후], dropped: [버린 기후]}
 
 연결이 끊기면 (detach) 그 자리는 잠시 비고, 같은 sid로 다시 접속하면 (attach) 전체 상태를 다시 보내고 이어 간다.
 걸음 안에서 오류가 나면 브라우저에 알리고 판을 멈춘다 (서버 로그에 자세히).
@@ -54,7 +55,7 @@ from sim.world import World
 
 FLAGS_AT = 17                                    # 상태 메시지 머리에서 flags 바이트 자리 (protocol.encode: '<BIfffBBH')
 DEV_SPAWN_MAX = 200                              # 개발 명령: 한 번에 소환하는 병사 수 한도
-DEV_SPAWN_KINDS = (R.INFANTRY, R.ARCHER, R.LANCER, R.HORSE_ARCHER, R.DRAGON_RIDER, R.TORTOISE)   # 소환할 수 있는 병종 (야생 드래곤은 빼고)
+DEV_SPAWN_KINDS = (R.INFANTRY, R.ARCHER, R.LANCER, R.HORSE_ARCHER, R.DRAGON_RIDER, R.TORTOISE, R.GRENADIER, R.HORSE_GRENADIER)   # 소환할 수 있는 병종 (야생 드래곤은 빼고)
 LEAVE_AFTER = 30.0                               # 사람이 2명 이상인 판: 이만큼 끊겨 있으면 그 나라는 조종자 없음
 CHAT_MAX = 80                                    # 대화 한 줄 글자 수
 CHAT_GAP = 0.7                                   # 대화 사이 최소 간격 (초, 도배 막기)
@@ -72,6 +73,9 @@ class Seat:
         self.away_since = 0.0
         self.msg_seen = -1.0
         self.diplo_v, self.diplo_at = -1, -1e9
+        self.tribe_v = -1                        # 마지막으로 보낸 부족·카드 판 (sim/tribes.py Pioneer)
+        self.enc = None                          # 전장의 안개 판: 이 자리만의 상태 만들기 (보이는 것만)
+        self.fog_v = None                        # 마지막으로 보낸 안개 격자 판
         self.over_sent = False
         self.left = False                        # 오래 끊겨 (또는 스스로 나가) '조종자 없음'이 됐다
         self.quit = False                        # 메뉴로 스스로 나갔다 (끊김과 달리 돌아오지 않는다)
@@ -80,10 +84,23 @@ class Seat:
         self.token = secrets.token_urlsafe(9)    # 다시 접속할 때 이 자리를 찾는 표
 
 
+def _rle(a) -> list:
+    """[값, 길이, 값, 길이, ...] (안개 격자)."""
+    a = np.asarray(a)
+    if not len(a):
+        return []
+    cut = np.flatnonzero(a[1:] != a[:-1]) + 1
+    starts = np.concatenate(([0], cut))
+    lens = np.diff(np.concatenate((starts, [len(a)])))
+    out = np.empty(len(starts) * 2, np.int64)
+    out[0::2], out[1::2] = a[starts], lens
+    return out.tolist()
+
+
 class GameSession:
     def __init__(self, scene, options: dict, send, cfg):
         """scene: TerrainScene, send(bytes|dict): 브라우저로 보내기 (다른 스레드에서 불린다). 사람이 여럿이면 send의 목록.
-        options: 판 설정 (bots: AI 수, difficulty, season). 사람: name, color, spot (싱글, 미리보기의 starts/colors도)
+        options: 판 설정 (bots: AI 수, difficulty, season, fog: 전장의 안개). 사람: name, color, spot (싱글, 미리보기의 starts/colors도)
                  또는 players: [{name, color, spot}...] (사람 여럿: send 목록과 같은 순서)."""
         self.scene, self.opts, self.cfg = scene, dict(options), cfg
         self.gmap = GameMap(scene)
@@ -121,6 +138,15 @@ class GameSession:
     def tutorial(self) -> bool:
         """튜토리얼 판 (로비 '튜토리얼'): 나라 둘, 가만히 있는 적 (sim/tutorial.py)."""
         return bool(self.opts.get('tutorial')) and len(self.seats) == 1
+
+    @property
+    def fog(self) -> bool:
+        """전장의 안개 판 (설정 화면·방에서 정한다, 게임 중엔 못 바꾼다. 튜토리얼은 없다): 사람 나라마다 보이는 것만 보낸다 (sim/vision.py)."""
+        return bool(self.opts.get('fog')) and not self.tutorial
+
+    def _see_all(self, s) -> bool:
+        """안개를 걷는다: 진 사람 (관전), 판이 끝났을 때."""
+        return self.match.over or s.nid in self.match.lost or not self.world.nations[s.nid].alive
 
     @property
     def solo(self) -> bool:
@@ -199,10 +225,16 @@ class GameSession:
             self.match.bots, self.match._order = {}, []
             tutorial.setup(self.world, humans[0], 1 - humans[0])
         self.encoder = StateEncoder(self.world) if first else (self.encoder.reset(self.world) or self.encoder)
+        if self.fog:                             # 전장의 안개: 나라마다 시야, 자리마다 따로 만든 상태
+            from sim.vision import Vision
+            self.world.vision = Vision(self.world)
         for s in self.seats:
+            s.enc = StateEncoder(self.world, s.nid) if self.fog else None
+            s.fog_v = None
             s.cmd = PlayerCommands(self.world, s.nid)
             s.msg_seen = -1.0
             s.diplo_v, s.diplo_at = -1, -1e9
+            s.tribe_v = -1
             s.over_sent = False
             s.seats_v = -1
             s.send({'t': 'start', **self.info(s)})
@@ -212,7 +244,7 @@ class GameSession:
         return {
             'map': getattr(self.scene, 'map_key', ''), 'H': self.scene.H, 'W': self.scene.W, 'round': self.round,
             'tick_hz': self.cfg.tick_hz, 'me': seat.nid, 'humans': len(self.seats), 'room': bool(self.opts.get('room')),
-            'tutorial': self.tutorial,
+            'tutorial': self.tutorial, 'fog': self.fog,
             'nations': [{'id': n.id, 'name': n.name, 'color': list(n.color), 'light': list(n.light), 'tribe': n.tribe} for n in w.nations],
             'sites': [{'id': s.id, 'kind': s.kind, 'x': s.x, 'y': s.y, 'rich': round(s.rich, 2), 'cold': round(s.cold, 3), 'snow': s.snow} for s in w.sites],
             'lairs': [[lr.y, lr.x] for lr in w.wild.lairs],
@@ -321,12 +353,14 @@ class GameSession:
                 self._seats_v += 1
         sim_ms = (time.perf_counter() - t0) * 1000
         base = int(paused or self.away) | (2 if m.over else 0)
-        msg = self.encoder.encode({'hour': self.day.hour, 'year': self.season.year, 'flags': base,
-                                   'speed': speed}, nations=(n % 4 == 0), sim_ms=sim_ms)
+        header = {'hour': self.day.hour, 'year': self.season.year, 'flags': base, 'speed': speed}
+        if self.fog:
+            self.world.vision.update()
+        msg = None if self.fog else self.encoder.encode(header, nations=(n % 4 == 0), sim_ms=sim_ms)
         for s in self.seats:
             if s.away:
                 continue
-            out = msg
+            out = msg if msg is not None else s.enc.encode(header, nations=(n % 4 == 0), sim_ms=sim_ms, fog=not self._see_all(s))
             if m.result.get(s.nid) == '승리':           # 자리마다 다른 것: 이긴 사람의 flags (4)
                 out = bytearray(msg)
                 out[FLAGS_AT] = base | 4
@@ -369,6 +403,28 @@ class GameSession:
                 got += 1
         return got
 
+    def _dev_ships(self, nid: int, n: int, x: float, y: float) -> int:
+        """(개발) 전함 n척을 (x, y)에서 가장 가까운 배가 다닐 바다부터 (서로 4칸 넘게 떨어지게). 반환: 만든 수."""
+        from sim.boats import WARSHIP, Boat
+        w, m = self.world, self.world.map
+        for r in (12, 24, 48, 96, 192):
+            y0, y1, x0, x1 = max(int(y) - r, 0), min(int(y) + r + 1, m.H), max(int(x) - r, 0), min(int(x) + r + 1, m.W)
+            ys, xs = np.nonzero(m.nav[y0:y1, x0:x1])
+            if len(ys) >= n * 20 or r == 192:
+                break
+        if not len(ys):
+            return 0
+        order = np.argsort((ys + y0 + 0.5 - y) ** 2 + (xs + x0 + 0.5 - x) ** 2)
+        placed: list = []
+        for c in order:
+            cy, cx = float(ys[c] + y0) + 0.5, float(xs[c] + x0) + 0.5
+            if all(np.hypot(cy - py, cx - px) > 4.0 for py, px in placed):
+                w.fleet._add(Boat(WARSHIP, nid, cy, cx, R.WARSHIP_HP))
+                placed.append((cy, cx))
+                if len(placed) >= n:
+                    break
+        return len(placed)
+
     def _send_messages(self, s: Seat):
         """그 자리의 나라에게 온 알림, 판 끝 (그 나라의 결과), 외교 상태 (바뀌었거나 1초 지났으면)."""
         w, m, nid = self.world, self.match, s.nid
@@ -388,6 +444,21 @@ class GameSession:
         if d.version != s.diplo_v or now - s.diplo_at >= 1.0:
             s.diplo_v, s.diplo_at = d.version, now
             s.send({'t': 'diplo', **d.state_for(nid)})
+        if self.fog and 0 <= nid < len(w.nations):           # 안개 격자: 바뀌었을 때만 (줄마다 같은 값이 이어지는 길이로 줄여서)
+            see_all = self._see_all(s)
+            fv = 'all' if see_all else int(w.vision.version[nid])
+            if fv != s.fog_v:
+                s.fog_v = fv
+                if see_all:
+                    s.send({'t': 'fog', 'off': True})
+                else:
+                    V = w.vision
+                    s.send({'t': 'fog', 'gw': V.gw, 'gh': V.gh, 'cell': V.cell, 'rle': _rle(V.levels(nid).ravel())})
+        pv = w.pioneer.version
+        if pv != s.tribe_v and 0 <= nid < len(w.nations):     # 부족 (개척으로 바뀐다)과 내 카드
+            s.tribe_v = pv
+            nat = w.nations[nid]
+            s.send({'t': 'tribe', 'tribes': [n.tribe for n in w.nations], 'offers': [o[0] for o in nat.offers], 'dropped': list(nat.dropped)})
 
     # ------------------------------------------------------------- 명령
     def _apply_commands(self):
@@ -427,10 +498,14 @@ class GameSession:
             s.away = False
             self._resumed = True
             self.encoder.reset()                    # 모두에게 다음 걸음은 전체 상태 (한 번 커질 뿐)
+            if s.enc is not None:                   # 안개 판: 이 자리만 처음부터 (안개 격자도 다시)
+                s.enc.reset()
+            s.fog_v = None
             s.send({'t': 'start', **self.info(s)})
             self._resumed = False
             s.msg_seen = self.world.time
             s.diplo_v = -1                          # 외교 상태도 다시
+            s.tribe_v = -1
             s.over_sent = False
             s.seats_v = -1
             s.quit = False
@@ -499,6 +574,8 @@ class GameSession:
             else:
                 raise ValueError(f'모르는 외교 {act}')
             s.diplo_v = -1
+        elif t == 'tribe':                               # 개척 카드: 새 기후 부족으로 바꾸기 (accept) / 지금 부족 지키기
+            self.world.pioneer.pick(nid, bool(m.get('accept')))
         elif t == 'dev' and self.dev:                    # 개발 명령 (혼자 하는 판, 또는 --dev 서버)
             if m.get('cmd') == 'res':
                 add = [float(min(max(v, -1e6), 1e6)) for v in (list(m.get('add', [])) + [0, 0, 0, 0])[:4]]
@@ -509,8 +586,21 @@ class GameSession:
             elif m.get('cmd') == 'raid':                     # 겨울 드래곤 습격을 지금 (겨울이 아니어도, 끝날 때까지)
                 if not self.world.wild.start_raid(free=True):
                     self.world.say('개발: 습격할 드래곤이 없다 (잠든 드래곤, 둥지 둘레 설원에 칠 것이 있어야)', to=nid)
+            elif m.get('cmd') == 'tribe':                    # 개척 카드를 지금: 첫 거점을 그 기후의 새 거점으로 친다
+                w, c = self.world, int(m.get('c', -1))
+                nat, halls = w.nations[nid], w.building_ids(nid, R.HALL, done=True)
+                if c not in (0, 1, 2) or c == nat.tribe or c in nat.dropped or not len(halls):
+                    w.say('개발: 그 기후는 고를 수 없다 (지금 부족이거나 버린 기후, 또는 거점 없음)', to=nid)
+                else:
+                    h = int(halls[0])
+                    nat.offers = [o for o in nat.offers if o[0] != c] + [(c, h, int(w.builds.gen[h]))]
+                    w.pioneer.version += 1
             elif m.get('cmd') == 'die':                      # 내 병사·건물을 모두 허문다 (진 뒤 관전 화면 시험)
                 self.world.ruin(nid)
+            elif m.get('cmd') == 'spawn_ship':               # 전함: (x, y)에서 가장 가까운 바다부터 (서로 떨어지게)
+                n = int(min(max(int(m.get('n', 1)), 1), 20))
+                got = self._dev_ships(nid, n, float(m.get('x', 0)), float(m.get('y', 0)))
+                self.world.say(f'개발: 전함 {got}척 소환' if got else '개발: 가까운 바다가 없다', to=nid)
             elif m.get('cmd') == 'spawn':                    # 원하는 병사를 원하는 만큼: (x, y)에서 가장 가까운 걸을 수 있는 칸부터
                 kind, n = int(m.get('kind', -1)), int(min(max(int(m.get('n', 1)), 1), DEV_SPAWN_MAX))
                 if kind not in DEV_SPAWN_KINDS:

@@ -23,6 +23,7 @@ export interface StartInfo {
   humans?: number;                     // 사람 수 (2 이상: 멀티)
   room?: boolean;                      // 방에서 시작한 판 (끝나면 대기실로 돌아갈 수 있다)
   tutorial?: boolean;                  // 튜토리얼 판 (game/tutorial.ts가 단계 안내를 띄운다)
+  fog?: boolean;                       // 전장의 안개 판 (서버가 'fog' 격자를 보낸다, sim/vision.py)
   dev?: boolean;                       // 서버가 --dev로 켜졌다 (개발용 콘솔)
 }
 
@@ -54,6 +55,8 @@ export class GameState {
   private segSpan = 50;         // 지금 보간 구간의 길이 (다음 상태가 올 때쯤까지)
   over: string | null = null;
   diplo: DiploState | null = null;   // 외교 (서버가 바뀔 때마다 보낸다)
+  tribe: { offers: number[]; dropped: number[] } = { offers: [], dropped: [] };
+  fog: { gw: number; gh: number; cell: number; lv: Uint8Array; v: number; off?: boolean } | null = null;   // off: 걷히는 중 (판 끝·관전)   // 안개 격자 (0 안 가 봄, 1 가 봄, 2 보임), 받을 때마다 v+1   // 개척 카드 (기다리는 기후), 버린 기후 (sim/tribes.py Pioneer)
   seats: { away: number[]; gone: number[] } = { away: [], gone: [] };   // 사람 나라의 접속 상태 (끊겨 기다리는 중, 떠남)
 
   constructor(info: StartInfo) {

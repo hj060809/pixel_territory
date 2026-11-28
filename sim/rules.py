@@ -3,7 +3,7 @@
 자원: 식량(농장, 비옥한 들판) / 목재(벌목장, 숲) / 석재(채석장, 바위 지대) / 유황(유황 채취장, 사막의 유황 웅덩이).
 화염탑: 불을 뿜는 범위 공격 건물 (유황을 연료로 쓴다, 드래곤에 강하다. sim/firetower.py).
 야생 동물: 넓은 초원에 야생말이 흩어져 산다. 병사를 고르고 말을 오른쪽 클릭하면 가서 길들여 기병이 된다
-  (보병 → 창기병, 궁수 → 기마궁수. sim/wildlife.py, WILDLIFE 표).
+  (보병 → 창기병, 궁수 → 기마궁수, 척탄병 → 척탄기마병. sim/wildlife.py, WILDLIFE 표).
   넓은 설원의 가장 높은 곳에는 드래곤 둥지가 있다. 드래곤은 둥지를 지키며 서리 숨결을 뿜는다.
   체력을 깎아 제압하면 잠시 쓰러지고, 그동안 병사 하나가 길들이면 용기사가 된다 (날아다님, 나라마다 2기까지).
   넓은 사막에는 거대 바위거북이 1~2마리씩 산다. 병사가 가서 먹이(식량)를 주면 금방 길들여 함께 싸우는 탱커가 된다
@@ -17,10 +17,10 @@ FOOD, WOOD, STONE = range(3)
 RES_NAMES = ('식량', '목재', '석재')
 
 # --- 유닛
-INFANTRY, ARCHER, LANCER, HORSE_ARCHER, DRAGON_RIDER, WILD_DRAGON, TORTOISE = range(7)
-UNIT_NAMES = ('보병', '궁수', '창기병', '기마궁수', '용기사', '드래곤', '바위거북')
+INFANTRY, ARCHER, LANCER, HORSE_ARCHER, DRAGON_RIDER, WILD_DRAGON, TORTOISE, GRENADIER, HORSE_GRENADIER = range(9)
+UNIT_NAMES = ('보병', '궁수', '창기병', '기마궁수', '용기사', '드래곤', '바위거북', '척탄병', '척탄기마병')
 NEUTRAL = 250             # 야생 (어느 나라도 아님): 야생 드래곤의 나라 번호. 병사들이 저절로 덤비지 않는다
-TRAINABLE = (INFANTRY, ARCHER)            # 거점에서 훈련하는 병종. 기병은 야생말을 길들여야만 생긴다
+TRAINABLE = (INFANTRY, ARCHER, GRENADIER)   # 거점에서 훈련하는 병종. 기병은 야생말을 길들여야만 생긴다
 #   체력, 공격, 사거리, 공격 간격(초), 속도(칸/초, 평지), 시야, 비용(식량, 목재, 석재), 훈련 시간,
 #   terrain: 지형을 타는 정도 (걷는 속도 = 속도 × (지형 속도 배율)^terrain. 1 = 일반 병사와 같은 비율로 느려진다)
 #   charge: 달려와 처음 치는 한 방의 배율, upkeep: 먹는 식량 배율
@@ -44,11 +44,23 @@ UNIT_STATS = {
                        terrain=1.0, charge=1.0, upkeep=0.0, ranged=True, fly=False, splash=4.0),      # 둥지를 지키는 야생 드래곤
     TORTOISE:     dict(hp=600.0, dmg=5.0, range=2.2, cd=1.5, speed=4.0, sight=13.0, cost=(0, 0, 0), time=0.0,
                        terrain=1.0, charge=1.0, upkeep=3.0, ranged=False, fly=False, splash=0.0),     # 길든 거대 바위거북 (탱커)
+    # 유황 척탄병: 불붙인 유황 단지를 던진다 (sim/grenade.py). 비용에 유황 (sulfur). 직격 dmg + 맞은 자리에 불 (rules.GRENADE)
+    GRENADIER:    dict(hp=30.0, dmg=10.0, range=9.0, cd=3.0, speed=4.2, sight=14.0, cost=(30, 25, 0), time=12.0,
+                       terrain=1.0, charge=1.0, upkeep=1.2, ranged=True, fly=False, splash=0.0, sulfur=15, pot=True),
+    # 척탄기마병: 척탄병 + 말 (야생말을 길들이거나 목장에서 꺼내 탄다). 단지는 척탄병과 같다, 빠르고 먹이를 더 먹는다
+    HORSE_GRENADIER: dict(hp=30.0, dmg=10.0, range=9.0 * 1.2, cd=3.0, speed=8.1, sight=15.0, cost=(0, 0, 0), time=0.0,
+                          terrain=1.0, charge=1.0, upkeep=1.5, ranged=True, fly=False, splash=0.0, pot=True),
 }
+# 유황 단지 (sim/grenade.py): fly초 날아가 맞는다 (목표가 hit_r칸 안에 있으면 직격), 건물엔 ×vs_build.
+#   맞은 자리에 burn초 동안 불 (반지름 burn_r칸, 초마다 burn_dps를 땅의 적에게). 설원 지역에 떨어지면 직격·불 모두 ×snow
+GRENADE = dict(fly=0.5, hit_r=1.5, vs_build=2.0, burn=2.0, burn_r=2.5, burn_dps=3.0, snow=0.7)
 # 상성: (치는 쪽, 맞는 쪽) → 피해 배율. 보병은 기병에 강하고 (막아선다), 창기병은 궁수에 강하다 (달려들어 흩는다)
 UNIT_VS = {(INFANTRY, LANCER): 1.3, (INFANTRY, HORSE_ARCHER): 1.3, (LANCER, ARCHER): 1.5, (LANCER, HORSE_ARCHER): 1.2,
            (ARCHER, DRAGON_RIDER): 1.4, (HORSE_ARCHER, DRAGON_RIDER): 1.4,     # 활은 날아다니는 용기사에 강하다
-           (ARCHER, TORTOISE): 0.6, (HORSE_ARCHER, TORTOISE): 0.6}             # 바위 껍질은 화살을 막는다
+           (ARCHER, TORTOISE): 0.6, (HORSE_ARCHER, TORTOISE): 0.6,             # 바위 껍질은 화살을 막는다
+           (GRENADIER, TORTOISE): 1.5, (HORSE_GRENADIER, TORTOISE): 1.5,       # 불은 껍질로 못 막는다
+           (LANCER, GRENADIER): 1.5,                                           # 던지는 동안 달려드는 기병에 약하다
+           (INFANTRY, HORSE_GRENADIER): 1.3, (LANCER, HORSE_GRENADIER): 1.2}   # 척탄기마병도 기병: 보병에 약하다
 # 바위거북의 능력 (sim/companions.py)
 #   발 구르기: 붙은 적이 있으면 cd초마다 앞발로 땅을 내리찍어 r칸 안의 땅의 적 모두에게 dmg, push칸 밀어낸다
 #   낮은 포효 (어그로): cd초마다 r칸 안의 적 병사가 t초 동안 바위거북만 노린다 (명령받은 적도)
@@ -106,6 +118,14 @@ WARSHIP_SPEED = 5.0
 WARSHIP_RANGE = 16.0
 WARSHIP_DMG = 14.0
 WARSHIP_CD = 1.6
+WARSHIP_FLY = 0.5          # 포탄이 날아가는 시간: 쏜 뒤 이만큼 지나 맞는다 (화면의 포탄 비행과 같게, web/src/game/draw.ts drawCannons)
+WARSHIP_HIT_R = 2.5        # 포탄이 떨어진 자리에서 이 안에 있으면 노린 병사가 맞는다 (그새 달아났으면 빗나간다)
+# 전함의 지상 포격 (sim/boats.py): 사거리 안에 적 배가 없으면 해안의 적 병사·건물을 쏜다 (날고 있는 병사는 못 맞힌다).
+#   건물엔 ×vs_build, 맞은 자리 splash칸 안의 다른 적 병사는 ×splash_mul.
+# 땅에서 배로: 원거리 병사 (활·단지·용기사)와 망루·화염탑은 칠 병사·건물이 없으면 사거리 안의 적 배를 쏜다.
+#   유황 단지는 나무배에 ×vs_pot
+#   거리 두기: 상대 전함이나 포격 목표가 사거리 × keep_min보다 가까우면 사거리 × keep_lo~keep_hi 떨어진 바다로 물러나며 쏜다
+SHORE = dict(vs_build=1.5, splash=1.5, splash_mul=0.5, vs_pot=2.0, keep_min=0.6, keep_lo=0.65, keep_hi=0.85)
 
 SULFUR = 3                                                     # 자원지 종류: 유황 웅덩이 (자원 0~2와 따로 센다)
 SITE_NAMES = ('식량', '목재', '석재', '유황')
@@ -124,10 +144,10 @@ SULFUR_YIELD = 0.25        # 유황 채취장이 1초에 모으는 유황 (× �
 #   함께 싸우는 동물 (companion): 길들여도 병사는 그대로이고, 동물이 그 나라의 병사(companion 병종)가 된다.
 #   food: 길들일 때 주는 먹이 (식량), tamers: 길들일 수 있는 병사, calm: 사람이 와도 달아나지 않는다
 HORSE, DRAGON, TORTOISE_W, REINDEER = range(4)
-_ANY = (INFANTRY, ARCHER, LANCER, HORSE_ARCHER)
+_ANY = (INFANTRY, ARCHER, LANCER, HORSE_ARCHER, GRENADIER, HORSE_GRENADIER)
 WILDLIFE = {
     HORSE: dict(name='말', habitat='grass', group=(7, 12), spread=22.0, herd_r=26.0, per_area=700, cap=60, regrow=25.0, tame=11.0,
-                mounts={INFANTRY: LANCER, ARCHER: HORSE_ARCHER}),
+                mounts={INFANTRY: LANCER, ARCHER: HORSE_ARCHER, GRENADIER: HORSE_GRENADIER}),
     DRAGON: dict(name='드래곤', habitat='lair', hostile=True, unit=WILD_DRAGON, cap=3, regrow=360.0, tame=15.0,
                  wake=8.0, guard=14.0, subdue=0.3, subdue_time=30.0, limit=2,
                  mounts={k: DRAGON_RIDER for k in _ANY},
@@ -181,6 +201,9 @@ def josa(word: str, a: str, b: str) -> str:
 
 
 TOWER_RANGE, TOWER_DMG, TOWER_CD = 22.0, 6.0, 1.4
+# 전장의 안개 (sim/vision.py, 판 설정): cell칸 격자를 sec초마다. 다 지은 건물은 반지름 + build칸 (짓는 중이면 반지름 + site칸만 '가 본 곳'), 망루·화염탑은 tower칸,
+# 전함 warship칸 (사거리보다 조금 멀리), 나룻배 ferry칸. 병사는 병종의 시야 (UNIT_STATS sight).
+FOG = dict(cell=4, sec=0.25, site=2.0, build=10.0, tower=TOWER_RANGE + 2.0, warship=WARSHIP_RANGE + 2.0, ferry=10.0)
 
 # 1초에 나는 자원 (자원지 풍부함 1 기준). 거점도 조금씩 낸다 (아무것도 없어도 다시 일어설 수 있게)
 YIELD = {FARM: (FOOD, 1.5), LUMBER: (WOOD, 0.9), QUARRY: (STONE, 0.65)}

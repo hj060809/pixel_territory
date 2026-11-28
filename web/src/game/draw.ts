@@ -28,7 +28,7 @@ export const FLY_LIFT = 18;
 /** 드래곤 입의 자리 (모델 점): 몸 가운데에서 앞으로, 바닥에서 위로 (숨결 그림). */
 const MOUTH_FWD = 30, MOUTH_UP = 22;
 const STOMP_MS = 500;                // 바위거북 발 구르기 그림 (앞발을 들었다 내리찍기)
-const TORTOISE = 6;                  // 병종 번호 (sim/rules.py)
+const TORTOISE = 6, GRENADIER = 7, HORSE_GRENADIER = 8;   // 병종 번호 (sim/rules.py)
 const SAND = ['rgb(236,214,170)', 'rgb(214,186,132)', 'rgb(184,150,98)'];
 const ICE = ['rgb(236,248,255)', 'rgb(190,228,246)', 'rgb(150,196,232)'];
 /** 그림 한 점의 화면 크기 (확대에 따라, 땅과 함께 매끄럽게). 건물 모델 너비가 2r × 2.4 점이라 땅 넓이와 맞는다.
@@ -63,6 +63,13 @@ export class Overlay {
   private lightKey = 0;
   private hourKey = NaN;
   private lastNow = 0;
+  private fogCv: HTMLCanvasElement | null = null;       // 전장의 안개: 격자 칸마다 한 점 (부드럽게 늘려 그린다)
+  private fogCur: Float32Array | null = null;          // 칸마다 지금 진하기 (받은 목표로 조금씩 다가간다: 깜빡이지 않게)
+  private fogGoal: Float32Array | null = null;
+  private fogV = -1;
+  private fogBusy = true;                               // 아직 목표에 다 닿지 않았다 (다시 칠한다)
+  private fogFrom: Float32Array | null = null;          // 걷히기 시작할 때의 진하기 (판 끝·관전: 시간에 맞춰 고르게 사그라든다)
+  private fogOffAt = 0;
   private ang = new Map<number, number>();        // 병사가 보는 방향 (라디안)
   private breathAt = new Map<number, number>();   // 숨결을 뿜은 화면 시각 (용기사)
   private spinAt = new Map<number, number>();     // 발 구르기를 한 화면 시각 (바위거북)
@@ -74,6 +81,219 @@ export class Overlay {
 
   /** 화염탑 불 (0.6초): 분사구에서 목표로 뻗는 불꽃 줄기 (안쪽은 노랗고 바깥은 붉다), 맞은 자리에 불길과 그을음.
    *  약한 불(유황이 없을 때)은 가늘고 짧다. */
+  /** 유황 척탄병: 단지가 포물선으로 날아가고 (불붙은 심지, 연기 꼬리), 떨어진 자리에 burn초 동안 일렁이는 불과 그을음.
+   *  설원에 떨어진 불은 작고 어둡다. 모두 정수 점 크기. */
+  private drawGrenades(sx: (x: number) => number, sy: (y: number) => number, K: number, z: number, now: number, R: any) {
+    const g = this.g, P = Math.max(Math.round(K), 2), GR = R.grenade ?? { fly: 0.5, burn: 2.0, burn_r: 2.5 };
+    const FLY = GR.fly * 1000, BURN = GR.burn * 1000;
+    const dot = (x: number, y: number, s: number) => g.fillRect(Math.round(x / P) * P, Math.round(y / P) * P, s, s);
+    // 날아가는 단지: 포물선, 연기 꼬리, 불붙은 심지
+    this.pots = this.pots.filter((p) => now - p.at < FLY);
+    for (const p of this.pots) {
+      const f = (now - p.at) / FLY, x0 = sx(p.x0), y0 = sy(p.y0) - 8 * K, x1 = sx(p.x1), y1 = sy(p.y1);
+      const at = (q: number) => [x0 + (x1 - x0) * q, y0 + (y1 - y0) * q - Math.sin(q * Math.PI) * 6 * z];
+      for (let k = 1; k <= 6; k++) {                               // 연기 꼬리 (뒤로 갈수록 옅게)
+        const [tx, ty] = at(Math.max(0, f - k * 0.05));
+        g.globalAlpha = 0.55 * (1 - k / 7);
+        g.fillStyle = k < 3 ? 'rgb(255,170,70)' : 'rgb(130,120,110)';
+        dot(tx, ty - k * P * 0.4, k < 3 ? P : 2 * P);
+      }
+      g.globalAlpha = 1;
+      const [x, y] = at(f), s = 2 * P;
+      g.fillStyle = 'rgb(30,18,14)'; g.fillRect(Math.round(x - s - P), Math.round(y - s), 2 * s + 2 * P, 2 * s + P);   // 단지 테두리
+      g.fillStyle = 'rgb(168,86,50)'; g.fillRect(Math.round(x - s), Math.round(y - s + P), 2 * s, 2 * s - P);         // 질그릇
+      g.fillStyle = 'rgb(214,190,60)'; g.fillRect(Math.round(x - s), Math.round(y - s + P), 2 * s, P);                 // 유황 띠
+      g.fillStyle = (Math.floor(now / 50) % 2) ? 'rgb(255,250,190)' : 'rgb(255,170,60)';                             // 심지 불
+      g.fillRect(Math.round(x - P / 2), Math.round(y - s - 2 * P), 2 * P, 2 * P);
+    }
+    // 떨어진 자리의 불: 바닥 빛, 그을음, 솟는 불 혀, 튀는 불티, 연기
+    this.burns = this.burns.filter((b) => now - b.at < BURN + 400);
+    const FIRE = ['rgb(255,250,200)', 'rgb(255,214,100)', 'rgb(255,150,50)', 'rgb(222,80,30)', 'rgb(150,40,24)'];
+    for (const b of this.burns) {
+      const age = (now - b.at) / BURN, cx = sx(b.x), cy = sy(b.y), rr = GR.burn_r * z * (b.cold ? 0.7 : 1);
+      const fade = age < 0.8 ? 1 : Math.max(0, 1 - (age - 0.8) / 0.2), seed = Math.floor(b.x * 13 + b.y * 7);
+      if (age < 0.15) {                                            // 깨지는 순간: 섬광과 사방으로 튀는 질그릇 조각·불꽃
+        const q = age / 0.15;
+        g.globalAlpha = 1 - q;
+        g.fillStyle = FIRE[0];
+        g.beginPath(); g.ellipse(Math.round(cx), Math.round(cy), rr * (0.4 + 0.6 * q), rr * 0.7 * (0.4 + 0.6 * q), 0, 0, TAU); g.fill();
+        for (let i = 0; i < 24; i++) {
+          const an = (i / 24) * TAU + seed, d = rr * q * (0.8 + ((i * 7) % 5) / 8);
+          g.fillStyle = i % 3 ? FIRE[1] : 'rgb(168,86,50)';
+          dot(cx + Math.cos(an) * d, cy + Math.sin(an) * d * 0.7 - Math.sin(q * Math.PI) * 3 * K, P);
+        }
+      }
+      g.globalAlpha = 0.45 * fade;                                 // 바닥 빛 (주황)
+      g.fillStyle = b.cold ? 'rgb(200,120,70)' : 'rgb(255,140,40)';
+      g.beginPath(); g.ellipse(Math.round(cx), Math.round(cy), rr, rr * 0.7, 0, 0, TAU); g.fill();
+      g.globalAlpha = 0.5 * fade;                                  // 그을음 (가운데)
+      g.fillStyle = 'rgb(40,24,18)';
+      g.beginPath(); g.ellipse(Math.round(cx), Math.round(cy), rr * 0.55, rr * 0.38, 0, 0, TAU); g.fill();
+      const tongues = b.cold ? 9 : 16;                             // 불 혀: 자리마다 아래가 굵고 위로 가늘게 솟아 일렁인다
+      for (let i = 0; i < tongues; i++) {
+        const h = ((i * 37 + seed) % 97) / 97, an = h * TAU * 2.3 + i, d = Math.sqrt(((i * 53 + seed) % 89) / 89) * rr * 0.85;
+        const bx = cx + Math.cos(an) * d, by = cy + Math.sin(an) * d * 0.7;
+        const flick = 0.6 + 0.4 * Math.sin(now / 90 + i * 1.7), hgt = (b.cold ? 3 : 5.5) * K * flick * (0.7 + h * 0.6);
+        for (let y = 0; y < hgt; y += P) {
+          const t = y / hgt, wdt = Math.max(P, Math.round((1 - t) * 2.5) * P);
+          g.globalAlpha = fade * (b.cold ? 0.7 : 0.95);
+          g.fillStyle = b.cold ? ['rgb(255,210,150)', 'rgb(230,150,90)', 'rgb(160,150,150)'][Math.min(2, Math.floor(t * 3))]
+            : FIRE[Math.min(4, Math.floor(t * 4.2 + (i % 2) * 0.5))];
+          dot(bx - wdt / 2 + Math.sin(now / 120 + i + t * 3) * P * t, by - y, wdt);
+        }
+      }
+      for (let i = 0; i < (b.cold ? 6 : 14); i++) {                // 튀어 오르는 불티
+        const life = ((now / 600 + ((i * 41 + seed) % 97) / 97) % 1);
+        const an = i * 2.4 + seed, d = (((i * 29 + seed) % 23) / 23) * rr * 0.8;
+        g.globalAlpha = fade * (1 - life);
+        g.fillStyle = life < 0.4 ? FIRE[1] : FIRE[3];
+        dot(cx + Math.cos(an) * d + Math.sin(life * 6 + i) * P, cy + Math.sin(an) * d * 0.7 - life * 9 * K, P);
+      }
+      g.globalAlpha = 0.35 * fade;                                 // 연기
+      g.fillStyle = 'rgb(80,74,70)';
+      for (let i = 0; i < 10; i++) { const life = ((now / 1000 + i / 10) % 1); dot(cx + Math.sin(i * 2.3 + now / 600) * rr * 0.5, cy - 7 * K - life * 12 * K, 2 * P); }
+    }
+    g.globalAlpha = 1;
+  }
+
+  /** 전함 포탄: 포구 섬광과 연기 (0.25초) → 포탄이 거리에 맞는 포물선으로 날아가며 연기 꼬리 (0.5초)
+   *  → 땅이면 섬광·불덩이·튀어 오르는 흙덩이·연기·그을음, 물이면 솟구치는 물기둥과 물결 고리 (0.7초). 모두 정수 점. */
+  private drawCannons(sx: (x: number) => number, sy: (y: number) => number, K: number, z: number, now: number) {
+    const g = this.g, P = Math.max(Math.round(K), 2), FLY = 500, HIT = 700;   // FLY: 서버 rules.WARSHIP_FLY (그때 맞는다)
+    const dot = (x: number, y: number, sz: number) => g.fillRect(Math.round(x / P) * P, Math.round(y / P) * P, sz, sz);
+    this.cannons = this.cannons.filter((c) => now - c.at < FLY + HIT);
+    for (const c of this.cannons) {
+      const age = now - c.at, x0 = sx(c.x0), y0 = sy(c.y0) - 4 * K, x1 = sx(c.x1), y1 = sy(c.y1);
+      const dist = Math.hypot(x1 - x0, y1 - y0), lift = Math.max(6 * K, dist * 0.28);
+      const at = (f: number) => [x0 + (x1 - x0) * f, y0 + (y1 - y0) * f - 4 * lift * f * (1 - f)];
+      const seed = Math.floor(c.x1 * 7 + c.y1 * 13);
+      if (age < 250) {                                             // 포구: 섬광과 퍼지는 연기
+        const q = age / 250;
+        g.globalAlpha = 1 - q;
+        g.fillStyle = q < 0.4 ? 'rgb(255,250,200)' : 'rgb(255,190,90)';
+        const ang = Math.atan2(y1 - y0, x1 - x0);
+        for (let k = 0; k < 8; k++) dot(x0 + Math.cos(ang) * k * P * 0.9, y0 + Math.sin(ang) * k * P * 0.9, k < 4 ? 3 * P : 2 * P);
+        g.fillStyle = 'rgb(200,196,190)';
+        for (let k = 0; k < 10; k++) { const an = (k / 10) * 6.283; dot(x0 + Math.cos(an) * q * 5 * P, y0 + Math.sin(an) * q * 3 * P - q * 3 * P, 3 * P); }
+      }
+      if (age < FLY) {                                             // 날아가는 포탄과 연기 꼬리
+        const f = age / FLY;
+        for (let k = 1; k <= 5; k++) {
+          const [tx, ty] = at(Math.max(0, f - k * 0.05));
+          g.globalAlpha = 0.5 * (1 - k / 6);
+          g.fillStyle = 'rgb(170,166,160)';
+          dot(tx, ty, 2 * P);
+        }
+        g.globalAlpha = 1;
+        const [x, y] = at(f), r = Math.max(3 * P, Math.round(z * 1.1));
+        g.fillStyle = 'rgb(16,14,20)'; g.fillRect(Math.round(x - r / 2 - 1), Math.round(y - r / 2 - 1), r + 2, r + 2);   // 테두리
+        g.fillStyle = 'rgb(50,46,56)'; g.fillRect(Math.round(x - r / 2), Math.round(y - r / 2), r, r);
+        g.fillStyle = 'rgb(150,146,160)'; g.fillRect(Math.round(x - r / 2), Math.round(y - r / 2), Math.max(1, Math.round(r / 3)), Math.max(1, Math.round(r / 3)));   // 빛
+        continue;
+      }
+      const q = (age - FLY) / HIT, rr = Math.max(8 * K, 3.2 * z);
+      if (c.land) {                                                // 땅: 폭발
+        if (q < 0.2) {                                             // 섬광과 불덩이
+          g.globalAlpha = 1 - q / 0.2;
+          g.fillStyle = 'rgb(255,248,200)';
+          g.beginPath(); g.ellipse(Math.round(x1), Math.round(y1), rr * (0.6 + q * 2.5), rr * 0.7 * (0.6 + q * 2.5), 0, 0, 6.283); g.fill();
+        }
+        g.globalAlpha = Math.max(0, 1 - q * 1.2);
+        for (let k = 0; k < 30; k++) {                             // 불꽃
+          const an = (k / 30) * 6.283 + seed, d = rr * Math.min(1, q * 3) * (0.2 + ((k * 7) % 5) / 5);
+          g.fillStyle = ['rgb(255,236,140)', 'rgb(255,170,60)', 'rgb(220,90,40)'][k % 3];
+          dot(x1 + Math.cos(an) * d, y1 + Math.sin(an) * d * 0.7 - q * 6 * K * ((k % 4) / 3), k % 3 === 0 ? 3 * P : 2 * P);
+        }
+        g.globalAlpha = Math.max(0, 1 - q);
+        for (let k = 0; k < 16; k++) {                             // 흙덩이: 튀어 올랐다 떨어진다
+          const an = (k / 16) * 6.283 + seed * 0.3, sp = rr * (0.8 + ((k * 13) % 7) / 7), up = 9 * K * (0.5 + ((k * 5) % 3) / 3);
+          g.fillStyle = k % 2 ? 'rgb(110,86,64)' : 'rgb(150,124,96)';
+          dot(x1 + Math.cos(an) * sp * q, y1 + Math.sin(an) * sp * q * 0.7 - up * 4 * q * (1 - q), k % 3 === 0 ? 3 * P : 2 * P);
+        }
+        g.globalAlpha = 0.55 * Math.max(0, 1 - q);                 // 연기와 그을음
+        g.fillStyle = 'rgb(90,84,80)';
+        for (let k = 0; k < 10; k++) dot(x1 + Math.sin(k * 2.1 + seed) * rr * 0.7, y1 - 2 * K - q * (5 + k * 1.4) * K, 3 * P);
+        g.globalAlpha = 0.35 * Math.max(0, 1 - q);
+        g.fillStyle = 'rgb(30,24,20)';
+        g.beginPath(); g.ellipse(Math.round(x1), Math.round(y1), rr * 0.6, rr * 0.4, 0, 0, 6.283); g.fill();
+      } else {                                                     // 물: 솟구치는 물기둥과 고리
+        g.globalAlpha = Math.max(0, 1 - q);
+        const h = 16 * K * Math.sin(Math.min(1, q * 1.6) * Math.PI);
+        g.fillStyle = 'rgb(236,244,248)';
+        for (let y = 0; y < h; y += P) { const w = Math.max(P, Math.round((1 - y / Math.max(h, 1)) * 4) * P); dot(x1 - w / 2, y1 - y, w); }
+        g.fillStyle = 'rgb(200,224,240)';
+        for (let k = 0; k < 18; k++) {                             // 물보라: 사방으로 튀었다 떨어진다
+          const an = (k / 18) * 6.283 + seed, d = rr * q * (0.5 + ((k * 7) % 5) / 8), up = 8 * K * (0.4 + ((k * 3) % 4) / 4);
+          dot(x1 + Math.cos(an) * d, y1 + Math.sin(an) * d * 0.6 - up * 4 * q * (1 - q), k % 3 === 0 ? 2 * P : P);
+        }
+        g.strokeStyle = WAKE; g.lineWidth = Math.max(1, Math.round(K / 2));
+        g.beginPath(); g.ellipse(Math.round(x1), Math.round(y1), rr * (0.4 + q), rr * 0.6 * (0.4 + q), 0, 0, 6.283); g.stroke();
+      }
+      g.globalAlpha = 1;
+    }
+  }
+
+  /** 전장의 안개 격자의 값: 0 안 가 봄, 1 가 봄, 2 보임 (안개 판이 아니면 2). */
+  fogLevel(x: number, y: number): number {
+    const f = this.st.fog;
+    if (!f) return 2;
+    const gx = Math.min(Math.max(Math.floor(x / f.cell), 0), f.gw - 1), gy = Math.min(Math.max(Math.floor(y / f.cell), 0), f.gh - 1);
+    return f.lv[gy * f.gw + gx];
+  }
+
+  /** 전장의 안개 (sim/vision.py): 안 가 본 곳은 가리고, 가 봤지만 지금 안 보이는 곳은 어둡게.
+   *  격자 칸마다 진하기가 받은 목표로 부드럽게 다가가고 (밝혀지거나 가려질 때 깜빡이지 않게), 늘려 그릴 때 부드럽게 이어진다.
+   *  지형과 같은 좌표 (반올림 없이)로 그리고, 지도 바깥 테두리도 덮는다 (확대·축소 때 가장자리가 번쩍이지 않게). */
+  private drawFog(sx: (x: number) => number, sy: (y: number) => number, z: number, dt: number, W: number, H: number, now: number) {
+    const f = this.st.fog;
+    if (!f) { this.fogCv = null; this.fogCur = this.fogGoal = null; this.fogV = -1; return; }
+    const n = f.gw * f.gh, A = [0.97, 0.52, 0];                      // 안 가 봄, 가 봄, 보임
+    if (!this.fogCv || this.fogCv.width !== f.gw || this.fogCv.height !== f.gh || !this.fogCur || this.fogCur.length !== n) {
+      this.fogCv = document.createElement('canvas');
+      this.fogCv.width = f.gw; this.fogCv.height = f.gh;
+      this.fogCur = new Float32Array(n);
+      this.fogGoal = new Float32Array(n);
+      for (let k = 0; k < n; k++) this.fogCur[k] = A[f.lv[k]];      // 처음: 곧장
+      this.fogV = -1;
+    }
+    const cur = this.fogCur!, goal = this.fogGoal!;
+    if (f.v !== this.fogV) {
+      this.fogV = f.v;
+      for (let k = 0; k < n; k++) goal[k] = A[f.lv[k]];
+      this.fogBusy = true;
+      if (f.off) { this.fogFrom = cur.slice(); this.fogOffAt = now; }
+    }
+    if (this.fogBusy) {                                               // 목표로 다가간다 (약 0.3초), 다 닿으면 멈춘다
+      const ctx = this.fogCv.getContext('2d')!, img = ctx.createImageData(f.gw, f.gh), d = img.data;
+      const step = Math.min(1, dt * 7);
+      const q = Math.min(1, (now - this.fogOffAt) / 1600), keep = 1 - q * q * (3 - 2 * q);   // 판 끝·관전: 1.6초 동안 부드럽게
+      let busy = f.off ? q < 1 : false;
+      for (let k = 0; k < n; k++) {
+        let c: number;
+        if (f.off && this.fogFrom) c = this.fogFrom[k] * keep;
+        else {
+          c = cur[k] + (goal[k] - cur[k]) * step;
+          if (Math.abs(goal[k] - c) < 0.004) c = goal[k]; else busy = true;
+        }
+        cur[k] = c;
+        const o = k * 4;
+        d[o] = 8; d[o + 1] = 10; d[o + 2] = 18; d[o + 3] = Math.round(c * 255);
+      }
+      ctx.putImageData(img, 0, 0);
+      this.fogBusy = busy;
+      if (!busy && f.off) { this.st.fog = null; this.fogFrom = null; return; }   // 다 걷혔다
+    }
+    const g = this.g, x0 = sx(0), y0 = sy(0), x1 = sx(this.st.info.W), y1 = sy(this.st.info.H);
+    g.imageSmoothingEnabled = true;                                   // 늘려 그릴 때 칸 사이를 부드럽게
+    g.drawImage(this.fogCv, x0, y0, (f.gw * f.cell) * z, (f.gh * f.cell) * z);
+    g.imageSmoothingEnabled = false;
+    g.fillStyle = `rgba(8,10,18,${A[0]})`;                            // 지도 바깥 (1점 겹쳐서 틈 없이)
+    if (y0 > 0) g.fillRect(0, 0, W, y0 + 1);
+    if (y1 < H) g.fillRect(0, y1 - 1, W, H - y1 + 1);
+    if (x0 > 0) g.fillRect(0, Math.max(y0, 0), x0 + 1, Math.min(y1, H) - Math.max(y0, 0));
+    if (x1 < W) g.fillRect(x1 - 1, Math.max(y0, 0), W - x1 + 1, Math.min(y1, H) - Math.max(y0, 0));
+  }
+
   private drawFlames(sx: (x: number) => number, sy: (y: number) => number, K: number, z: number, now: number) {
     const g = this.g, LIFE = 600, P = Math.max(Math.round(K), 2);
     this.flames = this.flames.filter((f) => now - f.at < LIFE);
@@ -103,6 +323,10 @@ export class Overlay {
     }
     g.globalAlpha = 1;
   }
+  private cannons: { x0: number; y0: number; x1: number; y1: number; at: number; land: boolean }[] = [];   // 전함 포탄 (공격 기록 2)
+  private pots: { x0: number; y0: number; x1: number; y1: number; at: number }[] = [];      // 날아가는 유황 단지 (sim/grenade.py, 공격 기록 15)
+  private burns: { x: number; y: number; at: number; cold: boolean }[] = [];               // 단지가 떨어진 자리의 불 (공격 기록 16)
+  private throwAt = new Map<number, number>();                                             // 척탄병이 던진 때 (병사 칸 → 시각)
   private breaths: { x: number; y: number; tx: number; ty: number; at: number; aid: number }[] = [];   // 야생 드래곤이 숨결을 뿜은 자리, 상대 자리, 그 드래곤 (번호)
   private frost: { x0: number; y0: number; x1: number; y1: number; at: number; air: boolean; src: string }[] = [];   // 그리는 중인 숨결
   private mouths = new Map<string, number[]>();   // 이번 장면에서 숨결 자세로 그린 드래곤: [입 x, y, 숨결이 닿는 앞쪽 땅 x, y] (u칸 / a번호)
@@ -375,6 +599,7 @@ export class Overlay {
     g.globalAlpha = 1;
   }
   private boatAng = new Map<number, number>();
+  private boatAim = new Map<number, { x: number; y: number; at: number }>();   // 전함이 마지막으로 쏜 곳 (옆으로 돌아 포문을 향한다)
 
   /** 지금 빛 (시각이 1/12시간 움직일 때마다 새로). */
   private lightNow(): Light {
@@ -424,10 +649,10 @@ export class Overlay {
   private bubble(b: BuildRec, cx: number, top: number, z: number) {
     const g = this.g, R = this.st.info.rules;
     const items: number[] = [];
-    for (let k = 0; k < 5; k++) { const c = (b.qbits >> (3 * k)) & 7; if (c) items.push(c - 1); }   // 대기열 번호: 0 보병, 1 궁수, 2 전함
+    for (let k = 0; k < 5; k++) { const c = (b.qbits >> (3 * k)) & 7; if (c) items.push(c - 1); }   // 대기열 번호: 0 보병, 1 궁수, 2 전함, 3 척탄병
     if (!items.length) return;
     const p = Math.max(1, Math.round(z / 2.6));                 // 말풍선 픽셀 한 칸
-    const unitOf = (q: number) => (q === 2 ? 0 : q);                                 // 대기열 번호 → 병종 그림
+    const unitOf = (q: number) => (q === 2 ? 0 : q === 3 ? 7 : q);                  // 대기열 번호 → 병종 그림
     const icons = items.map((q) => this.bank.unit(unitOf(q), b.own, 0, p));
     const iw = icons[0].width, ih = icons[0].height, gap = p;
     const w = icons.length * iw + (icons.length - 1) * gap + 4 * p, h = ih + 6 * p;
@@ -544,7 +769,7 @@ export class Overlay {
     const taken = st.siteTaken(), ks = Math.max(2, Math.round(z * 0.6));
     for (const s of st.info.sites) {
       if (this.clean) break;                                         // 예쁜 스크린샷: 자원지 아이콘 없이
-      if (taken.has(s.id)) continue;
+      if (taken.has(s.id) || this.fogLevel(s.x, s.y) === 0) continue;   // 전장의 안개: 안 가 본 곳은 그리지 않는다
       const x = sx(s.x), y = sy(s.y);
       if (!vis(x, y)) continue;
       const img = this.bank.site(s.kind, ks, !!s.snow, visOn());   // 시인성 강조: 밝은 바깥 테두리
@@ -569,7 +794,7 @@ export class Overlay {
     // 드래곤 둥지 (땅의 장식: 건물·병사 아래)
     for (const [ly, lx] of st.info.lairs ?? []) {
       const x = sx(lx + 0.5), y = sy(ly + 0.5);
-      if (!vis(x, y, 200)) continue;
+      if (!vis(x, y, 200) || this.fogLevel(lx + 0.5, ly + 0.5) === 0) continue;
       const kb = bigK(z);
       g.imageSmoothingEnabled = kb < 1;                                // 줄여 그릴 때는 부드럽게 (점이 빠져 깨지지 않게)
       stack.draw(g, 'lair', 0, L, x, y, kb, { dirs: 1, torch: tl(lx, ly) });
@@ -658,19 +883,35 @@ export class Overlay {
       }
     }
     // 배
+    for (const s of fresh) {                                          // 쏜 전함: 포탄이 나간 자리에서 가장 가까운 전함
+      if (s.kind !== 2) continue;
+      let id = -1, bd = 4;
+      for (const b of st.boats.values()) { const d = Math.hypot(b.x - s.x0, b.y - (s.y0 + 2)); if (b.kind === 1 && d < bd) { bd = d; id = b.id; } }
+      if (id >= 0) this.boatAim.set(id, { x: s.x1, y: s.y1, at: now });
+    }
+    const aimHold = (((R as { warship?: { cd: number } }).warship?.cd ?? 1.6) + 0.6) * 1000;       // 다음 발까지 옆을 대고 있는다
     for (const b of st.boats.values()) {
       if (b.bits & 1) continue;                                     // 아직 항구에서 출발 전
       const bx = lerp(b.px, b.x, a), by = lerp(b.py, b.y, a), x = sx(bx), y = sy(by);
-      if (!vis(x, y, 60)) continue;
       const ferry = b.kind === 0;
-      const mx = b.x - b.px, my = b.y - b.py;                        // 가는 쪽으로 뱃머리를 돌린다
+      const mx = b.x - b.px, my = b.y - b.py;                        // 가는 쪽으로 뱃머리를 돌린다 (화면 밖에서도: 들어올 때 옆으로 미끄러지지 않게)
       let ang = this.boatAng.get(b.id) ?? (b.dir < 0 ? Math.PI : 0);
-      if (Math.hypot(mx, my) > 0.01) ang = turn(ang, Math.atan2(my, mx), dt * 4);
+      const aim = this.boatAim.get(b.id), moveAng = Math.atan2(my, mx), moving = Math.hypot(mx, my) > 0.01;
+      if (aim && now - aim.at >= aimHold) this.boatAim.delete(b.id);
+      if (moving) ang = turn(ang, moveAng, dt * 4);                  // 움직일 때: 늘 뱃머리가 가는 쪽 (쏘는 중이어도)
+      else if (aim && now - aim.at < aimHold) {                      // 멈춰 쏠 때: 옆구리 (포문)가 목표를 향하게 (가까운 쪽 옆으로)
+        const ta = Math.atan2(aim.y - by, aim.x - bx);
+        const a1 = ta + Math.PI / 2, a2 = ta - Math.PI / 2;
+        const diff = (q: number) => Math.abs(Math.atan2(Math.sin(q - ang), Math.cos(q - ang)));
+        ang = turn(ang, diff(a1) < diff(a2) ? a1 : a2, dt * 5);
+      }
       this.boatAng.set(b.id, ang);
+      if (!vis(x, y, 60)) continue;
       const bob = ferry && Math.trunc(t * 2 + bx) % 2 ? 1 : 0;      // 살짝 출렁인다
       if (MOVING_BOAT.has(b.state)) {                                // 지나간 물보라 (고물 쪽)
         g.fillStyle = WAKE;
-        const c = Math.cos(ang), s = Math.sin(ang), back = (ferry ? 6 : 11) * K;
+        const wa = ang;                                                   // 물보라는 고물 쪽 (움직일 땐 늘 정면을 본다)
+        const c = Math.cos(wa), s = Math.sin(wa), back = (ferry ? 6 : 11) * K;
         for (const k of [1, 2]) g.fillRect(Math.round(x - c * (back + k * 3 * K)), Math.round(y - s * (back + k * 3 * K)), Math.round(K), Math.round(K));
       }
       const rc = stack.draw(g, ferry ? 'ferry' : 'warship', b.own, L, x, y + bob * K, K, { dir: dirOf(ang), torch: tl(bx, by), rim: visOn() });
@@ -706,6 +947,7 @@ export class Overlay {
         if (!u) continue;
         if (s.kind === 4) { this.spinAt.set(u.slot, now); continue; }   // 바위거북 발 구르기
         if (s.kind === 5) { this.roarAt.set(u.slot, now); continue; }   // 바위거북 낮은 포효
+        if (s.kind === 15) this.throwAt.set(u.slot, now);               // 척탄병: 단지를 던지는 자세
         this.ang.set(u.slot, Math.atan2(s.y1 - s.y0, s.x1 - s.x0));
         if (s.kind === 3) this.breathAt.set(u.slot, now);
       }
@@ -728,6 +970,7 @@ export class Overlay {
         const frame = pang ? (u.state === 5 ? 2 : spun < STOMP_MS * 0.55 ? 3 : roared < 700 ? 4 : u.bits & 1 ? Math.trunc(t * 2.2 + u.slot * 0.3) % 2 : 0)   // 바위거북: 숨기, 발 구르기, 포효, 걷기
           : fly ? (breath ? 6 : 1 + (Math.trunc(t * 3 + u.slot * 0.3) % 2))                // 날갯짓, 날며 숨결
           : dragon ? (breath ? 5 : u.bits & 1 ? (Math.trunc(t * 3.2 + u.slot * 0.3) % 2 ? 7 : 8) : 0)   // 땅의 용기사: 숨결, 걷기, 서기
+          : (u.kind === GRENADIER || u.kind === HORSE_GRENADIER) && now - (this.throwAt.get(u.slot) ?? -1e9) < 450 ? (u.kind === GRENADIER ? 2 : 4)   // 척탄병·척탄기마병: 던지는 자세
           : u.bits & 1 ? Math.trunc(t * 4.5 * 1.2 + u.slot * 0.37) % 2 : 0;   // 걸을 때 다리
         const mx = u.x - u.px, my = u.y - u.py;                    // 가는 쪽으로 몸을 돌린다
         let ang = this.ang.get(u.slot) ?? (u.slot % 2 ? Math.PI * 0.5 : Math.PI * 0.25);
@@ -783,12 +1026,13 @@ export class Overlay {
     for (const s of st.shots) {
       const age = (t - s.t0) / 0.3;
       const ax = sx(s.x0), ay = sy(s.y0), bx = sx(s.x1), by = sy(s.y1);
-      if (s.kind === 2) {                                         // 포탄
-        const f = Math.min(age * 1.3, 1.0);
-        if (f < 1) {
-          g.fillStyle = 'rgb(30,28,34)'; g.beginPath();
-          g.arc(ax + (bx - ax) * f, ay + (by - ay) * f - 6 * z * f * (1 - f), Math.max(1, Math.trunc(z * 0.45)), 0, 7); g.fill();
-        } else { g.strokeStyle = WAKE; g.lineWidth = 1; g.beginPath(); g.arc(bx, by, Math.max(2, Math.trunc(z)), 0, 7); g.stroke(); }
+      if (s.kind === 2) {                                         // 포탄: 아래 drawCannons에서 (발사 섬광 → 포물선 → 땅이면 폭발, 물이면 물기둥)
+        if (fresh.includes(s)) this.cannons.push({ x0: s.x0, y0: s.y0, x1: s.x1, y1: s.y1, at: now,   // 배를 맞히면 물기둥 대신 폭발
+          land: this.ctl.rules.land(Math.floor(s.y1), Math.floor(s.x1)) || [...st.boats.values()].some((b) => Math.hypot(b.x - s.x1, b.y - s.y1) < 2.5) });
+      } else if (s.kind === 15) {                                // 유황 척탄병: 단지가 날아간다 (아래 grenades에서)
+        if (fresh.includes(s)) this.pots.push({ x0: s.x0, y0: s.y0, x1: s.x1, y1: s.y1, at: now });
+      } else if (s.kind === 16) {                                // 단지가 떨어진 자리에 불
+        if (fresh.includes(s)) this.burns.push({ x: s.x0, y: s.y0, at: now, cold: s.x1 > 0.5 });
       } else if (s.kind === 6 || s.kind === 7) {                 // 화염탑: 불 (아래 flames에서)
         if (fresh.includes(s)) this.flames.push({ x0: s.x0, y0: s.y0, x1: s.x1, y1: s.y1, at: now, weak: s.kind === 7 });
       } else if (s.kind === 12) {                                // 드래곤이 눈보라를 겨눴다: 드래곤이 그쪽을 바라본다 (땅에 표시는 없다)
@@ -831,6 +1075,9 @@ export class Overlay {
     }
     this.drawRings(sx, sy, K, z, now, R);
     this.drawFlames(sx, sy, K, z, now);
+    this.drawGrenades(sx, sy, K, z, now, R);
+    this.drawCannons(sx, sy, K, z, now);
+    if (!this.clean) this.drawFog(sx, sy, z, dt, W, H, now);                    // 전장의 안개 (예쁜 스크린샷엔 없다)
     if (this.clean) return;                                           // 예쁜 스크린샷: 아래 막대·말풍선·명령 표시·미리보기는 그리지 않는다
     for (const p of tameBars) this.bar(p.x, p.y, p.w, p.prog, p.col || undefined);   // 길들이기 진행, 드래곤 체력 (병사에 가리지 않게 나중에)
     for (const p of tameBars) if (p.label) this.text(p.label, p.x, p.y - 8, 11, 'rgb(205,232,255)', true, 'center');

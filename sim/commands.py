@@ -18,7 +18,7 @@ PLACE_KINDS = {'tower': R.TOWER, 'hall': R.HALL, 'harbor': R.HARBOR,
                'farm': R.FARM, 'lumber': R.LUMBER, 'quarry': R.QUARRY, 'sulfur': R.SULFUR_PIT,   # 농장~유황은 빈 자원지에
                'fire': R.FIRE_TOWER, 'pasture': R.PASTURE}   # 목장은 말·순록 떼를 눌러 (sim/pasture.py)
 SITE_OF = {v: k for k, v in R.SITE_BUILDING.items()}                       # 건물 → 자원지 종류
-TRAIN_KINDS = {'infantry': R.INFANTRY, 'archer': R.ARCHER, 'warship': R.WARSHIP}     # 기병은 훈련하지 않는다 (길들인다)
+TRAIN_KINDS = {'infantry': R.INFANTRY, 'archer': R.ARCHER, 'grenadier': R.GRENADIER, 'warship': R.WARSHIP}     # 기병은 훈련하지 않는다 (길들인다)
 
 
 class PlayerCommands:
@@ -59,8 +59,16 @@ class PlayerCommands:
             shown = 'ship' if not (w.map.land[int(y), int(x)] if 0 <= int(y) < w.map.H and 0 <= int(x) < w.map.W else False) else 'move'
         if ships:
             foe = w.fleet.boat_at(y, x, max(3.0, r * 1.25))
+            fu = w.unit_at(y, x, max(2.0, r))
+            fb = w.building_at(y, x)
             if foe is not None and w.diplo.foe(self.nid, foe.own):
                 w.fleet.hunt(ships, foe)
+                shown = 'attack'
+            elif fu >= 0 and w.diplo.foe(self.nid, int(w.units.own[fu])) and not w.units.air[fu]:   # 땅의 적 병사: 포격
+                w.fleet.bombard(ships, unit=fu)
+                shown = 'attack'
+            elif fb >= 0 and w.diplo.foe(self.nid, int(w.builds.own[fb])):                         # 땅의 적 건물: 포격
+                w.fleet.bombard(ships, building=fb)
                 shown = 'attack'
             elif w.fleet.order_ships(ships, y, x):
                 shown = 'ship'
@@ -72,6 +80,9 @@ class PlayerCommands:
         if foe >= 0 and w.diplo.foe(self.nid, int(w.units.own[foe])):
             w.order_attack(sel, unit=foe)
             return 'attack'
+        fs = w.fleet.boat_at(y, x, max(3.0, r * 1.25))           # 적 배: 원거리 병사가 해안에서 쏜다
+        if fs is not None and fs.alive and w.diplo.foe(self.nid, fs.own):
+            return 'attack' if w.order_ship_attack(sel, fs) else shown
         a = self._animal_at(y, x, max(1.8, r))
         an = w.wild.animals.get(a) if a is not None else None
         if an is not None and an.unit >= 0 and an.mode in (5, 6, 8, 9, 10):   # 잠들었거나 싸우는 사나운 동물 (기술 쓰는 중도): 친다
@@ -165,7 +176,7 @@ class PlayerCommands:
         pool = idle if len(idle) else mine
         return pool[np.argsort(np.hypot(u.x[pool] - x, u.y[pool] - y))[:k]]
 
-    # ------------------------------------------------------------- 훈련 (Q 보병, W 궁수, E 전함)
+    # ------------------------------------------------------------- 훈련 (Q 보병, W 궁수, E 척탄병, R 전함)
     def train(self, kind_name, building_refs=()) -> bool:
         w, b = self.w, self.w.builds
         kind = TRAIN_KINDS[kind_name]

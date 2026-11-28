@@ -3,16 +3,18 @@
 //   res 5000            모든 자원 +5000 (식량·목재·석재·유황)
 //   res food 2000       하나만 (food/wood/stone/sulfur 또는 식량/목재/석재/유황)
 //   spawn infantry 20  병사 소환: 지금 보는 화면 가운데에서 가장 가까운 걸을 수 있는 칸부터 (수를 빼면 1, 한 번에 200까지)
-//                       infantry/archer/lancer/horsearcher/rider/tortoise 또는 보병/궁수/창기병/기마궁수/용기사/바위거북
+//                       infantry/archer/lancer/horsearcher/rider/tortoise/grenadier/horsegrenadier 또는 보병/궁수/창기병/기마궁수/용기사/바위거북/척탄병/척탄기마병
+//   spawn warship 3     전함 (전함): 화면 가운데에서 가장 가까운 바다에 (한 번에 20척까지)
 //   raid                겨울 드래곤 습격을 지금 (겨울이 아니어도)
+//   tribe desert        개척 카드를 지금 (temperate/snow/desert 또는 온대/설원/사막): 첫 거점을 그 기후의 새 거점으로 친다
 // 서버도 같은 조건으로만 이 명령을 받는다 (멀티 판에서 치트를 막는다).
 
 import type { Connection } from './net.ts';
 
 const RES: Record<string, number> = { food: 0, wood: 1, stone: 2, sulfur: 3, 식량: 0, 목재: 1, 석재: 2, 유황: 3 };
 const UNITS: Record<string, number> = {                    // 병종 번호 (sim/rules.py)
-  infantry: 0, archer: 1, lancer: 2, horsearcher: 3, rider: 4, tortoise: 6,
-  보병: 0, 궁수: 1, 창기병: 2, 기마궁수: 3, 용기사: 4, 바위거북: 6,
+  infantry: 0, archer: 1, lancer: 2, horsearcher: 3, rider: 4, tortoise: 6, grenadier: 7, horsegrenadier: 8,
+  보병: 0, 궁수: 1, 창기병: 2, 기마궁수: 3, 용기사: 4, 바위거북: 6, 척탄병: 7, 척탄기마병: 8,
 };
 
 export class DevConsole {
@@ -23,7 +25,7 @@ export class DevConsole {
     this.box.className = 'dev-console';
     this.box.style.display = 'none';
     this.el.className = 'dev-input';
-    this.el.placeholder = 'res 5000 · spawn infantry 20 · raid';
+    this.el.placeholder = 'res 5000 · spawn infantry 20 · raid · tribe desert';
     this.el.autocomplete = 'off';
     this.el.autocapitalize = 'off';
     this.el.spellcheck = false;
@@ -69,12 +71,23 @@ export class DevConsole {
       this.net.send({ t: 'dev', cmd: 'res', add });
     } else if (cmd === 'spawn') {                              // 화면 가운데 가까이에 병사 소환
       const kind = UNITS[(a ?? '').toLowerCase()], n = b === undefined ? 1 : Math.trunc(Number(b));
-      if (kind === undefined) { this.say('개발: spawn infantry|archer|lancer|horsearcher|rider|tortoise (또는 보병|궁수|창기병|기마궁수|용기사|바위거북) [수]'); return; }
+      if ((a ?? '').toLowerCase() === 'warship' || a === '전함') {      // 전함: 화면 가운데에서 가장 가까운 바다에 (한 번에 20척까지)
+        if (!Number.isFinite(n) || n < 1) { this.say('개발: 수는 1 이상'); return; }
+        const [x, y] = this.center();
+        this.net.send({ t: 'dev', cmd: 'spawn_ship', n: Math.min(n, 20), x, y });
+        return;
+      }
+      if (kind === undefined) { this.say('개발: spawn infantry|archer|lancer|horsearcher|rider|tortoise|grenadier|horsegrenadier|warship (또는 보병|궁수|창기병|기마궁수|용기사|바위거북|척탄병|척탄기마병|전함) [수]'); return; }
       if (!Number.isFinite(n) || n < 1) { this.say('개발: 수는 1 이상'); return; }
       const [x, y] = this.center();
       this.net.send({ t: 'dev', cmd: 'spawn', kind, n: Math.min(n, 200), x, y });
     } else if (cmd === 'raid' || cmd === '습격') {
       this.net.send({ t: 'dev', cmd: 'raid' });
+    } else if (cmd === 'tribe' || cmd === '부족') {                // 개척 카드 (sim/tribes.py Pioneer)
+      const c = ['temperate', 'snow', 'desert'].indexOf((a ?? '').toLowerCase()) >= 0
+        ? ['temperate', 'snow', 'desert'].indexOf((a ?? '').toLowerCase()) : ['온대', '설원', '사막'].indexOf(a ?? '');
+      if (c < 0) { this.say('개발: tribe temperate|snow|desert (또는 온대|설원|사막)'); return; }
+      this.net.send({ t: 'dev', cmd: 'tribe', c });
     } else if (line) this.say(`개발: 모르는 명령 ${cmd}`);
   }
 

@@ -54,6 +54,23 @@ function archer(frame: number): Vol {
   return v;
 }
 
+/** 유황 척탄병: 머리에 천을 두르고 (나라 색), 등에 유황 단지 꾸러미, 손에 불붙인 단지. frame 2: 단지를 머리 위로 들어 던진다. */
+function grenadier(frame: number): Vol {
+  const v = new Vol(11, 7, 12);
+  person(v, 4, 3, 0, frame === 1 ? 1 : 0, 'hood');
+  v.box(3, 4, 4, 3, 5, 6, Mat.LEATHER);                                // 등 꾸러미
+  v.set(2, 4, 5, Mat.TILE); v.set(2, 5, 6, Mat.TILE); v.set(2, 4, 7, Mat.TILE, 1);   // 단지들
+  v.set(2, 5, 5, Mat.SULFUR, 1);
+  if (frame === 2) {                                                   // 던지기: 팔을 들고 단지를 머리 위로
+    v.box(5, 5, 6, 5, 5, 8, Mat.CLOTH, -1);
+    v.box(5, 5, 9, 6, 5, 10, Mat.TILE); v.set(6, 5, 11, Mat.SULFUR, 1); v.set(6, 6, 11, Mat.GLOW);
+  } else {                                                             // 손에 든 단지와 심지 불
+    v.box(6, 5, 3, 6, 5, 4, Mat.TILE); v.set(7, 5, 4, Mat.TILE, -1);
+    v.set(6, 5, 5, Mat.SULFUR, 1); v.set(6, 5, 6, Mat.GLOW);
+  }
+  return v;
+}
+
 // ------------------------------------------------------------- 말
 /** 말 (앞이 +x, 몸 너비 3: y 2..4). frame: 0 서기, 1 달리기, 2 풀 뜯기, 3 앞발 들기. */
 function horseBody(v: Vol, frame: number, m: Mat = Mat.HORSE) {
@@ -149,6 +166,22 @@ function horseArcher(frame: number): Vol {
   for (const [x, z] of [[10, 6], [11, 7], [11, 8], [11, 9], [10, 10]]) v.set(x, 1, z, Mat.WOOD_D, 1);
   v.box(10, 1, 7, 10, 1, 9, Mat.SAIL, 1);
   v.box(6, 3, 6, 6, 3, 8, Mat.LEATHER); v.set(6, 3, 9, Mat.WOOD, 1);
+  return v;
+}
+
+/** 척탄기마병: 말 위의 척탄병 (등에 단지 꾸러미, 손에 불붙인 단지). frame 0~3 말, 4: 단지를 머리 위로 들어 던진다. */
+function horseGrenadier(frame: number): Vol {
+  const v = new Vol(15, 7, 13);
+  horseBody(v, frame === 4 ? 1 : frame);
+  rider(v, 'hood');
+  v.box(6, 3, 6, 6, 4, 8, Mat.LEATHER);                                // 등 꾸러미
+  v.set(5, 3, 7, Mat.TILE); v.set(5, 4, 8, Mat.TILE, 1); v.set(5, 4, 7, Mat.SULFUR, 1);
+  if (frame === 4) {                                                   // 던지기: 팔을 들고 단지를 머리 위로
+    v.box(8, 5, 8, 8, 5, 10, Mat.CLOTH, -1);
+    v.box(8, 5, 11, 9, 5, 12, Mat.TILE); v.set(9, 6, 12, Mat.GLOW);
+  } else {
+    v.box(9, 5, 6, 9, 5, 7, Mat.TILE); v.set(9, 5, 8, Mat.SULFUR, 1); v.set(10, 5, 8, Mat.GLOW);
+  }
   return v;
 }
 
@@ -342,6 +375,7 @@ function warship(): Vol {
   v.box(16, 3, 3, 16, 3, 11, Mat.WOOD_D);
   v.box(16, 1, 7, 16, 6, 10, Mat.CLOTH);
   for (const x of [6, 9, 14]) { v.set(x, 0, 2, Mat.WOOD_D); v.set(x, 7, 2, Mat.WOOD_D); }   // 노
+  for (const x of [7, 10, 13, 18]) { v.set(x, 0, 3, Mat.METAL); v.set(x, 7, 3, Mat.METAL); }   // 양옆 포문의 대포 (옆으로 돌아 쏜다)
   return v;
 }
 
@@ -704,10 +738,10 @@ function pastureShed(): Vol {
 
 // ------------------------------------------------------------- 찾기
 const BUILD = [hall, farm, lumber, quarry, tower, harbor, sulfurPit, fireTower, pastureShed];   // sim/rules.py 건물 번호 순서
-const UNIT = [infantry, archer, lancer, horseArcher, dragonRider, dragon, tortoise];   // sim/rules.py 병종 번호 순서
+const UNIT = [infantry, archer, lancer, horseArcher, dragonRider, dragon, tortoise, grenadier, horseGrenadier];   // sim/rules.py 병종 번호 순서
 const cache = new Map<string, Vol>();
 
-/** 모델 이름: u0~u6 (병종: 걷는 병사 frame 0/1, 용기사·드래곤 frame 0~8, 바위거북 frame 0~4), b0~b5 (건물), horse (frame 0~3), dragon, lair, tortoise,
+/** 모델 이름: u0~u8 (병종: 걷는 병사 frame 0/1, 용기사·드래곤 frame 0~8, 바위거북 frame 0~4, 척탄병 frame 2·척탄기마병 frame 4 던지기), b0~b5 (건물), horse (frame 0~3), dragon, lair, tortoise,
  *  ferry, warship, torch. */
 export function model(name: string, frame = 0): Vol {
   const key = `${name}:${frame}`;

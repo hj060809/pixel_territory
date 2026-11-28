@@ -17,7 +17,7 @@ import { DIM, GOLD, INK, button, div, uiScale, previewReserve } from './widgets.
 interface Member { name: string; color: number; ready: boolean; spot: number[] | null }
 interface RoomState {
   id: string; code: string; name: string; host: number; me: number; cap: number; bots: number; start_mode: 'random' | 'pick';
-  setup: { map: string; difficulty?: string; season?: number; vis?: boolean }; locked: boolean; state: string; layout: number[][] | null;
+  setup: { map: string; difficulty?: string; season?: number; vis?: boolean; fog?: boolean }; locked: boolean; state: string; layout: number[][] | null;
   tribes?: { layout?: number[]; spots?: (number | null)[] };   // 자리마다 부족 (sim/tribes.py)
   members: Member[]; map_status: { state?: string; progress?: string };
 }
@@ -210,6 +210,12 @@ export class RoomView {
       const b = button(x, name, () => this.send({ t: 'room_setup', season: i }), { selected: (r.setup.season ?? 0) === i, size: 15, w: 64, h: 32 });
       b.disabled = !host;
     });
+    x = row('전장의 안개');                                    // 판 규칙: 바꾸면 준비가 풀린다 (게임 중엔 못 바꾼다)
+    for (const [v, label] of [[true, '켜기'], [false, '끄기']] as const) {
+      const b = button(x, label, () => this.send({ t: 'room_setup', fog: v }), { selected: (r.setup.fog ?? false) === v, size: 15, w: 74, h: 32 });
+      b.disabled = !host;
+    }
+    div('note small', x, '내 병사·건물 둘레만 보인다. 게임 중엔 바꿀 수 없다');
     x = row('시인성 강조');
     for (const [v, label] of [[true, '켜기'], [false, '끄기']] as const) {
       const b = button(x, label, () => this.send({ t: 'room_setup', vis: v }), { selected: (r.setup.vis ?? true) === v, size: 15, w: 74, h: 32 });

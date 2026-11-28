@@ -23,26 +23,27 @@ export interface Settings {
   bots: number; difficulty: string; season: number;
   // 방 만들기 (멀티)
   roomName: string; cap: number; password: string; roomStart: 'random' | 'pick'; roomVis: boolean;
+  fog: boolean;                 // 전장의 안개 (판 규칙: 싱글·방 만들기 모두, 게임 중엔 못 바꾼다)
   multiName: string;            // 멀티에서 쓰는 내 이름 (처음엔 무작위 '형용사 명사', 싱글의 name과 따로)
 }
 
 export const defaultSettings = (): Settings => ({
   preset: null, size: 512, seed: '8767564', name: '나', color: 0, spotMode: 'random', spot: null,
   bots: 4, difficulty: '보통', season: 0,
-  roomName: '같이 해요', cap: 4, password: '', roomStart: 'random', multiName: randomName(), roomVis: true,
+  roomName: '같이 해요', cap: 4, password: '', roomStart: 'random', multiName: randomName(), roomVis: true, fog: false,
 });
 
 /** 방 만들기에 넘길 것 (server/app.py room_create). */
 export interface RoomRequest {
   name: string; password: string; cap: number; bots: number; start_mode: 'random' | 'pick';
-  setup: { map: string; difficulty: string; season: number; vis: boolean };
+  setup: { map: string; difficulty: string; season: number; vis: boolean; fog: boolean };
   player: { name: string; color: number };
 }
 
 /** 게임 시작에 넘길 것. */
 export interface PlayRequest {
   key: string;
-  options: { bots: number; color: number; name: string; difficulty: string; season: number;
+  options: { bots: number; color: number; name: string; difficulty: string; season: number; fog?: boolean;
     spot?: [number, number] | null; starts?: number[][] | null; colors?: number[] | null; tutorial?: boolean };
 }
 
@@ -223,6 +224,11 @@ export class Setup {
     SEASONS.forEach((name, i) => button(r, name, set(() => { s.season = i; }), { selected: s.season === i, size: 15, w: 64, h: 32 }));
     div('gap', L);
     head('보기');
+    r = row('전장의 안개');                                // 판 규칙 (sim/vision.py): 내 병사·건물 둘레만 보인다
+    for (const [v, label] of [[true, '켜기'], [false, '끄기']] as const) {
+      button(r, label, set(() => { s.fog = v; }), { selected: (s.fog ?? false) === v, size: 15, w: 74, h: 32 });
+    }
+    div('note small', r, '내 병사·건물 둘레만 보인다. 게임 중엔 바꿀 수 없다');
     r = row('시인성 강조');                                // 나라색 바닥 고리 + 밝은 테두리 (싱글: 다음에도 이 값, 멀티: 방 기본값)
     const visNow = this.mode === 'room' ? s.roomVis : visPref();
     for (const [v, label] of [[true, '켜기'], [false, '끄기']] as const) {
@@ -329,7 +335,7 @@ export class Setup {
     if (this.mode === 'room') {                                    // 방 만들기: 지도가 없으면 만들고 나서
       if (!this.mapReady) { this.startAfterBuild = true; void this.build(); return; }
       this.onRoom?.({ name: s.roomName.trim() || '같이 해요', password: s.password, cap: s.cap, bots: s.bots, start_mode: s.roomStart,
-        setup: { map: this.builtKey!, difficulty: s.difficulty, season: s.season, vis: s.roomVis },
+        setup: { map: this.builtKey!, difficulty: s.difficulty, season: s.season, vis: s.roomVis, fog: s.fog ?? false },
         player: { name: s.multiName.trim() || randomName(), color: s.color } });
       return;
     }
@@ -339,7 +345,7 @@ export class Setup {
     }
     if (!this.mapReady) { this.startAfterBuild = true; void this.build(); return; }
     const options: PlayRequest['options'] = { bots: s.bots, color: s.color, name: s.name.trim() || '나',
-      difficulty: s.difficulty, season: s.season, spot: s.spotMode === 'pick' ? s.spot : null };
+      difficulty: s.difficulty, season: s.season, fog: s.fog ?? false, spot: s.spotMode === 'pick' ? s.spot : null };
     if (s.spotMode === 'random' && this.layout && this.layout.key === this.layoutWant()) {
       options.starts = this.layout.starts;                // 무작위 배치를 미리보기에서 봤으면 그대로
       options.colors = this.layout.colors;

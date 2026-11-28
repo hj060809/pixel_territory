@@ -169,7 +169,7 @@ export class Tutorial {
       },
       {
         title: '건물 짓기',
-        pc: `아래 막대의 <b>망루</b>를 누르거나 ${kbd('7')}을 누른 뒤 ${mouse('left')} 땅을 클릭하세요. 망루는 다가오는 적을 쏩니다.`,
+        pc: `아래 막대의 <b>망루</b>를 누르거나 ${kbd('8')}을 누른 뒤 ${mouse('left')} 땅을 클릭하세요. 망루는 다가오는 적을 쏩니다.`,
         touch: `아래 막대의 <b>망루</b> 버튼 ${then} 그림을 끌어 자리에 놓고 ${tbtn('✓ 짓기', 'ok')}. 망루는 다가오는 적을 쏩니다.`,
         enter: () => { this.base = this.myBuilds([K().TOWER]).length; },
         target: () => { const h = this.hall('me'); return h ? [h.x, h.y] : null; },
@@ -197,7 +197,7 @@ export class Tutorial {
           if (t) return `길들이는 중... ${Math.round(t.prog * 100)}%`;
           return [...st.animals.values()].some((a) => a.kind === 0 && a.state === 3) ? '병사가 말에게 가는 중...' : '';
         },
-        done: () => this.mine([2, 3]).length > 0,
+        done: () => this.mine([2, 3, 8]).length > 0,
       },
       {
         title: '적 거점 공격',

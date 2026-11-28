@@ -16,7 +16,7 @@ const FLY_CELLS = 18 / 2.4;           // 날고 있는 병종이 떠 있는 높�
 export type Mode = null | 'attack' | number;
 /** 건물 버튼 (숫자 키 1~): 서버 이름 */
 export const BUILD_NAMES_EN = ['hall', 'farm', 'lumber', 'quarry', 'tower', 'harbor', 'sulfur', 'fire', 'pasture'];   // 건물 종류 번호 순서 (sim/rules.py)
-export type TrainKind = 'infantry' | 'archer' | 'warship';
+export type TrainKind = 'infantry' | 'archer' | 'grenadier' | 'warship';
 export interface Ping { t0: number; x: number; y: number; col: string }
 
 const PING = { attack: 'rgb(255,110,90)', build: 'rgb(140,200,255)', move: 'rgb(170,240,170)',
@@ -173,7 +173,9 @@ export class Controller {
     const r = Math.max(2.0, px / zoom);
     if (this.selShips.size) {
       const foe = this.boatAt(x, y, Math.max(3.0, r * 1.25));
+      const lu = this.unitAt(x, y, Math.max(2.0, r)), lb = this.buildingAt(x, y);   // 땅의 적 병사·건물: 전함이 포격하러 간다
       if (foe && foe.own !== this.me) this.ping(x, y, PING.attack);
+      else if ((lu && lu.own !== this.me && !(lu.bits & 4)) || (lb && lb.own !== this.me)) this.ping(x, y, PING.attack);
       else if (this.rules.at(Math.floor(y), Math.floor(x)) & 16) this.ping(x, y, PING.ship);
       else if ([...this.selShips].some((id) => this.st.boats.get(id)?.kind === 0)) this.ping(x, y, PING.move);   // 나룻배: 해안에 내려 줌
     }
@@ -183,6 +185,8 @@ export class Controller {
     if (!this.sel.size) return;
     const foe = this.unitAt(x, y, Math.max(2.0, r));
     if (foe && foe.own !== this.me) return this.ping(x, y, PING.attack);
+    const fs = this.boatAt(x, y, Math.max(3.0, r * 1.25));       // 적 배: 원거리 병사가 해안에서 쏜다
+    if (fs && fs.own !== this.me) return this.ping(x, y, PING.attack);
     const an = animalAt(this.st, x, y, Math.max(1.8, r));      // 야생 동물: 길들이러 (깨어 있거나 잠든 드래곤은 친다)
     if (an && [5, 6, 8, 9, 10].includes(an.state)) return this.ping(an.x, an.y - 1, PING.attack);   // 잠·싸움·드래곤 기술 중: 친다
     if (an && !attack && this.R().wildlife?.[an.kind]?.tamers?.length) return this.ping(an.x, an.y - 0.4, PING.tame);   // 길들이지 않는 동물(순록)은 그냥 그 자리로
@@ -293,7 +297,7 @@ export class Controller {
       .sort((a, b) => a.slot - b.slot);
   }
 
-  /** Q 보병 / W 궁수 / E 전함: 고른 건물, 아니면 내 건물들에서 돌아가며 (대기열이 찬 곳은 건너뛴다). */
+  /** Q 보병 / W 궁수 / E 척탄병 / R 전함: 고른 건물, 아니면 내 건물들에서 돌아가며 (대기열이 찬 곳은 건너뛴다). */
   train(what: TrainKind) {
     const list = this.producers(what);
     if (!list.length) { this.st.say(what === 'warship' ? '전함을 만들 항구가 없습니다' : '훈련할 거점이 없습니다'); return; }

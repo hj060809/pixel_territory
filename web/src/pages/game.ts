@@ -1,6 +1,6 @@
 // 게임 페이지: 로비 → [싱글] 설정 → 게임, [멀티] 방 목록 → (새 방: 방 설정) → 대기실 → 게임. 게임에서 F10·끝난 뒤 Enter → 로비.
 // 주소에 map= 또는 quick= 가 있으면 메뉴 없이 바로 판을 연다 (개발·시험용):
-//   /?quick=1&bots=4&color=0&name=나&difficulty=보통&season=0     /?map=<지도 키>&...
+//   /?quick=1&bots=4&color=0&name=나&difficulty=보통&season=0&fog=1&starts=y,x;y,x...     /?map=<지도 키>&...
 
 import '../ui/style.css';
 import { GameView, clearResume, loadResume } from '../game/view.ts';
@@ -81,7 +81,8 @@ class App {
       const key = p.get('map') ?? (await (await fetch('/api/maps')).json()).demo[0].key;
       this.play({ key, options: {
         bots: Number(p.get('bots') ?? 4), color: Number(p.get('color') ?? 0), name: p.get('name') ?? '나',
-        difficulty: p.get('difficulty') ?? '보통', season: Number(p.get('season') ?? 0) } });
+        difficulty: p.get('difficulty') ?? '보통', season: Number(p.get('season') ?? 0), fog: p.get('fog') === '1',
+        starts: p.get('starts') ? p.get('starts')!.split(';').map((q) => q.split(',').map(Number)) : null } });   // starts=y,x;y,x (사람 다음 AI)
       return;
     }
     if (await this.resumeGame()) return;

@@ -150,7 +150,7 @@ TORT_MAX = 3           # 거북을 이만큼까지
 TORT_EVERY = 100.0     # 하나 길들이러 보낸 뒤 다음까지 (초)
 TORT_GIFT = 1200.0     # 게임 내내 채워 주는 먹이의 최대
 DRIVE_FUND = 1200.0    # 의지 한 번에 채워 주는 식량의 최대 (병력이 죽어 끝없이 퍼 주지 않게)
-BEASTS = [R.LANCER, R.HORSE_ARCHER, R.TORTOISE, R.DRAGON_RIDER]   # 길들여 얻는 병력
+BEASTS = [R.LANCER, R.HORSE_ARCHER, R.HORSE_GRENADIER, R.TORTOISE, R.DRAGON_RIDER]   # 길들여 얻는 병력
 
 
 class Bot:
@@ -205,6 +205,8 @@ class Bot:
 
     def think(self, w, nat) -> None:
         u, b = w.units, w.builds
+        if nat.offers:
+            self._tribe_card(w, nat)
         mine = w.unit_ids(self.id)
         idle = mine[u.state[mine] == IDLE]
         halls = w.building_ids(self.id, R.HALL, done=True)
@@ -241,6 +243,10 @@ class Bot:
                 boost = self.drive and len(mine) + queued < self.drive and self.drive_fund > 0
                 p_arch = 0.85 if boost and ranged < self.drive // 3 + 2 else arch    # 드래곤 사냥대는 궁수가 먼저
                 kind = R.ARCHER if self.rng.random() < p_arch and wood >= a_cost else R.INFANTRY   # 남겨 둘 목재는 쓰지 않는다
+                g = R.UNIT_STATS[R.GRENADIER]
+                if not boost and nat.sulfur >= g['sulfur'] + 20 and wood >= g['cost'][R.WOOD] \
+                        and self.rng.random() < (0.35 if nat.tribe == 2 else 0.15):      # 유황이 남으면 척탄병 (사막 부족은 더 자주)
+                    kind = R.GRENADIER
                 if self.saving and w.time > self.saving_until:
                     self.saving = 0.0                       # 너무 오래 못 모았다: 그만 모은다
                 if boost:                                   # 드래곤 병력: 식량이 모자라면 채워 준다
@@ -258,6 +264,8 @@ class Bot:
                 if kind == R.ARCHER:
                     wood -= a_cost
                     ranged += 1
+                elif kind == R.GRENADIER:
+                    wood -= R.UNIT_STATS[R.GRENADIER]['cost'][R.WOOD]
         if (self.drive or self.hunt) and nat.res[R.FOOD] < 10 and self.drive_fund > 0:   # 모은 병력이 굶지 않게
             give = min(20.0, self.drive_fund)
             nat.res[R.FOOD] += give
@@ -376,6 +384,12 @@ class Bot:
             self.raid_at = w.time + 25
 
     # ------------------------------------------------------------- 도움
+    def _tribe_card(self, w, nat) -> None:
+        """부족 바꾸기 카드 (sim/tribes.py Pioneer): 새 기후의 거점이 지금 부족 기후의 거점보다 많아지면 바꾼다. 그때까지는 들고 기다린다."""
+        n = w.pioneer.halls(self.id)
+        if n[nat.offers[0][0]] > n[nat.tribe]:
+            w.pioneer.pick(self.id, True)
+
     def _defenses(self, w, idle, intel, halls, home):
         """망루와 화염탑 (공격받는 중에도 먼저 짓는다)."""
         u = w.units

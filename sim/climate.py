@@ -21,7 +21,7 @@ from sim import rules as R
 from sim import tribes
 
 C = R.CLIMATE
-SOLDIERS = (R.INFANTRY, R.ARCHER, R.LANCER, R.HORSE_ARCHER)
+SOLDIERS = (R.INFANTRY, R.ARCHER, R.LANCER, R.HORSE_ARCHER, R.GRENADIER, R.HORSE_GRENADIER)
 FROST, HEAT = 8, 9                      # 공격 기록 kind (화면: 동상 눈송이 점, 더위 아지랑이 점)
 
 

@@ -385,6 +385,69 @@ body.touch .tribe-btn { width: 30px; height: 30px; }
 .tribe-bubble .good .tribe-mark { color: rgb(150, 222, 110); }
 .tribe-bubble .bad .tribe-mark { color: rgb(255, 130, 105); }
 .tribe-bubble .tribe-note { color: var(--dim); font-size: 11px; line-height: 15px; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 5px; }
+/* 개척 카드 (game/tribeUi.ts): 가운데에 두 장 (지금 부족 / 새 부족), 버튼에 느낌표 */
+.tribe-btn.pending { border-color: rgb(255, 214, 120); animation: tribe-pulse 1.2s ease-in-out infinite; }
+@keyframes tribe-pulse { 50% { box-shadow: 0 0 0 4px rgba(255, 214, 120, 0.35); } }
+.tribe-btn .tribe-alert { position: absolute; right: -4px; top: -5px; width: 15px; height: 15px; border-radius: 50%; font: bold 11px/15px sans-serif;
+  text-align: center; color: rgb(30, 22, 10); background: rgb(255, 196, 80); }
+.t-menu.tribe-cards { width: min(640px, calc(100vw - 24px)); padding: 16px 18px; text-align: center; }
+.tribe-cards .t-menu-title { margin-bottom: 4px; }
+.tribe-cards-sub { color: rgb(220, 210, 180); font-size: 13px; line-height: 18px; margin-bottom: 12px; word-break: keep-all; }
+.tribe-card-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; text-align: left; }
+.tribe-card { display: flex; flex-direction: column; padding: 10px 12px 12px; background: rgba(30, 34, 42, 0.9); border: 2px solid rgb(96, 100, 112); }
+.tribe-card.new { border-color: rgb(200, 164, 90); background: rgba(44, 38, 28, 0.92); }
+.tribe-card .tribe-tag { align-self: flex-start; font-size: 11px; padding: 1px 6px; color: rgb(30, 22, 10); background: rgb(170, 174, 186); }
+.tribe-card.new .tribe-tag { background: rgb(255, 196, 80); }
+.tribe-card-icon { display: flex; justify-content: center; margin: 8px 0 4px; }
+.tribe-card-title { text-align: center; font-size: 17px; font-weight: bold; color: var(--gold); }
+.tribe-card-title .tribe-mini { display: none; }                  /* 휴대폰 가로: 큰 아이콘 대신 제목 옆 작은 아이콘 */
+.tribe-card .tribe-role { text-align: center; font-size: 12px; color: rgb(220, 210, 180); margin-bottom: 8px; }
+.tribe-card-body { flex: 1; font-size: 12px; line-height: 16px; }
+.tribe-card .tribe-list { display: flex; flex-direction: column; gap: 3px; margin-bottom: 6px; color: rgb(236, 230, 214); }
+.tribe-card .tribe-row { display: flex; gap: 6px; align-items: baseline; word-break: keep-all; }
+.tribe-card .good .tribe-mark { color: rgb(150, 222, 110); }
+.tribe-card .bad .tribe-mark { color: rgb(255, 130, 105); }
+.tribe-card .tribe-pick { margin-top: 8px; width: 100%; height: 38px; }
+.tribe-card.new .tribe-pick { background: rgb(120, 92, 44); border-color: rgb(255, 214, 120); }
+.tribe-cards-note { margin-top: 10px; font-size: 12px; color: rgb(255, 150, 130); }
+.tribe-cards .tribe-later { margin-top: 12px; }
+.tribe-card { position: relative; overflow: hidden; }
+.tribe-shine { position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  background: linear-gradient(105deg, transparent 35%, rgba(255, 226, 150, 0.35) 50%, transparent 65%); background-size: 250% 100%; }
+/* 뜰 때: 배경 → 창 → 카드 (지금 부족, 새 부족 차례로 뒤집혀) → 새 부족 카드에 금빛 (game/tribeUi.ts openCards) */
+.tribe-cards-back.anim { animation: tribe-fade 0.25s ease-out both; }
+.tribe-cards-back.anim .tribe-cards { animation: tribe-pop 0.38s cubic-bezier(0.2, 1.4, 0.4, 1) 0.05s both; }
+.tribe-cards-back.anim .tribe-card-row { perspective: 900px; }
+.tribe-cards-back.anim .tribe-card { animation: tribe-flip 0.45s cubic-bezier(0.25, 1.25, 0.5, 1) both; transform-origin: 50% 50%; }
+.tribe-cards-back.anim .tribe-card:first-child { animation-delay: 0.22s; }
+.tribe-cards-back.anim .tribe-card.new { animation: tribe-flip 0.45s cubic-bezier(0.25, 1.25, 0.5, 1) 0.42s both, tribe-glow 1.6s ease-in-out 0.9s 2; }
+.tribe-cards-back.anim .tribe-shine { animation: tribe-shine 0.9s ease-in-out 0.85s both; }
+.tribe-cards-back.anim .tribe-later, .tribe-cards-back.anim .tribe-cards-note { animation: tribe-fade 0.3s ease-out 0.8s both; }
+@keyframes tribe-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes tribe-pop { from { opacity: 0; transform: translateY(14px) scale(0.92); } to { opacity: 1; transform: none; } }
+@keyframes tribe-flip { 0% { opacity: 0; transform: rotateY(90deg) translateY(10px); } 60% { opacity: 1; } 100% { opacity: 1; transform: none; } }
+@keyframes tribe-glow { 50% { box-shadow: 0 0 14px 2px rgba(255, 200, 90, 0.55); } }
+@keyframes tribe-shine { 0% { opacity: 1; background-position: 120% 0; } 85% { opacity: 1; } 100% { opacity: 0; background-position: -120% 0; } }
+@media (prefers-reduced-motion: reduce) { .tribe-cards-back.anim, .tribe-cards-back.anim * { animation: none !important; } }
+body.touch .tribe-card-row { gap: 8px; }
+body.touch .tribe-card { padding: 8px; }
+body.touch .tribe-cards .tribe-later { display: block; width: 100%; height: 34px; margin-top: 12px; font-size: 14px; }   /* 모바일: 창 너비에 맞춰, 카드와 띄워서 */
+@media (max-height: 520px) {                                    /* 휴대폰 가로: 촘촘하게 (버튼까지 한 화면에) */
+  .t-menu.tribe-cards { padding: 8px 12px 10px; }
+  .tribe-cards .t-menu-title { font-size: 16px; margin-bottom: 0; }
+  .tribe-cards-sub { font-size: 11px; line-height: 14px; margin-bottom: 6px; }
+  .tribe-card { padding: 6px 8px 8px; }
+  .tribe-card-icon { display: none; }
+  .tribe-card-title { display: flex; align-items: center; justify-content: center; gap: 5px; }
+  .tribe-card-title .tribe-mini { display: inline-flex; }
+  .tribe-card-title { font-size: 14px; margin-top: 2px; }
+  .tribe-card .tribe-role { font-size: 11px; margin-bottom: 4px; }
+  .tribe-card-body { font-size: 11px; line-height: 14px; }
+  .tribe-card .tribe-list { gap: 1px; margin-bottom: 3px; }
+  .tribe-card .tribe-pick { height: 30px; margin-top: 4px; font-size: 13px; }
+  .tribe-cards-note { margin-top: 4px; font-size: 11px; }
+  .tribe-cards .tribe-later { margin-top: 10px; }
+}
 body.touch .game-menu-btn { display: none; }
 .t-menu.game-menu { width: 300px; padding: 18px 22px 20px; text-align: center; }
 .game-menu .t-menu-title { margin-bottom: 14px; }

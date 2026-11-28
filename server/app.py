@@ -18,7 +18,7 @@ HTTP
     GET  /dashboard, /api/dashboard        서버 통계 (방문, 판, 서버 사용량: 숫자만, server/stats.py)
 WebSocket /ws
     처음 메시지 (하나):
-      {t:'join', map:키, options:{bots, color, name, difficulty, season, spot?, starts?, colors?}}   싱글 (사람 1 + AI)
+      {t:'join', map:키, options:{bots, color, name, difficulty, season, fog?, spot?, starts?, colors?}}   싱글 (사람 1 + AI)
       {t:'room_create', name, password?, cap, bots, start_mode:'pick'|'random', setup:{map, difficulty, season},
        player:{name, color}}                                                                      방 만들기 (방장)
       {t:'room_join', id | code, password?, player:{name, color}}                                방 들어가기
@@ -477,6 +477,7 @@ def create_app(cfg: ServerConfig | None = None) -> FastAPI:
             players = [{'name': m.name, 'color': m.color, 'spot': list(m.spot) if (m.spot and r.start_mode == 'pick') else None}
                        for m in r.members]
             opts = {'bots': r.bots, 'difficulty': r.setup.get('difficulty', '보통'), 'season': int(r.setup.get('season', 0)),
+                    'fog': bool(r.setup.get('fog', False)),
                     'players': players, 'room': True}
             if r.start_mode == 'random' and r.layout and len(r.layout) == len(r.members) + r.bots:
                 opts['starts'] = r.layout                               # 대기실에서 보여 준 배치 그대로
