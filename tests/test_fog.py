@@ -118,6 +118,24 @@ def run(report, cache_dir='.cache'):
     report('남의 건물은 마지막으로 본 모습 (안 보는 사이 무너져도 남고, 다시 보면 사라진다)', seen and ghost and gone,
            f'봄 {seen}, 떠난 뒤 {ghost}, 다시 봄 {gone}')
 
+    # 칸 번호가 다른 건물에게 넘어가도: 기억한 자리를 다시 보면 잔상이 사라진다
+    k2 = u.add(0, R.ARCHER, fx, fy, 26.0)
+    tw2 = b.add(2, R.TOWER, tx, ty, st['hp'], st['r'], prog=1.0)
+    V.update(force=True)
+    _apply(units, builds, decode(enc.encode(hdr, False, 0.0, fog=True)))
+    u.alive[[k, k2]] = False
+    V.update(force=True)
+    b.alive[tw2] = False                                     # 안 보는 사이 무너지고
+    ox, oy = _walk_near(w, hx, hy, 150, 200)
+    reuse = b.add(1, R.FARM, ox, oy, st['hp'], st['r'], prog=1.0)   # 그 칸을 먼 곳의 다른 나라 건물이 쓴다
+    _apply(units, builds, decode(enc.encode(hdr, False, 0.0, fog=True)))
+    ghost2 = reuse == tw2 and tw2 in builds
+    k = u.add(0, R.ARCHER, fx, fy, 26.0)                    # 다시 가 본다
+    V.update(force=True)
+    _apply(units, builds, decode(enc.encode(hdr, False, 0.0, fog=True)))
+    report('무너진 건물의 칸을 다른 건물이 써도, 기억한 자리를 다시 보면 잔상이 사라진다', ghost2 and tw2 not in builds,
+           f'같은 칸 {reuse == tw2}, 잔상 {ghost2}, 다시 본 뒤 남음 {tw2 in builds}')
+
     # 관전 (fog=False): 모두
     _apply(units, builds, decode(enc.encode(hdr, False, 0.0, fog=False)))
     report('진 사람 (관전)은 모두 본다', foe_far in units, '')

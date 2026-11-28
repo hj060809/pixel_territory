@@ -149,10 +149,13 @@ class StateEncoder:
             grown = np.zeros(n, self.BUILD_DT)
             grown[:len(self.memo)] = self.memo
             self.memo = grown
-        see = (fr[b.own[:n]] != 0) | V.visible(self.nid, b.x[:n], b.y[:n])
+        see = alive & ((fr[b.own[:n]] != 0) | V.visible(self.nid, b.x[:n], b.y[:n]))   # 지금 그 칸의 건물이 보인다
         m = self.memo[:n]
-        m[see & alive] = cur[see & alive]
-        m[see & ~alive] = np.zeros(1, self.BUILD_DT)
+        known = m['gen'] > 0                               # 기억한 건물: 기억한 자리가 지금 보이면 확인한다 (칸 번호는 그새 다른 건물이 쓸 수 있다)
+        here = known & V.visible(self.nid, m['x'] / 2.0, m['y'] / 2.0)
+        m[see] = cur[see]
+        wrong = here & ~see                                # 기억한 자리가 보이는데 거기 그 건물이 없다 (무너졌거나 칸이 다른 건물에게 갔다)
+        m[wrong] = np.zeros(1, self.BUILD_DT)
         return m.copy(), m['gen'] > 0
 
     def encode(self, header: dict, nations: bool, sim_ms: float, fog: bool = False) -> bytes:
